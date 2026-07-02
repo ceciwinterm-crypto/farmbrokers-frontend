@@ -51,6 +51,19 @@ function getProvincia(comuna,region){
   return "";
 }
 
+const fmtMiles=(v)=>{
+  if(v===undefined||v===null)return "";
+  const s=String(v).replace(/\./g,"");
+  const parts=s.split(",");
+  const ent=parts[0].replace(/\D/g,"");
+  if(!ent)return "";
+  const fmt=ent.replace(/\B(?=(\d{3})+(?!\d))/g,".");
+  return parts.length>1?fmt+","+parts[1]:fmt;
+};
+
+// Estilo tipografico unico del informe: misma fuente, tamano, interlineado, justificado
+const TXT={fontFamily:FONT,fontSize:13.5,lineHeight:1.85,color:"#2b2b2b",textAlign:"justify",margin:"0 0 10px"};
+
 function Lbl({c}){ return <div style={{fontSize:12,fontWeight:600,color:GRIS,marginBottom:5}}>{c}</div>; }
 function Fld({label,value,onChange,placeholder,type,multi}){
   return <div style={{marginBottom:4}}>
@@ -70,33 +83,44 @@ function SecT({icon,title}){
   </div>;
 }
 function PgFB({title,children}){
-  return <div style={{padding:"40px 60px",borderTop:"1px solid #f0f0f0",minHeight:380}}>
-    {title?<h2 style={{fontFamily:FONT,fontWeight:700,fontSize:18,color:"#1a1a1a",borderBottom:"2px solid #1a1a1a",paddingBottom:6,textDecoration:"underline",marginBottom:24}}>{title}</h2>:null}
-    {children}
-    <div style={{marginTop:40,borderTop:"1px solid "+G,paddingTop:12,display:"flex",justifyContent:"space-between",color:"#888",fontSize:10}}>
-      <span style={{fontStyle:"italic"}}>Tasaciones - Estudios - Venta de Campos | www.farmbrokers.cl</span>
-      <span>Estoril N 120, Of. 615, Las Condes | contacto@farmbrokers.cl</span>
+  return <div style={{padding:"46px 64px 28px",borderTop:"1px solid #f2f2f2",minHeight:420,display:"flex",flexDirection:"column",fontFamily:FONT}}>
+    {title?<h2 style={{fontFamily:FONT,fontWeight:700,fontSize:17,letterSpacing:0.4,color:"#1a1a1a",borderBottom:"2px solid "+G,paddingBottom:8,marginBottom:26,marginTop:0}}>{title}</h2>:null}
+    <div style={{flex:1}}>{children}</div>
+    <div style={{marginTop:44}}>
+      <div style={{height:2,background:G}}/>
+      <div style={{height:1,background:ORO,marginTop:2}}/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",paddingTop:10}}>
+        <span style={{fontSize:9.5,letterSpacing:2.5,textTransform:"uppercase",color:G,fontWeight:700}}>Farm Brokers Chile</span>
+        <span style={{fontSize:9.5,fontStyle:"italic",color:"#7d7d7d"}}>Tasaciones · Estudios · Venta de Campos</span>
+        <span style={{fontSize:9.5,letterSpacing:1,color:"#7d7d7d"}}>www.farmbrokers.cl</span>
+      </div>
+      <div style={{textAlign:"center",fontSize:8.5,color:"#a0a0a0",marginTop:5,letterSpacing:0.5}}>Estoril N° 120, Of. 615, Las Condes · +56 9 7193 9040 · contacto@farmbrokers.cl</div>
     </div>
   </div>;
 }
 function IRw({label,value}){
-  return <div style={{display:"flex",gap:8,marginBottom:4,fontSize:14}}>
-    <span style={{fontWeight:700,minWidth:200,color:"#222"}}>{label}</span>
-    <span style={{color:"#444"}}>{value}</span>
+  return <div style={{display:"flex",gap:10,marginBottom:5,fontFamily:FONT,fontSize:13.5,lineHeight:1.7}}>
+    <span style={{fontWeight:700,minWidth:210,color:"#1f1f1f"}}>{label}</span>
+    <span style={{color:"#2b2b2b"}}>{value}</span>
   </div>;
 }
-function Sub({children}){ return <div style={{fontWeight:700,fontSize:14,textDecoration:"underline",margin:"18px 0 8px",color:"#1a1a1a"}}>{children}</div>; }
+function Sub({children}){
+  return <div style={{margin:"22px 0 9px"}}>
+    <div style={{fontFamily:FONT,fontWeight:700,fontSize:13.5,letterSpacing:0.4,color:"#1a1a1a"}}>{children}</div>
+    <div style={{width:44,height:2,background:ORO,marginTop:4}}/>
+  </div>;
+}
 function GTbl({headers,rows,boldLast}){
   const bl=boldLast||0;
   const fRows=(rows||[]).filter(Boolean);
   return <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,margin:"10px 0"}}>
     <thead><tr style={{background:G,color:"#fff"}}>
-      {headers.map((h,i)=><th key={i} style={{padding:"8px 12px",textAlign:"center",fontWeight:700,fontSize:12}}>{h}</th>)}
+      {headers.map((h,i)=><th key={i} style={{padding:"9px 12px",textAlign:"center",fontWeight:700,fontSize:11.5,letterSpacing:0.8,textTransform:"uppercase",fontFamily:FONT,border:"1px solid "+G}}>{h}</th>)}
     </tr></thead>
     <tbody>{fRows.map((row,i)=>{
       const bold=bl>0&&i>=fRows.length-bl;
       return <tr key={i} style={{background:i%2===0?"#fff":GH}}>
-        {row.map((cell,j)=><td key={j} style={{padding:"7px 12px",textAlign:j===0?"left":"center",fontWeight:bold?700:400,color:bold?G:"#333",border:"1px solid #dde8e0",fontSize:12}}>{cell}</td>)}
+        {row.map((cell,j)=><td key={j} style={{padding:"8px 12px",textAlign:j===0?"left":"center",fontWeight:bold?700:400,color:bold?G:"#2b2b2b",border:"1px solid #d5e2da",fontSize:12.5,fontFamily:FONT,lineHeight:1.6}}>{cell}</td>)}
       </tr>;
     })}</tbody>
   </table>;
@@ -235,6 +259,7 @@ export default function App(){
     setLoading(true);
     setGenMsg("Generando textos con IA...");
     setGenError("");
+    const rolesValidos=form.roles.filter(r=>r.rol&&r.rol.trim());
 
     try{
       const resp=await fetch(form.backendUrl.replace(/\/$/,"")+"/generar-informe",{
@@ -242,7 +267,7 @@ export default function App(){
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           predioNombre:form.predioNombre,
-          roles:form.roles,
+          roles:rolesValidos,
           provincia:form.provincia,
           region:form.region,
           localidad:form.localidad,
@@ -273,7 +298,7 @@ export default function App(){
       setGenMsg("Construyendo informe...");
       await new Promise(r=>setTimeout(r,300));
       const fecha=form.fechaTasacion||new Date().toLocaleDateString("es-CL",{day:"numeric",month:"long",year:"numeric"});
-      setReport({...form,ia:data.ia,fecha,avaluoTotal,superfSIITotal});
+      setReport({...form,roles:rolesValidos,ia:data.ia,fecha,avaluoTotal,superfSIITotal});
       setStep(3);
 
     }catch(e){
@@ -452,7 +477,7 @@ export default function App(){
                   <G2>
                     <Fld label="Propietario" value={r.datos.propietario} onChange={v=>updRolDatos(i,"propietario",v.toUpperCase())}/>
                     <Fld label="RUT" value={r.datos.rut} onChange={v=>updRolDatos(i,"rut",v)} placeholder="16.661.046-K"/>
-                    <Fld label="Avaluo Fiscal ($)" value={r.datos.avaluoFiscal} onChange={v=>updRolDatos(i,"avaluoFiscal",v)} placeholder="243.691.524"/>
+                    <Fld label="Avaluo Fiscal ($)" value={r.datos.avaluoFiscal} onChange={v=>updRolDatos(i,"avaluoFiscal",fmtMiles(v))} placeholder="243.691.524"/>
                     <Fld label="Fecha Avaluo" value={r.datos.avaluoFecha} onChange={v=>updRolDatos(i,"avaluoFecha",v)} placeholder="29/09/2025"/>
                     <Fld label="Superficie SII (ha)" value={r.datos.superfSII} onChange={v=>updRolDatos(i,"superfSII",v)} placeholder="8,23"/>
                     <Fld label="Destino / Uso" value={r.datos.destino} onChange={v=>updRolDatos(i,"destino",v)} placeholder="AGRICOLA"/>
@@ -604,7 +629,7 @@ export default function App(){
               <Fld label="Descripcion de Plantaciones" value={form.plantacionDesc} onChange={v=>upd("plantacionDesc",v)} multi placeholder="Ej: Uva de Mesa Thomson Seedless 2000..."/>
               <G2 mt={10}>
                 <Fld label="Superficie (ha)" value={form.plantacionHas} onChange={v=>upd("plantacionHas",v)}/>
-                <Fld label="Valor por ha ($)" value={form.plantacionValorHa} onChange={v=>upd("plantacionValorHa",v)}/>
+                <Fld label="Valor por ha ($)" value={form.plantacionValorHa} onChange={v=>upd("plantacionValorHa",fmtMiles(v))}/>
               </G2>
               <Fld label="Construcciones" value={form.construcciones} onChange={v=>upd("construcciones",v)} multi/>
             </Card>
@@ -658,7 +683,7 @@ export default function App(){
               <div style={{fontSize:12,color:"#666",marginBottom:10}}>Ingresa el valor por hectarea de cada clase presente en el predio. El valor total se calcula solo en la tabla del informe.</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12}}>
                 {[1,2,3,4,5,6,7,8].filter(n=>parseFloat((form["c"+n]||"0").replace(",","."))>0).map(n=>(
-                  <Fld key={n} label={"Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1]+" ($/ha)"} value={form["v"+n]} onChange={v=>upd("v"+n,v)} placeholder="60.000.000"/>
+                  <Fld key={n} label={"Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1]+" ($/ha)"} value={form["v"+n]} onChange={v=>upd("v"+n,fmtMiles(v))} placeholder="60.000.000"/>
                 ))}
               </div>
               {[1,2,3,4,5,6,7,8].filter(n=>parseFloat((form["c"+n]||"0").replace(",","."))>0).length===0&&<div style={{fontSize:12,color:"#aaa"}}>Primero ingresa las hectareas por clase en el Paso 1.</div>}
@@ -667,10 +692,10 @@ export default function App(){
             <SecT icon="📊" title="Valorizacion Comercial"/>
             <Card>
               <G2>
-                <Fld label="Valor Comercial ($)" value={form.valorComercial} onChange={v=>upd("valorComercial",v)} placeholder="466.850.000"/>
-                <Fld label="Valor Comercial (UF)" value={form.valorComercialUF} onChange={v=>upd("valorComercialUF",v)} placeholder="11.802"/>
-                <Fld label="Valor Facil Venta ($)" value={form.valorFacilVenta} onChange={v=>upd("valorFacilVenta",v)} placeholder="373.480.000"/>
-                <Fld label="Valor Facil Venta (UF)" value={form.valorFacilVentaUF} onChange={v=>upd("valorFacilVentaUF",v)} placeholder="9.442"/>
+                <Fld label="Valor Comercial ($)" value={form.valorComercial} onChange={v=>upd("valorComercial",fmtMiles(v))} placeholder="466.850.000"/>
+                <Fld label="Valor Comercial (UF)" value={form.valorComercialUF} onChange={v=>upd("valorComercialUF",fmtMiles(v))} placeholder="11.802"/>
+                <Fld label="Valor Facil Venta ($)" value={form.valorFacilVenta} onChange={v=>upd("valorFacilVenta",fmtMiles(v))} placeholder="373.480.000"/>
+                <Fld label="Valor Facil Venta (UF)" value={form.valorFacilVentaUF} onChange={v=>upd("valorFacilVentaUF",fmtMiles(v))} placeholder="9.442"/>
               </G2>
               {form.ufBase&&form.valorComercial&&(
                 <div style={{marginTop:12,background:GH,borderRadius:8,padding:"10px 14px",fontSize:13,color:G}}>
@@ -747,18 +772,18 @@ export default function App(){
                 <IRw label="Localidad:" value={report.localidad}/>
                 <IRw label="Provincia:" value={report.provincia}/>
                 <IRw label="Region:" value={report.region}/>
-                {report.roles.map((r,i)=><IRw key={i} label={"Avaluo Fiscal Rol "+r.rol+":"} value={"$ "+r.datos.avaluoFiscal+"   "+r.datos.avaluoFecha}/>)}
+                {report.roles.map((r,i)=><IRw key={i} label={"Avaluo Fiscal Rol "+r.rol+":"} value={"$ "+fmtMiles(r.datos.avaluoFiscal)+"   "+r.datos.avaluoFecha}/>)}
                 {report.avaluoTotal>0&&<IRw label="Avaluo Fiscal Total:" value={"$ "+report.avaluoTotal.toLocaleString("es-CL")}/>}
                 <IRw label="Fecha Tasacion:" value={report.fecha}/>
                 <IRw label="UF Base:" value={"$ "+report.ufBase+" (al "+report.ufFecha+")"}/>
               </PgFB>
 
               <PgFB title="2. Resumen Ejecutivo">
-                <p style={{fontSize:14,lineHeight:1.8,color:"#333",textAlign:"justify"}}>{report.ia&&report.ia.resumen}</p>
+                <p style={TXT}>{report.ia&&report.ia.resumen}</p>
               </PgFB>
 
               <PgFB title="3. Ubicacion de la Propiedad">
-                <p style={{fontSize:14,lineHeight:1.8,color:"#333",textAlign:"justify"}}>{report.ia&&report.ia.ubicacion}</p>
+                <p style={TXT}>{report.ia&&report.ia.ubicacion}</p>
                 <Sub>Plano y ubicacion de la propiedad</Sub>
                 {report.imagenMapaSII
                   ? <img src={report.imagenMapaSII} alt="Mapa SII" style={{width:"100%",maxHeight:280,objectFit:"contain",borderRadius:6,border:"1px solid #ddd"}}/>
@@ -778,7 +803,7 @@ export default function App(){
                   rows={[...report.roles.map(r=>[report.predioNombre,"-","-","-",r.datos.superfSII,r.rol,r.comuna]),
                     report.cn1?[report.cn1,"-","-","-",report.ca1,"","Santiago"]:null,
                     report.cn2?[report.cn2,"-","-","-",report.ca2,"","Santiago"]:null]}/>
-                <p style={{fontSize:14,lineHeight:1.8,color:"#333",marginTop:14}}>{report.ia&&report.ia.titulos}</p>
+                <p style={{...TXT,marginTop:14}}>{report.ia&&report.ia.titulos}</p>
               </PgFB>
 
               <PgFB title="5. Antecedentes Tecnicos">
@@ -786,24 +811,24 @@ export default function App(){
                 <GTbl headers={["SUPERFICIE","HECTAREAS"]} rows={[["Titulos de la Propiedad",report.superfTitulos],["SII (suma de roles)",report.superfSIITotal.toFixed(2)],["Google Earth",report.superfGoogleEarth]]}/>
                 {report.imagenSatelital&&<><img src={report.imagenSatelital} alt="Plano" style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:6,border:"1px solid #ddd",margin:"12px 0 4px"}}/><p style={{fontStyle:"italic",fontSize:12,textAlign:"center",color:"#888"}}>Fuente: Google Earth</p></>}
                 <Sub>Suelos:</Sub>
-                <p style={{fontSize:13,color:"#555"}}>{report.ia&&report.ia.suelos}</p>
+                <p style={TXT}>{report.ia&&report.ia.suelos}</p>
                 <GTbl headers={["Linea","Clase de Suelo","Superficie (Ha)"]} rows={[1,2,3,4,5,6,7,8].filter(n=>parseFloat((report["c"+n]||"0").replace(",","."))>0).map((n,i)=>[String(i+1),"CLASE "+["I","II","III","IV","V","VI","VII","VIII"][n-1],report["c"+n]])}/>
                 <Sub>Caracteristicas CIREN:</Sub>
-                <p style={{fontSize:13,color:"#555"}}>{report.ia&&report.ia.ciren}</p>
+                <p style={TXT}>{report.ia&&report.ia.ciren}</p>
                 {[["Pendiente",report.pendiente],["Profundidad",report.profundidad],["Erosion",report.erosion],["Pedregosidad",report.pedregosidad],["Drenaje",report.drenaje],["Textura",report.textura],["pH",report.ph],["Aptitud",report.aptitud],["Capacidad de Uso",report.capacidadUso]].filter(([,v])=>v).map(([l,v],i)=><IRw key={i} label={l+":"} value={v}/>)}
                 <Sub>Recursos Hidricos:</Sub>
-                <p style={{fontSize:13,color:"#555"}}>{report.ia&&report.ia.hidrico}</p>
+                <p style={TXT}>{report.ia&&report.ia.hidrico}</p>
                 <GTbl headers={["CANAL","ORIGEN","Acciones","Caudal"]} rows={[report.cn1?[report.cn1,report.co1,report.ca1,report.cq1+" l/s"]:null,report.cn2?[report.cn2,report.co2,report.ca2,report.cq2]:null]}/>
                 <Sub>Clima:</Sub>
-                <p style={{fontSize:13,color:"#555",lineHeight:1.8}}>{report.ia&&report.ia.clima}</p>
+                <p style={TXT}>{report.ia&&report.ia.clima}</p>
                 <Sub>Construcciones:</Sub>
-                <p style={{fontSize:13,color:"#555"}}>{report.construcciones}</p>
-                {report.plantacionDesc&&<><Sub>Plantaciones:</Sub><p style={{fontSize:13,color:"#555"}}>{report.plantacionDesc}</p></>}
+                <p style={TXT}>{report.construcciones}</p>
+                {report.plantacionDesc&&<><Sub>Plantaciones:</Sub><p style={TXT}>{report.plantacionDesc}</p></>}
               </PgFB>
 
               <PgFB title="6. Tasacion">
                 <Sub>Criterios de Tasacion</Sub>
-                <p style={{fontSize:13,color:"#444",lineHeight:1.8}}>Esta propiedad se valora con un criterio comercial, considerando su ubicacion y acceso, calidad y aptitud de suelos, disponibilidad de agua de riego, asi como tambien valores de mercado de propiedades similares en el sector.</p>
+                <p style={TXT}>Esta propiedad se valora con un criterio comercial, considerando su ubicacion y acceso, calidad y aptitud de suelos, disponibilidad de agua de riego, asi como tambien valores de mercado de propiedades similares en el sector.</p>
                 <Sub>Referencias de Mercado</Sub>
                 <GTbl headers={["Oferta","Ubicacion","Superficie (ha)","Valor Total ($)","Valor ($/ha)"]} rows={report.refs.filter(r=>r.oferta).map(r=>[r.oferta,r.ubicacion,r.has,r.valorTotal,r.valorHa])}/>
                 <Sub>Valorizacion Comercial</Sub>
@@ -814,17 +839,17 @@ export default function App(){
                     return ["Suelo Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1],report["c"+n],vha?"$ "+vha.toLocaleString("es-CL"):"-",vha?"$ "+Math.round(has*vha).toLocaleString("es-CL"):"-"];
                   }),
                   ["Total Suelos",[1,2,3,4,5,6,7,8].reduce((a,n)=>a+parseFloat((report["c"+n]||"0").replace(",","."))||a,0).toFixed(2),"",[1,2,3,4,5,6,7,8].reduce((a,n)=>{const h=parseFloat((report["c"+n]||"0").replace(",","."))||0;const v=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;return a+h*v;},0)>0?"$ "+Math.round([1,2,3,4,5,6,7,8].reduce((a,n)=>{const h=parseFloat((report["c"+n]||"0").replace(",","."))||0;const v=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;return a+h*v;},0)).toLocaleString("es-CL"):""],
-                  report.plantacionDesc?["Plantaciones",report.plantacionHas,"$ "+report.plantacionValorHa,"-"]:null,
-                  ["VALOR COMERCIAL $","","","$ "+report.valorComercial],
-                  ["VALOR COMERCIAL UF","","","UF "+report.valorComercialUF],
-                  ["VALOR FACIL VENTA $","","","$ "+report.valorFacilVenta],
-                  ["VALOR FACIL VENTA UF","","","UF "+report.valorFacilVentaUF],
+                  report.plantacionDesc?["Plantaciones",report.plantacionHas,"$ "+fmtMiles(report.plantacionValorHa),"-"]:null,
+                  ["VALOR COMERCIAL $","","","$ "+fmtMiles(report.valorComercial)],
+                  ["VALOR COMERCIAL UF","","","UF "+fmtMiles(report.valorComercialUF)],
+                  ["VALOR FACIL VENTA $","","","$ "+fmtMiles(report.valorFacilVenta)],
+                  ["VALOR FACIL VENTA UF","","","UF "+fmtMiles(report.valorFacilVentaUF)],
                   ["AVALUO FISCAL TOTAL","","","$ "+report.avaluoTotal.toLocaleString("es-CL")],
                 ]}/>
               </PgFB>
 
               <PgFB title="7. Conclusiones y Comentarios">
-                <p style={{fontSize:14,lineHeight:1.9,color:"#333",textAlign:"justify",whiteSpace:"pre-line"}}>{report.ia&&report.ia.conclusiones}</p>
+                <p style={{...TXT,whiteSpace:"pre-line"}}>{report.ia&&report.ia.conclusiones}</p>
               </PgFB>
 
               {report.imagenes&&report.imagenes.length>0&&(
