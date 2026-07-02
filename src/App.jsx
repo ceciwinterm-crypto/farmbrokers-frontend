@@ -110,7 +110,8 @@ const EMPTY = {
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
-  c1:"0",c2:"0",c3:"0",c4:"0",
+  c1:"0",c2:"0",c3:"0",c4:"0",c5:"0",c6:"0",c7:"0",c8:"0",
+  v1:"",v2:"",v3:"",v4:"",v5:"",v6:"",v7:"",v8:"",
   seriesSuelo:"",pendiente:"",profundidad:"",erosion:"",pedregosidad:"",
   drenaje:"",textura:"",ph:"",aptitud:"",capacidadUso:"",
   cn1:"",co1:"",ca1:"",cq1:"",cn2:"",co2:"",ca2:"",cq2:"",
@@ -250,7 +251,8 @@ export default function App(){
           superfTitulos:form.superfTitulos,
           superfSIITotal:superfSIITotal.toFixed(2),
           superfGoogleEarth:form.superfGoogleEarth,
-          c1:form.c1,c2:form.c2,c3:form.c3,c4:form.c4,
+          c1:form.c1,c2:form.c2,c3:form.c3,c4:form.c4,c5:form.c5,c6:form.c6,c7:form.c7,c8:form.c8,
+          suelosDetalle:[1,2,3,4,5,6,7,8].map(n=>({n,h:parseFloat((form["c"+n]||"0").replace(",","."))})).filter(x=>x.h>0).map(x=>"Clase "+["I","II","III","IV","V","VI","VII","VIII"][x.n-1]+": "+x.h+" ha").join(", "),
           seriesSuelo:form.seriesSuelo,pendiente:form.pendiente,drenaje:form.drenaje,
           cn1:form.cn1,co1:form.co1,ca1:form.ca1,cq1:form.cq1,
           cn2:form.cn2,co2:form.co2,ca2:form.ca2,cq2:form.cq2,
@@ -286,6 +288,22 @@ export default function App(){
   };
 
 
+  const exportarWord=()=>{
+    const el=document.getElementById("informe");
+    if(!el)return;
+    const html="<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><style>body{font-family:Georgia,serif;} table{border-collapse:collapse;width:100%;} td,th{border:1px solid #999;padding:6px;}</style></head><body>"+el.innerHTML+"</body></html>";
+    const blob=new Blob(["\ufeff",html],{type:"application/msword"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    const rolName=(report&&report.roles&&report.roles[0]&&report.roles[0].rol)?report.roles[0].rol.replace(/[^0-9a-zA-Z-]/g,""):"predio";
+    a.download="Informe_Tasacion_"+rolName+".doc";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const ImgBox=({src,label,height})=>(
     src
       ? <img src={src} alt={label} style={{width:"100%",height:height||200,objectFit:"contain",borderRadius:6,border:"1px solid #ddd"}}/>
@@ -296,7 +314,7 @@ export default function App(){
 
   return(
     <div style={{minHeight:"100vh",background:GRIS2,fontFamily:SANS}}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @media print{header,.noprint,button{display:none!important} #informe{border:none!important} body{background:white!important} @page{margin:1.5cm}}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @media print{header,.noprint,button,.stepsbar{display:none!important} main{max-width:100%!important;padding:0!important} #informe{border:none!important;border-radius:0!important} #informe>div{page-break-after:always;min-height:auto!important} #informe>div:last-child{page-break-after:auto} table,img,tr{page-break-inside:avoid!important} h2{page-break-after:avoid} p{orphans:3;widows:3} body{background:white!important} @page{size:letter;margin:1.3cm}}`}</style>
 
       <header style={{background:G,color:"#fff",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:60,boxShadow:"0 2px 10px rgba(0,0,0,0.2)"}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -317,7 +335,7 @@ export default function App(){
         </div>
       </header>
 
-      <div style={{background:"#fff",borderBottom:"3px solid "+G,padding:"0 24px"}}>
+      <div className="stepsbar" style={{background:"#fff",borderBottom:"3px solid "+G,padding:"0 24px"}}>
         <div style={{display:"flex",maxWidth:880,margin:"0 auto"}}>
           {["Inicio","Datos del Predio","Tasacion","Informe Final"].map((s,i)=>(
             <div key={i} onClick={()=>i<=step&&setStep(i)}
@@ -544,12 +562,12 @@ export default function App(){
                 <div style={{fontWeight:600,color:G,fontSize:13}}>Clasificacion de Suelos (ha)</div>
                 <button onClick={abrirSITRURAL} style={{...bS,fontSize:11,padding:"5px 10px"}}>🌿 SITRURAL</button>
               </div>
-              <G3>
-                <Fld label="Clase I (ha)" value={form.c1} onChange={v=>upd("c1",v)} placeholder="0,23"/>
-                <Fld label="Clase II (ha)" value={form.c2} onChange={v=>upd("c2",v)} placeholder="5,28"/>
-                <Fld label="Clase III (ha)" value={form.c3} onChange={v=>upd("c3",v)} placeholder="1,45"/>
-                <Fld label="Clase IV (ha)" value={form.c4} onChange={v=>upd("c4",v)} placeholder="1,27"/>
-              </G3>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12}}>
+                {[1,2,3,4,5,6,7,8].map(n=>(
+                  <Fld key={n} label={"Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1]+" (ha)"} value={form["c"+n]} onChange={v=>upd("c"+n,v)} placeholder="0"/>
+                ))}
+              </div>
+              <div style={{fontSize:11,color:"#888",marginTop:6}}>Clases I a IV: suelos arables (riego/cultivo). Clases V a VIII: no arables (ganaderia, forestal, proteccion).</div>
               <div style={{fontWeight:600,color:G,margin:"14px 0 8px",fontSize:13}}>Caracteristicas CIREN</div>
               <G2>
                 <Fld label="Serie de Suelo" value={form.seriesSuelo} onChange={v=>upd("seriesSuelo",v)} placeholder="Serie Valdivia de Paine (VAP)"/>
@@ -635,6 +653,17 @@ export default function App(){
               <button onClick={()=>upd("refs",[...form.refs,{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:""}])} style={{...bS,marginTop:10,fontSize:12}}>+ Agregar fila</button>
             </Card>
 
+            <SecT icon="🌾" title="Valores por Clase de Suelo"/>
+            <Card>
+              <div style={{fontSize:12,color:"#666",marginBottom:10}}>Ingresa el valor por hectarea de cada clase presente en el predio. El valor total se calcula solo en la tabla del informe.</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12}}>
+                {[1,2,3,4,5,6,7,8].filter(n=>parseFloat((form["c"+n]||"0").replace(",","."))>0).map(n=>(
+                  <Fld key={n} label={"Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1]+" ($/ha)"} value={form["v"+n]} onChange={v=>upd("v"+n,v)} placeholder="60.000.000"/>
+                ))}
+              </div>
+              {[1,2,3,4,5,6,7,8].filter(n=>parseFloat((form["c"+n]||"0").replace(",","."))>0).length===0&&<div style={{fontSize:12,color:"#aaa"}}>Primero ingresa las hectareas por clase en el Paso 1.</div>}
+            </Card>
+
             <SecT icon="📊" title="Valorizacion Comercial"/>
             <Card>
               <G2>
@@ -683,6 +712,7 @@ export default function App(){
               <h2 style={{margin:0,color:G,fontFamily:FONT,fontSize:20}}>Vista Previa del Informe</h2>
               <div style={{display:"flex",gap:10}}>
                 <button onClick={()=>setStep(2)} style={bS}>← Editar</button>
+                <button onClick={exportarWord} style={bS}>📄 Word</button>
                 <button onClick={()=>window.print()} style={{...bP,background:ORO}}>🖨️ Imprimir / PDF</button>
               </div>
             </div>
@@ -757,7 +787,7 @@ export default function App(){
                 {report.imagenSatelital&&<><img src={report.imagenSatelital} alt="Plano" style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:6,border:"1px solid #ddd",margin:"12px 0 4px"}}/><p style={{fontStyle:"italic",fontSize:12,textAlign:"center",color:"#888"}}>Fuente: Google Earth</p></>}
                 <Sub>Suelos:</Sub>
                 <p style={{fontSize:13,color:"#555"}}>{report.ia&&report.ia.suelos}</p>
-                <GTbl headers={["Linea","Suelo","Sector","Exencion","Superficie (Ha)"]} rows={[["1","PRIMERA DE RIEGO","1","0",report.c1],["2","SEGUNDA DE RIEGO","1","0",report.c2],["3","TERCERA DE RIEGO","1","0",report.c3],["4","CUARTA DE RIEGO","1","0",report.c4]]}/>
+                <GTbl headers={["Linea","Clase de Suelo","Superficie (Ha)"]} rows={[1,2,3,4,5,6,7,8].filter(n=>parseFloat((report["c"+n]||"0").replace(",","."))>0).map((n,i)=>[String(i+1),"CLASE "+["I","II","III","IV","V","VI","VII","VIII"][n-1],report["c"+n]])}/>
                 <Sub>Caracteristicas CIREN:</Sub>
                 <p style={{fontSize:13,color:"#555"}}>{report.ia&&report.ia.ciren}</p>
                 {[["Pendiente",report.pendiente],["Profundidad",report.profundidad],["Erosion",report.erosion],["Pedregosidad",report.pedregosidad],["Drenaje",report.drenaje],["Textura",report.textura],["pH",report.ph],["Aptitud",report.aptitud],["Capacidad de Uso",report.capacidadUso]].filter(([,v])=>v).map(([l,v],i)=><IRw key={i} label={l+":"} value={v}/>)}
@@ -778,11 +808,12 @@ export default function App(){
                 <GTbl headers={["Oferta","Ubicacion","Superficie (ha)","Valor Total ($)","Valor ($/ha)"]} rows={report.refs.filter(r=>r.oferta).map(r=>[r.oferta,r.ubicacion,r.has,r.valorTotal,r.valorHa])}/>
                 <Sub>Valorizacion Comercial</Sub>
                 <GTbl boldLast={5} headers={["Componente","Has","$ x ha","Valor"]} rows={[
-                  parseFloat(report.c1)>0?["Suelo Clase I",report.c1,"-","-"]:null,
-                  parseFloat(report.c2)>0?["Suelo Clase II",report.c2,"-","-"]:null,
-                  parseFloat(report.c3)>0?["Suelo Clase III",report.c3,"-","-"]:null,
-                  parseFloat(report.c4)>0?["Suelo Clase IV",report.c4,"-","-"]:null,
-                  ["Total Suelos",(parseFloat(report.c1||0)+parseFloat(report.c2||0)+parseFloat(report.c3||0)+parseFloat(report.c4||0)).toFixed(2),"",""],
+                  ...[1,2,3,4,5,6,7,8].filter(n=>parseFloat((report["c"+n]||"0").replace(",","."))>0).map(n=>{
+                    const has=parseFloat((report["c"+n]||"0").replace(",","."));
+                    const vha=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;
+                    return ["Suelo Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1],report["c"+n],vha?"$ "+vha.toLocaleString("es-CL"):"-",vha?"$ "+Math.round(has*vha).toLocaleString("es-CL"):"-"];
+                  }),
+                  ["Total Suelos",[1,2,3,4,5,6,7,8].reduce((a,n)=>a+parseFloat((report["c"+n]||"0").replace(",","."))||a,0).toFixed(2),"",[1,2,3,4,5,6,7,8].reduce((a,n)=>{const h=parseFloat((report["c"+n]||"0").replace(",","."))||0;const v=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;return a+h*v;},0)>0?"$ "+Math.round([1,2,3,4,5,6,7,8].reduce((a,n)=>{const h=parseFloat((report["c"+n]||"0").replace(",","."))||0;const v=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;return a+h*v;},0)).toLocaleString("es-CL"):""],
                   report.plantacionDesc?["Plantaciones",report.plantacionHas,"$ "+report.plantacionValorHa,"-"]:null,
                   ["VALOR COMERCIAL $","","","$ "+report.valorComercial],
                   ["VALOR COMERCIAL UF","","","UF "+report.valorComercialUF],
@@ -816,6 +847,7 @@ export default function App(){
 
             <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:20}}>
               <button onClick={()=>window.print()} style={bP}>🖨️ Imprimir / Guardar PDF</button>
+              <button onClick={exportarWord} style={{...bP,background:ORO}}>📄 Descargar Word Editable</button>
               <button onClick={()=>{setReport(null);setStep(0);setForm(EMPTY);setSatelitalStatus("idle");setUfStatus("idle");}} style={bS}>Nueva Tasacion</button>
             </div>
             <p style={{textAlign:"center",fontSize:12,color:"#aaa",marginTop:10}}>Imprimir → Guardar como PDF en tu navegador.</p>
