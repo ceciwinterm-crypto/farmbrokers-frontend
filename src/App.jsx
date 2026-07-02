@@ -155,6 +155,8 @@ export default function App(){
   const [form,setForm]=useState(EMPTY);
   const [satelitalStatus,setSatelitalStatus]=useState("idle");
   const [ufStatus,setUfStatus]=useState("idle"); // idle|loading|ok|error
+  const [buscandoRol,setBuscandoRol]=useState(-1);
+  const [debugSII,setDebugSII]=useState(null);
   const fileRef=useRef();
   const mapaSIIRef=useRef();
   const satelitalRef=useRef();
@@ -313,6 +315,35 @@ export default function App(){
   };
 
 
+  const buscarRolAuto=async(i)=>{
+    const r=form.roles[i];
+    if(!r.rol||!r.comuna){alert("Ingresa primero el numero de rol y la comuna.");return;}
+    if(!form.backendUrl){alert("Falta configurar la URL del servidor en la pantalla de Inicio.");return;}
+    setBuscandoRol(i);setDebugSII(null);
+    try{
+      const resp=await fetch(form.backendUrl.replace(/\/$/,"")+"/buscar-rol",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({rol:r.rol,comuna:r.comuna})
+      });
+      const data=await resp.json();
+      if(data.ok&&data.datos){
+        const d=data.datos;
+        if(d.avaluoFiscal)updRolDatos(i,"avaluoFiscal",fmtMiles(String(d.avaluoFiscal)));
+        if(d.superficie)updRolDatos(i,"superfSII",String(d.superficie));
+        if(d.destino)updRolDatos(i,"destino",String(d.destino).toUpperCase());
+        if(d.direccion&&!form.localidad)upd("localidad",String(d.direccion));
+        if(d.lat&&i===0)upd("coordLat",String(d.lat));
+        if(d.lon&&i===0)upd("coordLon",String(d.lon));
+        setDebugSII({ok:true,msg:"Datos del SII rellenados automaticamente. Revisa y completa lo que falte (propietario y RUT son manuales)."});
+      }else{
+        setDebugSII({ok:false,msg:"No se pudo obtener automaticamente esta vez. Usa los botones Avaluo SII / Mapa SII y copia manual. Detalle tecnico abajo (enviaselo a Claude para ajustar):",debug:JSON.stringify(data.debug||data,null,2).substring(0,1500)});
+      }
+    }catch(e){
+      setDebugSII({ok:false,msg:"Error de conexion con el servidor: "+e.message});
+    }
+    setBuscandoRol(-1);
+  };
+
   const exportarWord=()=>{
     const el=document.getElementById("informe");
     if(!el)return;
@@ -442,8 +473,14 @@ export default function App(){
           <div>
             <SecT icon="🏛️" title="Roles SII del Predio"/>
             <div style={{background:"#fffbe6",border:"1px solid "+ORO,borderRadius:8,padding:"12px 16px",marginBottom:14,fontSize:13}}>
-              <b>Flujo:</b> Agrega cada rol → haz clic en "Avaluo SII" o "Mapa SII" → copia los datos en los campos verdes. La region se completa sola al ingresar la comuna.
+              <b>Flujo:</b> Ingresa rol y comuna → presiona "🔎 Buscar Auto" para rellenar avaluo, superficie, destino y coordenadas desde el SII. Si falla, usa los botones manuales. La region se completa sola con la comuna.
             </div>
+            {debugSII&&(
+              <div style={{background:debugSII.ok?"#f0faf4":"#fff5f5",border:"1px solid "+(debugSII.ok?G:"#feb2b2"),borderRadius:8,padding:"12px 16px",marginBottom:14,fontSize:13,color:debugSII.ok?G:"#c53030"}}>
+                {debugSII.msg}
+                {debugSII.debug&&<pre style={{fontSize:10,overflow:"auto",maxHeight:160,background:"#fff",padding:8,borderRadius:6,marginTop:8,color:"#555"}}>{debugSII.debug}</pre>}
+              </div>
+            )}
 
             {form.roles.map((r,i)=>(
               <Card key={i}>
@@ -467,7 +504,8 @@ export default function App(){
                     </div>
                   )}
                   <div style={{display:"flex",flexDirection:"column",gap:5,minWidth:110}}>
-                    <button onClick={abrirSII} style={{...bP,fontSize:11,padding:"7px 12px",whiteSpace:"nowrap"}}>🏛️ Avaluo SII</button>
+                    <button onClick={()=>buscarRolAuto(i)} disabled={buscandoRol===i} style={{...bP,fontSize:11,padding:"7px 12px",whiteSpace:"nowrap",background:buscandoRol===i?"#aaa":G}}>{buscandoRol===i?"Buscando...":"🔎 Buscar Auto"}</button>
+                    <button onClick={abrirSII} style={{...bS,fontSize:11,padding:"6px 12px",whiteSpace:"nowrap"}}>🏛️ Avaluo SII</button>
                     <button onClick={abrirMapaSII} style={{...bO,fontSize:11,padding:"6px 12px",whiteSpace:"nowrap"}}>🗺️ Mapa SII</button>
                     <button onClick={abrirSITRURAL} style={{...bS,fontSize:11,padding:"5px 12px",whiteSpace:"nowrap"}}>🌿 SITRURAL</button>
                   </div>
