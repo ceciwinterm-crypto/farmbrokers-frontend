@@ -127,7 +127,7 @@ function GTbl({headers,rows,boldLast}){
 }
 
 const EMPTY = {
-  roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:""}}],
+  roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}],
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",
   coordLat:"",coordLon:"",altitud:"",distSantiago:"",acceso:"",
@@ -163,7 +163,7 @@ export default function App(){
 
   const upd=(k,v)=>setForm(f=>({...f,[k]:v}));
   const updRef=(i,k,v)=>setForm(f=>{const refs=[...f.refs];refs[i]={...refs[i],[k]:v};return{...f,refs};});
-  const addRol=()=>setForm(f=>({...f,roles:[...f.roles,{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:""}}]}));
+  const addRol=()=>setForm(f=>({...f,roles:[...f.roles,{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}]}));
   const updRol=(i,k,v)=>setForm(f=>{
     const roles=[...f.roles];
     roles[i]={...roles[i],[k]:v};
@@ -328,13 +328,20 @@ export default function App(){
       const data=await resp.json();
       if(data.ok&&data.datos){
         const d=data.datos;
-        if(d.avaluoFiscal)updRolDatos(i,"avaluoFiscal",fmtMiles(String(d.avaluoFiscal)));
-        if(d.superficie)updRolDatos(i,"superfSII",String(d.superficie));
-        if(d.destino)updRolDatos(i,"destino",String(d.destino).toUpperCase());
-        if(d.direccion&&!form.localidad)upd("localidad",String(d.direccion));
-        if(d.lat&&i===0)upd("coordLat",String(d.lat));
-        if(d.lon&&i===0)upd("coordLon",String(d.lon));
-        setDebugSII({ok:true,msg:"Datos del SII rellenados automaticamente. Revisa y completa lo que falte (propietario y RUT son manuales)."});
+        const ok=[],falta=[];
+        const num=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+        if(num(d.avaluoFiscal)>0){updRolDatos(i,"avaluoFiscal",fmtMiles(String(d.avaluoFiscal)));ok.push("avaluo fiscal");}else falta.push("avaluo fiscal");
+        if(d.periodo){updRolDatos(i,"avaluoFecha",String(d.periodo));ok.push("periodo avaluo");}
+        if(num(d.superficie)>0){updRolDatos(i,"superfSII",String(d.superficie));ok.push("superficie");}else falta.push("superficie (el mapa SII no la publica para este predio - copiala del certificado)");
+        if(d.destino){updRolDatos(i,"destino",String(d.destino).toUpperCase());ok.push("destino");}
+        if(d.direccion&&String(d.direccion).trim()){if(!form.localidad)upd("localidad",String(d.direccion).trim());ok.push("direccion");}
+        if(d.lat&&i===0){upd("coordLat",String(d.lat));ok.push("coordenadas");}
+        if(d.lon&&i===0){upd("coordLon",String(d.lon));}
+        if(d.areaHomogenea){updRolDatos(i,"areaHomogenea",String(d.areaHomogenea));ok.push("area homogenea ("+d.areaHomogenea+")");}
+        if(d.reavaluo){updRolDatos(i,"reavaluo",String(d.reavaluo));ok.push("reavaluo");}
+        if(!d.areaHomogenea)falta.push("clasificacion de suelos (no publicada - usa el certificado detallado o SITRURAL)");
+        falta.push("propietario y RUT (siempre manuales)");
+        setDebugSII({ok:true,msg:"Rellenado automaticamente: "+ok.join(", ")+". Completa a mano: "+falta.join("; ")+".",coords:(d.lat&&d.lon)?{lat:d.lat,lon:d.lon}:null});
       }else{
         setDebugSII({ok:false,msg:"No se pudo obtener automaticamente esta vez. Usa los botones Avaluo SII / Mapa SII y copia manual. Detalle tecnico abajo (enviaselo a Claude para ajustar):",debug:JSON.stringify(data.debug||data,null,2).substring(0,1500)});
       }
@@ -478,6 +485,13 @@ export default function App(){
             {debugSII&&(
               <div style={{background:debugSII.ok?"#f0faf4":"#fff5f5",border:"1px solid "+(debugSII.ok?G:"#feb2b2"),borderRadius:8,padding:"12px 16px",marginBottom:14,fontSize:13,color:debugSII.ok?G:"#c53030"}}>
                 {debugSII.msg}
+                {debugSII.coords&&(
+                  <div style={{marginTop:10}}>
+                    <button onClick={()=>window.open("https://www.sitrural.cl/visor-de-mapas/?lat="+debugSII.coords.lat+"&lon="+debugSII.coords.lon,"_blank")} style={{...bS,fontSize:12,padding:"7px 14px",marginRight:8}}>🌱 Ver suelos en SITRURAL</button>
+                    <button onClick={()=>window.open("https://www.google.com/maps/@"+debugSII.coords.lat+","+debugSII.coords.lon+",800m/data=!3m1!1e3","_blank")} style={{...bS,fontSize:12,padding:"7px 14px"}}>🛰️ Ver en Google Earth</button>
+                    <div style={{fontSize:11,color:"#777",marginTop:6}}>Se abren centrados en el predio ({debugSII.coords.lat}, {debugSII.coords.lon}). Copia la clase de suelo que observes.</div>
+                  </div>
+                )}
                 {debugSII.debug&&<pre style={{fontSize:10,overflow:"auto",maxHeight:160,background:"#fff",padding:8,borderRadius:6,marginTop:8,color:"#555"}}>{debugSII.debug}</pre>}
               </div>
             )}
