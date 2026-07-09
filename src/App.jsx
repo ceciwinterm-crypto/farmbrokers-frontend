@@ -133,7 +133,7 @@ const EMPTY = {
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",
   coordLat:"",coordLon:"",altitud:"",distSantiago:"",acceso:"",
-  googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",
+  googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
   c1:"0",c2:"0",c3:"0",c4:"0",c5:"0",c6:"0",c7:"0",c8:"0",
@@ -420,12 +420,75 @@ export default function App(){
           upd("usosCIREN",JSON.stringify(data.usos));
           usosTxt=" Uso actual (CONAF): "+Object.entries(data.usos).map(([u,h])=>u+" "+h+" ha").join(" | ")+".";
         }
+        if(data.bbox)generarPlanoSuelos(data.bbox,data.capaSueloId,data.capaPredioId);
         setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(data.serie?" Serie: "+data.serie:"")+usosTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:data.notaClases?JSON.stringify(data.debug||[],null,2).substring(0,1500):null});
       }else{
         setSuelosStatus({ok:false,msg:data.mensaje||"No se pudo obtener.",debug:JSON.stringify(data.debug||[],null,2).substring(0,1200)});
       }
     }catch(e){
       setSuelosStatus({ok:false,msg:"Error de conexion: "+e.message});
+    }
+  };
+
+  const generarPlanoSuelos=(bbox,capaId,capaPredioId)=>{
+    if(!bbox||capaId===null||capaId===undefined)return;
+    const [w,s,e,n]=bbox;
+    const cLon=(w+e)/2, cLat=(s+n)/2;
+    // zoom que encuadre el predio en el lienzo
+    let z=15;
+    for(let zz=17;zz>=11;zz--){
+      const px=(e-w)/360*Math.pow(2,zz)*256;
+      if(px<=760){z=zz;break;}
+    }
+    const nT=Math.pow(2,z);
+    const xF=(cLon+180)/360*nT;
+    const latR=cLat*Math.PI/180;
+    const yF=(1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*nT;
+    const T=256,COLS=4,ROWS=3;
+    const x0=Math.floor(xF)-Math.floor(COLS/2), y0=Math.floor(yF)-Math.floor(ROWS/2);
+    const tile2lon=x=>x/nT*360-180;
+    const tile2lat=y=>Math.atan(Math.sinh(Math.PI*(1-2*y/nT)))*180/Math.PI;
+    const extW=tile2lon(x0), extE=tile2lon(x0+COLS), extN=tile2lat(y0), extS=tile2lat(y0+ROWS);
+    const canvas=document.createElement("canvas");
+    canvas.width=COLS*T; canvas.height=ROWS*T;
+    const ctx=canvas.getContext("2d");
+    let cargadas=0;
+    const finalizar=()=>{
+      // capa de suelos CIREN semitransparente encima
+      const img2=new Image();
+      img2.crossOrigin="anonymous";
+      const terminar=()=>{
+        const px1=(w-extW)/(extE-extW)*canvas.width, px2=(e-extW)/(extE-extW)*canvas.width;
+        const py1=(extN-n)/(extN-extS)*canvas.height, py2=(extN-s)/(extN-extS)*canvas.height;
+        ctx.strokeStyle="#e53935"; ctx.lineWidth=3;
+        ctx.strokeRect(px1,py1,px2-px1,py2-py1);
+        ctx.fillStyle="rgba(255,255,255,0.85)"; ctx.fillRect(canvas.width-330,canvas.height-20,330,20);
+        ctx.fillStyle="#333"; ctx.font="10px Arial";
+        ctx.fillText("Capacidad de Uso CIREN + Roles SII sobre Esri Imagery (referencial)",canvas.width-322,canvas.height-6);
+        upd("imagenSuelosMap",canvas.toDataURL("image/jpeg",0.9));
+      };
+      const dibujarRoles=()=>{
+        if(capaPredioId===null||capaPredioId===undefined){terminar();return;}
+        const img3=new Image(); img3.crossOrigin="anonymous";
+        img3.onload=()=>{ ctx.globalAlpha=0.9; ctx.drawImage(img3,0,0,canvas.width,canvas.height); ctx.globalAlpha=1; terminar(); };
+        img3.onerror=()=>terminar();
+        img3.src="https://esri.ciren.cl/server/rest/services/IDEMINAGRI/PROPIEDADES_RURALES/MapServer/export?bbox="+extW+","+extS+","+extE+","+extN+"&bboxSR=4326&imageSR=4326&size="+canvas.width+","+canvas.height+"&layers=show:"+capaPredioId+"&format=png32&transparent=true&f=image";
+      };
+      img2.onload=()=>{
+        ctx.globalAlpha=0.55;
+        ctx.drawImage(img2,0,0,canvas.width,canvas.height);
+        ctx.globalAlpha=1;
+        dibujarRoles();
+      };
+      img2.onerror=()=>{ dibujarRoles(); };
+      img2.src="https://esri.ciren.cl/server/rest/services/ESTUDIO_AGROLOGICO_SUELOS/MapServer/export?bbox="+extW+","+extS+","+extE+","+extN+"&bboxSR=4326&imageSR=4326&size="+canvas.width+","+canvas.height+"&layers=show:"+capaId+"&format=png32&transparent=true&f=image";
+    };
+    for(let dx=0;dx<COLS;dx++)for(let dy=0;dy<ROWS;dy++){
+      const img=new Image(); img.crossOrigin="anonymous";
+      const tx=x0+dx,ty=y0+dy;
+      img.onload=()=>{ ctx.drawImage(img,dx*T,dy*T,T,T); if(++cargadas===COLS*ROWS)finalizar(); };
+      img.onerror=()=>{ if(++cargadas===COLS*ROWS)finalizar(); };
+      img.src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"+z+"/"+ty+"/"+tx;
     }
   };
 
@@ -614,6 +677,7 @@ export default function App(){
                   <div style={{display:"flex",flexDirection:"column",gap:5,minWidth:110}}>
                     <button onClick={()=>buscarRolAuto(i)} disabled={buscandoRol===i} style={{...bP,fontSize:11,padding:"7px 12px",whiteSpace:"nowrap",background:buscandoRol===i?"#aaa":G}}>{buscandoRol===i?"Buscando...":"🔎 Buscar Auto"}</button>
                     <button onClick={abrirSII} style={{...bS,fontSize:11,padding:"6px 12px",whiteSpace:"nowrap"}}>🏛️ Avaluo SII</button>
+                    <button onClick={()=>window.open("https://www2.sii.cl/vicana/Menu/ConsultarAntecedentesSC","_blank")} style={{...bS,fontSize:11,padding:"6px 12px",whiteSpace:"nowrap"}}>👤 Propietario/RUT</button>
                     <button onClick={abrirMapaSII} style={{...bO,fontSize:11,padding:"6px 12px",whiteSpace:"nowrap"}}>🗺️ Mapa SII</button>
                     <button onClick={abrirSITRURAL} style={{...bS,fontSize:11,padding:"5px 12px",whiteSpace:"nowrap"}}>🌿 SITRURAL</button>
                   </div>
@@ -749,6 +813,24 @@ export default function App(){
                 ))}
               </div>
               <div style={{fontSize:11,color:"#888",marginTop:6}}>Clases I a IV: suelos arables (riego/cultivo). Clases V a VIII: no arables (ganaderia, forestal, proteccion).</div>
+
+              <div style={{fontWeight:700,color:G,fontSize:14,margin:"20px 0 8px"}}>🌲 Recursos Naturales — Uso de Suelo y Vegetacion (CONAF)</div>
+              <div style={{fontSize:11.5,color:"#888",marginBottom:8}}>Se rellena con "Suelos Auto (CIREN)". Puedes editar, borrar o agregar filas; esta tabla aparece en el informe.</div>
+              {(()=>{
+                let usos=[];
+                try{usos=Object.entries(JSON.parse(form.usosCIREN||"{}"));}catch(e){usos=[];}
+                const guardar=(arr)=>{const o={};arr.forEach(([k,v])=>{if(String(k).trim())o[String(k).trim()]=v;});upd("usosCIREN",Object.keys(o).length?JSON.stringify(o):"");};
+                return <div>
+                  {usos.map(([uso,ha],i)=>(
+                    <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+                      <input value={uso} onChange={e=>{const a=[...usos];a[i]=[e.target.value,ha];guardar(a);}} style={{...iS,flex:2,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={ha} onChange={e=>{const a=[...usos];a[i]=[uso,e.target.value];guardar(a);}} style={{...iS,width:110,margin:0,padding:"7px 10px",fontSize:12.5}} placeholder="ha"/>
+                      <button onClick={()=>{const a=usos.filter((_,j)=>j!==i);guardar(a);}} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
+                    </div>
+                  ))}
+                  <button onClick={()=>guardar([...usos,["",""]])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar uso</button>
+                </div>;
+              })()}
               <div style={{fontWeight:600,color:G,margin:"14px 0 8px",fontSize:13}}>Caracteristicas CIREN</div>
               <G2>
                 <Fld label="Serie de Suelo" value={form.seriesSuelo} onChange={v=>upd("seriesSuelo",v)} placeholder="Serie Valdivia de Paine (VAP)"/>
@@ -977,6 +1059,7 @@ export default function App(){
                   const rows=Object.entries(u).map(([k,v])=>[k,String(v).replace(".",",")]);
                   return rows.length?<><Sub>Uso Actual del Suelo y Vegetacion (Catastro CONAF - referencial)</Sub><GTbl headers={["Uso","Superficie (ha)"]} rows={rows}/></>:null;
                 }catch(e){return null;}})()}
+                {report.imagenSuelosMap&&<div style={{marginTop:16}}><ImgBox src={report.imagenSuelosMap} label="Plano de Capacidad de Uso de Suelo — CIREN sobre imagen satelital (referencial)" height={330}/></div>}
                 <Sub>Caracteristicas CIREN:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.ciren}</p>
                 {[["Pendiente",report.pendiente],["Profundidad",report.profundidad],["Erosion",report.erosion],["Pedregosidad",report.pedregosidad],["Drenaje",report.drenaje],["Textura",report.textura],["pH",report.ph],["Aptitud",report.aptitud],["Capacidad de Uso",report.capacidadUso]].filter(([,v])=>v).map(([l,v],i)=><IRw key={i} label={l+":"} value={v}/>)}
