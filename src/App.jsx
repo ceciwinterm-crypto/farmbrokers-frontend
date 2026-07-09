@@ -133,7 +133,7 @@ const EMPTY = {
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",
   coordLat:"",coordLon:"",altitud:"",distSantiago:"",acceso:"",
-  googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,
+  googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
   c1:"0",c2:"0",c3:"0",c4:"0",c5:"0",c6:"0",c7:"0",c8:"0",
@@ -415,7 +415,12 @@ export default function App(){
           if(data.clases&&data.clases[cl]>0){upd("c"+(idx+1),String(data.clases[cl]).replace(".",","));rellenadas.push("Clase "+cl+": "+data.clases[cl]+" ha");}
         });
         if(data.serie&&!form.seriesSuelo)upd("seriesSuelo",data.serie);
-        setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):"Sin desglose de clases disponible; completa manual.")+(data.serie?" Serie: "+data.serie:"")+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)"});
+        let usosTxt="";
+        if(data.usos&&Object.keys(data.usos).length){
+          upd("usosCIREN",JSON.stringify(data.usos));
+          usosTxt=" Uso actual (CONAF): "+Object.entries(data.usos).map(([u,h])=>u+" "+h+" ha").join(" | ")+".";
+        }
+        setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(data.serie?" Serie: "+data.serie:"")+usosTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:data.notaClases?JSON.stringify(data.debug||[],null,2).substring(0,1500):null});
       }else{
         setSuelosStatus({ok:false,msg:data.mensaje||"No se pudo obtener.",debug:JSON.stringify(data.debug||[],null,2).substring(0,1200)});
       }
@@ -967,6 +972,11 @@ export default function App(){
                 <Sub>Suelos:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.suelos}</p>
                 <GTbl headers={["Linea","Clase de Suelo","Superficie (Ha)"]} rows={[1,2,3,4,5,6,7,8].filter(n=>parseFloat((report["c"+n]||"0").replace(",","."))>0).map((n,i)=>[String(i+1),"CLASE "+["I","II","III","IV","V","VI","VII","VIII"][n-1],report["c"+n]])}/>
+                {report.usosCIREN&&(()=>{try{
+                  const u=JSON.parse(report.usosCIREN);
+                  const rows=Object.entries(u).map(([k,v])=>[k,String(v).replace(".",",")]);
+                  return rows.length?<><Sub>Uso Actual del Suelo y Vegetacion (Catastro CONAF - referencial)</Sub><GTbl headers={["Uso","Superficie (ha)"]} rows={rows}/></>:null;
+                }catch(e){return null;}})()}
                 <Sub>Caracteristicas CIREN:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.ciren}</p>
                 {[["Pendiente",report.pendiente],["Profundidad",report.profundidad],["Erosion",report.erosion],["Pedregosidad",report.pedregosidad],["Drenaje",report.drenaje],["Textura",report.textura],["pH",report.ph],["Aptitud",report.aptitud],["Capacidad de Uso",report.capacidadUso]].filter(([,v])=>v).map(([l,v],i)=><IRw key={i} label={l+":"} value={v}/>)}
