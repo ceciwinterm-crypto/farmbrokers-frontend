@@ -218,23 +218,66 @@ export default function App(){
   const abrirDGA=()=>window.open("https://dga.mop.gob.cl","_blank");
 
   const generarSatelital=()=>{
-    if(!form.coordLat||!form.coordLon){ alert("Ingresa las coordenadas primero."); return; }
-    if(!form.googleMapsKey){ alert("Ingresa tu Google Maps API Key."); return; }
+    if(!form.coordLat||!form.coordLon){ alert("Ingresa las coordenadas primero (o usa Buscar Auto)."); return; }
     setSatelitalStatus("loading");
-    const lat=form.coordLat.trim();
-    const lon=form.coordLon.trim().startsWith("-")?form.coordLon.trim():"-"+form.coordLon.trim();
-    const url=`https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lon}&zoom=15&size=800x500&maptype=satellite&markers=color:red%7C${lat},${lon}&key=${form.googleMapsKey}`;
-    const img=new Image();
-    img.crossOrigin="anonymous";
-    img.onload=()=>{
-      const canvas=document.createElement("canvas");
-      canvas.width=img.width; canvas.height=img.height;
-      canvas.getContext("2d").drawImage(img,0,0);
-      upd("imagenSatelital",canvas.toDataURL("image/jpeg",0.9));
-      setSatelitalStatus("ok");
-    };
-    img.onerror=()=>setSatelitalStatus("error");
-    img.src=url;
+    const lat=parseFloat(form.coordLat.trim().replace(",","."));
+    const lonRaw=form.coordLon.trim().replace(",",".");
+    const lon=parseFloat(lonRaw.startsWith("-")?lonRaw:"-"+lonRaw);
+
+    // Opcion 1: Google Maps si el usuario puso su API key
+    if(form.googleMapsKey){
+      const url=`https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lon}&zoom=15&size=800x500&maptype=satellite&markers=color:red%7C${lat},${lon}&key=${form.googleMapsKey}`;
+      const img=new Image();
+      img.crossOrigin="anonymous";
+      img.onload=()=>{
+        const canvas=document.createElement("canvas");
+        canvas.width=img.width; canvas.height=img.height;
+        canvas.getContext("2d").drawImage(img,0,0);
+        upd("imagenSatelital",canvas.toDataURL("image/jpeg",0.9));
+        setSatelitalStatus("ok");
+      };
+      img.onerror=()=>setSatelitalStatus("error");
+      img.src=url;
+      return;
+    }
+
+    // Opcion 2 (por defecto, GRATIS sin API key): Esri World Imagery armando mosaico de teselas
+    const z=16;
+    const n=Math.pow(2,z);
+    const xF=(lon+180)/360*n;
+    const latRad=lat*Math.PI/180;
+    const yF=(1-Math.log(Math.tan(latRad)+1/Math.cos(latRad))/Math.PI)/2*n;
+    const xT=Math.floor(xF), yT=Math.floor(yF);
+    const T=256, COLS=4, ROWS=3;
+    const canvas=document.createElement("canvas");
+    canvas.width=COLS*T; canvas.height=ROWS*T;
+    const ctx=canvas.getContext("2d");
+    let cargadas=0, fallo=false;
+    const x0=xT-Math.floor(COLS/2), y0=yT-Math.floor(ROWS/2);
+    for(let dx=0;dx<COLS;dx++){
+      for(let dy=0;dy<ROWS;dy++){
+        const img=new Image();
+        img.crossOrigin="anonymous";
+        const tx=x0+dx, ty=y0+dy;
+        img.onload=()=>{
+          ctx.drawImage(img,dx*T,dy*T,T,T);
+          cargadas++;
+          if(cargadas===COLS*ROWS&&!fallo){
+            // marcador rojo en la posicion exacta del predio
+            const px=(xF-x0)*T, py=(yF-y0)*T;
+            ctx.strokeStyle="#e53935"; ctx.lineWidth=3;
+            ctx.beginPath(); ctx.arc(px,py,14,0,Math.PI*2); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(px-22,py); ctx.lineTo(px+22,py); ctx.moveTo(px,py-22); ctx.lineTo(px,py+22); ctx.stroke();
+            ctx.fillStyle="rgba(255,255,255,0.85)"; ctx.fillRect(canvas.width-260,canvas.height-20,260,20);
+            ctx.fillStyle="#333"; ctx.font="10px Arial"; ctx.fillText("Imagen: Esri World Imagery",canvas.width-250,canvas.height-6);
+            upd("imagenSatelital",canvas.toDataURL("image/jpeg",0.9));
+            setSatelitalStatus("ok");
+          }
+        };
+        img.onerror=()=>{ if(!fallo){ fallo=true; setSatelitalStatus("error"); } };
+        img.src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"+z+"/"+ty+"/"+tx;
+      }
+    }
   };
 
   const handleMapaSII=(e)=>{
@@ -583,7 +626,7 @@ export default function App(){
                   <div style={{fontWeight:700,color:G,fontSize:13,marginBottom:8}}>Satelital Google Maps</div>
                   <div style={{marginBottom:8}}>
                     <Lbl c="Google Maps API Key"/>
-                    <input value={form.googleMapsKey} onChange={e=>upd("googleMapsKey",e.target.value)} placeholder="AIzaSy..." style={{...iS,fontSize:12}}/>
+                    <input value={form.googleMapsKey} onChange={e=>upd("googleMapsKey",e.target.value)} placeholder="Opcional - dejar vacio para imagen gratis (Esri)" style={{...iS,fontSize:12}}/>
                   </div>
                   <div style={{display:"flex",gap:8,marginBottom:10}}>
                     <button onClick={generarSatelital} disabled={satelitalStatus==="loading"} style={{...bP,fontSize:12,padding:"8px 14px"}}>
