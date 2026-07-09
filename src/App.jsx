@@ -415,6 +415,17 @@ export default function App(){
           if(data.clases&&data.clases[cl]>0){upd("c"+(idx+1),String(data.clases[cl]).replace(".",","));rellenadas.push("Clase "+cl+": "+data.clases[cl]+" ha");}
         });
         if(data.serie&&!form.seriesSuelo)upd("seriesSuelo",data.serie);
+        const car=data.caracteristicas||{};
+        const llenarSi=(campo,valor)=>{if(valor&&!String(form[campo]||"").trim())upd(campo,valor);};
+        llenarSi("textura",car.textura);
+        llenarSi("profundidad",car.profundidad);
+        llenarSi("drenaje",car.drenaje);
+        llenarSi("pendiente",car.pendiente);
+        llenarSi("erosion",car.erosion);
+        llenarSi("pedregosidad",car.pedregosidad);
+        llenarSi("ph",car.ph);
+        llenarSi("aptitud",car.aptitud);
+        llenarSi("capacidadUso",data.capacidadUso);
         let usosTxt="";
         if(data.usos&&Object.keys(data.usos).length){
           upd("usosCIREN",JSON.stringify(data.usos));
