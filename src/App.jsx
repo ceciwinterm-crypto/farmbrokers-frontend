@@ -65,12 +65,14 @@ const fmtMiles=(v)=>{
 const TXT={fontFamily:FONT,fontSize:13.5,lineHeight:1.85,color:"#2b2b2b",textAlign:"justify",margin:"0 0 10px"};
 
 function Lbl({c}){ return <div style={{fontSize:12,fontWeight:600,color:GRIS,marginBottom:5}}>{c}</div>; }
-function Fld({label,value,onChange,placeholder,type,multi}){
+function Fld({label,value,onChange,placeholder,type,multi,req,warn}){
+  const vacio=!String(value===undefined||value===null?"":value).trim();
+  const extra=vacio&&req?{border:"2px solid #e53935",background:"#fff8f8"}:vacio&&warn?{border:"2px solid "+ORO,background:"#fffdf5"}:{};
   return <div style={{marginBottom:4}}>
-    <Lbl c={label}/>
+    <Lbl c={label+(req?" *":"")}/>
     {multi
-      ? <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder||""} rows={3} style={{...iS,resize:"vertical"}}/>
-      : <input type={type||"text"} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder||""} style={iS}/>}
+      ? <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder||""} rows={3} style={{...iS,resize:"vertical",...extra}}/>
+      : <input type={type||"text"} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder||""} style={{...iS,...extra}}/>}
   </div>;
 }
 function Card({children,style}){ return <div style={{background:"#fff",borderRadius:10,padding:24,marginBottom:16,border:"1px solid #e8e8e8",boxShadow:"0 1px 4px rgba(0,0,0,0.04)",...style}}>{children}</div>; }
@@ -394,6 +396,34 @@ export default function App(){
     setBuscandoRol(-1);
   };
 
+  const [suelosStatus,setSuelosStatus]=useState(null);
+  const suelosAuto=async()=>{
+    const r=form.roles[0]||{};
+    if(!r.rol||!r.comuna){alert("Ingresa primero el rol y la comuna en el Paso 1.");return;}
+    if(!form.backendUrl){alert("Falta la URL del servidor.");return;}
+    setSuelosStatus({loading:true});
+    try{
+      const resp=await fetch(form.backendUrl.replace(/\/$/,"")+"/suelos-rol",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({rol:r.rol,comuna:r.comuna,region:form.region})
+      });
+      const data=await resp.json();
+      if(data.ok){
+        const ROM=["I","II","III","IV","V","VI","VII","VIII"];
+        const rellenadas=[];
+        ROM.forEach((cl,idx)=>{
+          if(data.clases&&data.clases[cl]>0){upd("c"+(idx+1),String(data.clases[cl]).replace(".",","));rellenadas.push("Clase "+cl+": "+data.clases[cl]+" ha");}
+        });
+        if(data.serie&&!form.seriesSuelo)upd("seriesSuelo",data.serie);
+        setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):"Sin desglose de clases disponible; completa manual.")+(data.serie?" Serie: "+data.serie:"")+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)"});
+      }else{
+        setSuelosStatus({ok:false,msg:data.mensaje||"No se pudo obtener.",debug:JSON.stringify(data.debug||[],null,2).substring(0,1200)});
+      }
+    }catch(e){
+      setSuelosStatus({ok:false,msg:"Error de conexion: "+e.message});
+    }
+  };
+
   const exportarWord=()=>{
     const el=document.getElementById("informe");
     if(!el)return;
@@ -524,6 +554,7 @@ export default function App(){
             <SecT icon="🏛️" title="Roles SII del Predio"/>
             <div style={{background:"#fffbe6",border:"1px solid "+ORO,borderRadius:8,padding:"12px 16px",marginBottom:14,fontSize:13}}>
               <b>Flujo:</b> Ingresa rol y comuna → presiona "🔎 Buscar Auto" para rellenar avaluo, superficie, destino y coordenadas desde el SII. Si falla, usa los botones manuales. La region se completa sola con la comuna.
+              <div style={{marginTop:8,fontSize:12}}><span style={{color:"#e53935",fontWeight:700}}>■ Borde rojo</span> = obligatorio para generar el informe &nbsp;|&nbsp; <span style={{color:ORO,fontWeight:700}}>■ Borde dorado</span> = recomendado para un informe completo</div>
             </div>
             {debugSII&&(
               <div style={{background:debugSII.ok?"#f0faf4":"#fff5f5",border:"1px solid "+(debugSII.ok?G:"#feb2b2"),borderRadius:8,padding:"12px 16px",marginBottom:14,fontSize:13,color:debugSII.ok?G:"#c53030"}}>
@@ -563,11 +594,11 @@ export default function App(){
                 <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap",alignItems:"flex-end"}}>
                   <div style={{flex:"1 1 130px"}}>
                     <Lbl c="Numero de Rol"/>
-                    <input value={r.rol} onChange={e=>updRol(i,"rol",e.target.value)} placeholder="ej: 127-352" style={iS}/>
+                    <input value={r.rol} onChange={e=>updRol(i,"rol",e.target.value)} placeholder="ej: 127-352" style={{...iS,...(!String(r.rol||"").trim()?{border:"2px solid #e53935",background:"#fff8f8"}:{})}}/>
                   </div>
                   <div style={{flex:"1 1 130px"}}>
                     <Lbl c="Comuna"/>
-                    <input value={r.comuna} onChange={e=>updRol(i,"comuna",e.target.value)} placeholder="Paine" style={iS}/>
+                    <input value={r.comuna} onChange={e=>updRol(i,"comuna",e.target.value)} placeholder="Paine" style={{...iS,...(!String(r.comuna||"").trim()?{border:"2px solid #e53935",background:"#fff8f8"}:{})}}/>
                   </div>
                   {i===0&&getRegion(r.comuna)&&(
                     <div style={{flex:"1 1 130px"}}>
@@ -585,9 +616,9 @@ export default function App(){
                 <div style={{background:GH,borderRadius:8,padding:14,border:"1px solid #c8e6d4"}}>
                   <div style={{fontSize:12,color:G,fontWeight:700,marginBottom:10}}>Datos del Certificado SII</div>
                   <G2>
-                    <Fld label="Propietario" value={r.datos.propietario} onChange={v=>updRolDatos(i,"propietario",v.toUpperCase())}/>
-                    <Fld label="RUT" value={r.datos.rut} onChange={v=>updRolDatos(i,"rut",v)} placeholder="16.661.046-K"/>
-                    <Fld label="Avaluo Fiscal ($)" value={r.datos.avaluoFiscal} onChange={v=>updRolDatos(i,"avaluoFiscal",fmtMiles(v))} placeholder="243.691.524"/>
+                    <Fld warn label="Propietario" value={r.datos.propietario} onChange={v=>updRolDatos(i,"propietario",v.toUpperCase())}/>
+                    <Fld warn label="RUT" value={r.datos.rut} onChange={v=>updRolDatos(i,"rut",v)} placeholder="16.661.046-K"/>
+                    <Fld warn label="Avaluo Fiscal ($)" value={r.datos.avaluoFiscal} onChange={v=>updRolDatos(i,"avaluoFiscal",fmtMiles(v))} placeholder="243.691.524"/>
                     <Fld label="Fecha Avaluo" value={r.datos.avaluoFecha} onChange={v=>updRolDatos(i,"avaluoFecha",v)} placeholder="29/09/2025"/>
                     <Fld label="Superficie SII (ha)" value={r.datos.superfSII} onChange={v=>updRolDatos(i,"superfSII",v)} placeholder="8,23"/>
                     <Fld label="Destino / Uso" value={r.datos.destino} onChange={v=>updRolDatos(i,"destino",v)} placeholder="AGRICOLA"/>
@@ -649,7 +680,7 @@ export default function App(){
               <G2>
                 <Fld label="Solicitante" value={form.solicitante} onChange={v=>upd("solicitante",v)}/>
                 <Fld label="Email" value={form.email} onChange={v=>upd("email",v)} type="email"/>
-                <Fld label="Nombre del Predio" value={form.predioNombre} onChange={v=>upd("predioNombre",v)}/>
+                <Fld req label="Nombre del Predio" value={form.predioNombre} onChange={v=>upd("predioNombre",v)}/>
                 <Fld label="Localidad" value={form.localidad} onChange={v=>upd("localidad",v)}/>
                 <div>
                   <Lbl c="Provincia (auto / editable)"/>
@@ -677,7 +708,7 @@ export default function App(){
             <SecT icon="📍" title="Ubicacion"/>
             <Card>
               <G2>
-                <Fld label="Latitud S (decimal)" value={form.coordLat} onChange={v=>upd("coordLat",v)} placeholder="-33.829200"/>
+                <Fld warn label="Latitud S (decimal)" value={form.coordLat} onChange={v=>upd("coordLat",v)} placeholder="-33.829200"/>
                 <Fld label="Longitud O (decimal)" value={form.coordLon} onChange={v=>upd("coordLon",v)} placeholder="70.669500"/>
                 <Fld label="Altitud (m.s.n.m.)" value={form.altitud} onChange={v=>upd("altitud",v)} placeholder="390"/>
                 <Fld label="Distancia Santiago (km)" value={form.distSantiago} onChange={v=>upd("distSantiago",v)} placeholder="41"/>
@@ -697,6 +728,16 @@ export default function App(){
                 <div style={{fontWeight:600,color:G,fontSize:13}}>Clasificacion de Suelos (ha)</div>
                 <button onClick={abrirSITRURAL} style={{...bS,fontSize:11,padding:"5px 10px"}}>🌿 SITRURAL</button>
               </div>
+              <div style={{marginBottom:12}}>
+                <button onClick={suelosAuto} disabled={suelosStatus&&suelosStatus.loading} style={{...bP,fontSize:12,padding:"9px 16px"}}>{suelosStatus&&suelosStatus.loading?"Consultando CIREN...":"🌱 Suelos Auto (CIREN)"}</button>
+                <span style={{fontSize:11,color:"#888",marginLeft:10}}>Rellena las clases automaticamente desde el estudio agrologico CIREN usando el rol del Paso 1.</span>
+              </div>
+              {suelosStatus&&!suelosStatus.loading&&(
+                <div style={{background:suelosStatus.ok?"#f0faf4":"#fff5f5",border:"1px solid "+(suelosStatus.ok?G:"#feb2b2"),borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:12.5,color:suelosStatus.ok?G:"#c53030"}}>
+                  {suelosStatus.msg}
+                  {suelosStatus.debug&&<pre style={{fontSize:10,overflow:"auto",maxHeight:140,background:"#fff",padding:8,borderRadius:6,marginTop:8,color:"#555"}}>{suelosStatus.debug}</pre>}
+                </div>
+              )}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12}}>
                 {[1,2,3,4,5,6,7,8].map(n=>(
                   <Fld key={n} label={"Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1]+" (ha)"} value={form["c"+n]} onChange={v=>upd("c"+n,v)} placeholder="0"/>
@@ -805,9 +846,9 @@ export default function App(){
             <SecT icon="📊" title="Valorizacion Comercial"/>
             <Card>
               <G2>
-                <Fld label="Valor Comercial ($)" value={form.valorComercial} onChange={v=>upd("valorComercial",fmtMiles(v))} placeholder="466.850.000"/>
+                <Fld warn label="Valor Comercial ($)" value={form.valorComercial} onChange={v=>upd("valorComercial",fmtMiles(v))} placeholder="466.850.000"/>
                 <Fld label="Valor Comercial (UF)" value={form.valorComercialUF} onChange={v=>upd("valorComercialUF",fmtMiles(v))} placeholder="11.802"/>
-                <Fld label="Valor Facil Venta ($)" value={form.valorFacilVenta} onChange={v=>upd("valorFacilVenta",fmtMiles(v))} placeholder="373.480.000"/>
+                <Fld warn label="Valor Facil Venta ($)" value={form.valorFacilVenta} onChange={v=>upd("valorFacilVenta",fmtMiles(v))} placeholder="373.480.000"/>
                 <Fld label="Valor Facil Venta (UF)" value={form.valorFacilVentaUF} onChange={v=>upd("valorFacilVentaUF",fmtMiles(v))} placeholder="9.442"/>
               </G2>
               {form.ufBase&&form.valorComercial&&(
