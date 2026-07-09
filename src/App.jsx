@@ -141,7 +141,7 @@ const EMPTY = {
   cn1:"",co1:"",ca1:"",cq1:"",cn2:"",co2:"",ca2:"",cq2:"",
   construcciones:"No posee construcciones ni instalaciones de ningun tipo.",
   plantacionDesc:"",plantacionHas:"0",plantacionValorHa:"0",
-  refs:[{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:""}],
+  refs:[{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""}],
   valorComercial:"",valorComercialUF:"",valorFacilVenta:"",valorFacilVentaUF:"",
   tasador:"Daniel Haeussler Bobillier",imagenes:[],
 };
@@ -486,10 +486,25 @@ export default function App(){
               <div style={{background:debugSII.ok?"#f0faf4":"#fff5f5",border:"1px solid "+(debugSII.ok?G:"#feb2b2"),borderRadius:8,padding:"12px 16px",marginBottom:14,fontSize:13,color:debugSII.ok?G:"#c53030"}}>
                 {debugSII.msg}
                 {debugSII.coords&&(
-                  <div style={{marginTop:10}}>
-                    <button onClick={()=>window.open("https://www.sitrural.cl/visor-de-mapas/?lat="+debugSII.coords.lat+"&lon="+debugSII.coords.lon,"_blank")} style={{...bS,fontSize:12,padding:"7px 14px",marginRight:8}}>🌱 Ver suelos en SITRURAL</button>
-                    <button onClick={()=>window.open("https://www.google.com/maps/@"+debugSII.coords.lat+","+debugSII.coords.lon+",800m/data=!3m1!1e3","_blank")} style={{...bS,fontSize:12,padding:"7px 14px"}}>🛰️ Ver en Google Earth</button>
-                    <div style={{fontSize:11,color:"#777",marginTop:6}}>Se abren centrados en el predio ({debugSII.coords.lat}, {debugSII.coords.lon}). Copia la clase de suelo que observes.</div>
+                  <div style={{marginTop:12,background:"#fff",border:"1px solid #c8e6d4",borderRadius:8,padding:"12px 14px"}}>
+                    <div style={{fontWeight:700,color:G,fontSize:13,marginBottom:8}}>🌱 Consultar suelos en SITRURAL (paso a paso)</div>
+                    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
+                      <div style={{fontSize:12,color:"#444"}}>Coordenadas para SITRURAL <b>(ya invertidas)</b>:</div>
+                      <code style={{background:GH,padding:"5px 10px",borderRadius:5,fontSize:13,fontWeight:700,color:G}}>{debugSII.coords.lon}, {debugSII.coords.lat}</code>
+                      <button onClick={()=>{navigator.clipboard.writeText(debugSII.coords.lon+", "+debugSII.coords.lat);}} style={{...bS,fontSize:11,padding:"5px 10px"}}>📋 Copiar</button>
+                    </div>
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                      <button onClick={()=>window.open("https://www.sitrural.cl/visor-de-mapas/","_blank")} style={{...bO,fontSize:12,padding:"7px 14px"}}>Abrir SITRURAL</button>
+                      <button onClick={()=>window.open("https://www.google.com/maps/@"+debugSII.coords.lat+","+debugSII.coords.lon+",800m/data=!3m1!1e3","_blank")} style={{...bS,fontSize:12,padding:"7px 14px"}}>🛰️ Google Earth</button>
+                    </div>
+                    <ol style={{fontSize:11.5,color:"#555",lineHeight:1.7,margin:0,paddingLeft:18}}>
+                      <li>En SITRURAL, clic en <b>"Ir a coordenadas"</b> y pega las de arriba (ya van en el orden que pide SITRURAL) para centrar el mapa en el predio.</li>
+                      <li>Busca y selecciona la <b>comuna</b> para que carguen los metadatos.</li>
+                      <li>Ve a <b>Catastros → Propiedades Rurales</b> y <b>activa esa capa</b>. Sobre el plano apareceran los roles.</li>
+                      <li>Ubica y selecciona el <b>rol {"{"}manzana-predio{"}"}</b> en el plano → se despliega la superficie y los 8 tipos de suelo.</li>
+                      <li>Copia la <b>superficie total</b> y la <b>superficie por tipo de suelo</b> en los campos Clase I a VIII del formulario.</li>
+                      <li>Opcional: en <b>Recursos Naturales</b> activa la capa de <b>suelos de la comuna</b> para la serie y descripcion.</li>
+                    </ol>
                   </div>
                 )}
                 {debugSII.debug&&<pre style={{fontSize:10,overflow:"auto",maxHeight:160,background:"#fff",padding:8,borderRadius:6,marginTop:8,color:"#555"}}>{debugSII.debug}</pre>}
@@ -714,20 +729,23 @@ export default function App(){
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                   <thead><tr style={{background:G,color:"#fff"}}>
-                    {["Oferta / Corredor","Ubicacion","Sup. (ha)","Valor Total ($)","Valor ($/ha)"].map((h,i)=>(
+                    {["Oferta / Corredor","Ubicacion","Sup. (ha)","Valor Total ($)","Valor ($/ha)","Ajuste %"].map((h,i)=>(
                       <th key={i} style={{padding:"10px 8px",textAlign:"left",fontWeight:600,fontSize:12}}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>{form.refs.map((r,i)=>(
                     <tr key={i} style={{background:i%2===0?"#fff":GH}}>
-                      {["oferta","ubicacion","has","valorTotal","valorHa"].map(k=>(
-                        <td key={k} style={{padding:"4px 6px"}}><input value={r[k]} onChange={e=>updRef(i,k,e.target.value)} style={{...iS,margin:0,padding:"6px 8px",fontSize:12}}/></td>
+                      {["oferta","ubicacion","has","valorTotal","valorHa","ajuste"].map(k=>(
+                        <td key={k} style={{padding:"4px 6px"}}><input value={r[k]} onChange={e=>updRef(i,k,(k==="valorTotal"||k==="valorHa")?fmtMiles(e.target.value):e.target.value)} placeholder={k==="ajuste"?"0":""} style={{...iS,margin:0,padding:"6px 8px",fontSize:12,minWidth:k==="ajuste"?52:80}}/></td>
                       ))}
                     </tr>
                   ))}</tbody>
                 </table>
               </div>
-              <button onClick={()=>upd("refs",[...form.refs,{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:""}])} style={{...bS,marginTop:10,fontSize:12}}>+ Agregar fila</button>
+              <div style={{fontSize:11.5,color:"#777",marginTop:8,lineHeight:1.6}}>
+                <b>Ajuste %:</b> corrige cada testigo respecto del predio en estudio (negociacion, acceso, tamano, suelos, ubicacion). Ej: -5 si el testigo es mejor que el predio, +10 si es peor. El promedio homologado se calcula solo y aparece en el informe.
+              </div>
+              <button onClick={()=>upd("refs",[...form.refs,{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""}])} style={{...bS,marginTop:10,fontSize:12}}>+ Agregar fila</button>
             </Card>
 
             <SecT icon="🌾" title="Valores por Clase de Suelo"/>
@@ -881,8 +899,25 @@ export default function App(){
               <PgFB title="6. Tasacion">
                 <Sub>Criterios de Tasacion</Sub>
                 <p style={TXT}>Esta propiedad se valora con un criterio comercial, considerando su ubicacion y acceso, calidad y aptitud de suelos, disponibilidad de agua de riego, asi como tambien valores de mercado de propiedades similares en el sector.</p>
-                <Sub>Referencias de Mercado</Sub>
-                <GTbl headers={["Oferta","Ubicacion","Superficie (ha)","Valor Total ($)","Valor ($/ha)"]} rows={report.refs.filter(r=>r.oferta).map(r=>[r.oferta,r.ubicacion,r.has,r.valorTotal,r.valorHa])}/>
+                <Sub>Referencias de Mercado y Homologacion</Sub>
+                {(()=>{
+                  const num=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+                  const filas=report.refs.filter(r=>r.oferta).map(r=>{
+                    const vha=num(r.valorHa)||(num(r.valorTotal)&&num(r.has)?num(r.valorTotal)/parseFloat(String(r.has).replace(",",".")):0);
+                    const aj=parseFloat(String(r.ajuste||"0").replace(",","."))||0;
+                    const hom=vha*(1+aj/100);
+                    return {r,vha,aj,hom};
+                  });
+                  const conDato=filas.filter(f=>f.hom>0);
+                  const prom=conDato.length?conDato.reduce((a,f)=>a+f.hom,0)/conDato.length:0;
+                  return <>
+                    <GTbl headers={["Oferta","Ubicacion","Sup. (ha)","Valor ($/ha)","Ajuste %","$/ha Homologado"]} rows={[
+                      ...filas.map(f=>[f.r.oferta,f.r.ubicacion,f.r.has,f.vha?"$ "+Math.round(f.vha).toLocaleString("es-CL"):"-",(f.aj>0?"+":"")+f.aj+"%",f.hom?"$ "+Math.round(f.hom).toLocaleString("es-CL"):"-"]),
+                      prom?["PROMEDIO HOMOLOGADO","","","","","$ "+Math.round(prom).toLocaleString("es-CL")]:null,
+                    ].filter(Boolean)} boldLast={prom?1:0}/>
+                    {prom>0&&<p style={{...TXT,marginTop:10}}>Del analisis de las referencias de mercado homologadas se obtiene un valor promedio de $ {Math.round(prom).toLocaleString("es-CL")} por hectarea, el cual se adopta como base para la valorizacion del predio en estudio, ponderado segun la calidad de suelos, acceso y disponibilidad de agua de la propiedad.</p>}
+                  </>;
+                })()}
                 <Sub>Valorizacion Comercial</Sub>
                 <GTbl boldLast={5} headers={["Componente","Has","$ x ha","Valor"]} rows={[
                   ...[1,2,3,4,5,6,7,8].filter(n=>parseFloat((report["c"+n]||"0").replace(",","."))>0).map(n=>{
