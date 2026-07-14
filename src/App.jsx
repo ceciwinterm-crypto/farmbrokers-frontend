@@ -132,7 +132,7 @@ const EMPTY = {
   roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}],
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",
-  coordLat:"",coordLon:"",altitud:"",distSantiago:"",acceso:"",
+  coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
@@ -330,7 +330,7 @@ export default function App(){
           cn2:form.cn2,co2:form.co2,ca2:form.ca2,cq2:form.cq2,
           plantacionDesc:form.plantacionDesc,plantacionHas:form.plantacionHas,
           construcciones:form.construcciones,
-          coordLat:form.coordLat,coordLon:form.coordLon,distSantiago:form.distSantiago,acceso:form.acceso,
+          coordLat:form.coordLat,coordLon:form.coordLon,distSantiago:form.distSantiago,distComuna:form.distComuna,acceso:form.acceso,
         })
       });
 
@@ -382,6 +382,7 @@ export default function App(){
         if(d.direccion&&String(d.direccion).trim()){if(!form.localidad)upd("localidad",String(d.direccion).trim());ok.push("direccion");}
         if(d.lat&&i===0){upd("coordLat",String(d.lat));ok.push("coordenadas");}
         if(d.lon&&i===0){upd("coordLon",String(d.lon));}
+        if(d.lat&&d.lon&&i===0){distanciasAuto(d.lat,d.lon,r.comuna);ok.push("distancias (calculando...)");}
         if(d.areaHomogenea){updRolDatos(i,"areaHomogenea",String(d.areaHomogenea));ok.push("area homogenea ("+d.areaHomogenea+")");}
         if(d.reavaluo){updRolDatos(i,"reavaluo",String(d.reavaluo));ok.push("reavaluo");}
         if(!d.areaHomogenea)falta.push("clasificacion de suelos (no publicada - usa el certificado detallado o SITRURAL)");
@@ -426,25 +427,48 @@ export default function App(){
         llenarSi("ph",car.ph);
         llenarSi("aptitud",car.aptitud);
         llenarSi("capacidadUso",data.capacidadUso);
-        const NOMBRES={textura:"Textura",profundidad:"Profundidad",drenaje:"Drenaje",pendiente:"Pendiente",erosion:"Erosion",pedregosidad:"Pedregosidad",ph:"pH",aptitud:"Aptitud"};
-        const faltantes=Object.keys(NOMBRES).filter(k=>!car[k]||!String(car[k]).trim());
-        let carTxt="";
-        const obtenidas=Object.keys(NOMBRES).filter(k=>car[k]&&String(car[k]).trim());
-        if(obtenidas.length)carTxt=" Caracteristicas CIREN → "+obtenidas.map(k=>NOMBRES[k]+": "+car[k]).join(" | ")+".";
-        if(faltantes.length)carTxt+=" Sin dato CIREN para: "+faltantes.map(k=>NOMBRES[k]).join(", ")+" (completa manual o envia el detalle a Claude).";
         let usosTxt="";
         if(data.usos&&Object.keys(data.usos).length){
           upd("usosCIREN",JSON.stringify(data.usos));
           usosTxt=" Uso actual (CONAF): "+Object.entries(data.usos).map(([u,h])=>u+" "+h+" ha").join(" | ")+".";
         }
         if(data.bbox)generarPlanoSuelos(data.bbox,data.capaSueloId,data.capaPredioId);
-        setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(data.serie?" Serie: "+data.serie:"")+carTxt+usosTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null});
+        setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(data.serie?" Serie: "+data.serie:"")+usosTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:data.notaClases?JSON.stringify(data.debug||[],null,2).substring(0,1500):null});
       }else{
         setSuelosStatus({ok:false,msg:data.mensaje||"No se pudo obtener.",debug:JSON.stringify(data.debug||[],null,2).substring(0,1200)});
       }
     }catch(e){
       setSuelosStatus({ok:false,msg:"Error de conexion: "+e.message});
     }
+  };
+
+  const [distStatus,setDistStatus]=useState(null);
+  const distanciasAuto=async(latP,lonP,comunaP)=>{
+    const la=latP||form.coordLat, lo=lonP||form.coordLon;
+    const com=comunaP||(form.roles[0]&&form.roles[0].comuna)||"";
+    if(!la||!lo){alert("Primero necesito las coordenadas (usa Buscar Auto o ingresalas).");return;}
+    if(!form.backendUrl)return;
+    setDistStatus({loading:true});
+    try{
+      const resp=await fetch(form.backendUrl.replace(/\/$/,"")+"/distancias",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({lat:la,lon:lo,comuna:com})
+      });
+      const data=await resp.json();
+      if(data.ok){
+        if(data.santiago&&data.santiago.km){
+          upd("distSantiago",String(Math.round(data.santiago.km)));
+        }
+        let msg="Distancia a Santiago: "+Math.round(data.santiago.km)+" km"+(data.santiago.min?" (~"+Math.floor(data.santiago.min/60)+"h "+(data.santiago.min%60)+"min por carretera)":" (estimada)");
+        if(data.comuna&&data.comuna.km){
+          upd("distComuna",String(data.comuna.km)+" km");
+          msg+=" | Al centro de "+(data.comunaNombre||com)+": "+data.comuna.km+" km"+(data.comuna.min?" (~"+data.comuna.min+" min)":"");
+        }
+        setDistStatus({ok:true,msg});
+      }else{
+        setDistStatus({ok:false,msg:data.error||"No se pudo calcular."});
+      }
+    }catch(e){setDistStatus({ok:false,msg:"Error: "+e.message});}
   };
 
   const generarPlanoSuelos=(bbox,capaId,capaPredioId)=>{
@@ -797,7 +821,11 @@ export default function App(){
                 <Fld warn label="Latitud S (decimal)" value={form.coordLat} onChange={v=>upd("coordLat",v)} placeholder="-33.829200"/>
                 <Fld label="Longitud O (decimal)" value={form.coordLon} onChange={v=>upd("coordLon",v)} placeholder="70.669500"/>
                 <Fld label="Altitud (m.s.n.m.)" value={form.altitud} onChange={v=>upd("altitud",v)} placeholder="390"/>
-                <Fld label="Distancia Santiago (km)" value={form.distSantiago} onChange={v=>upd("distSantiago",v)} placeholder="41"/>
+                <div>
+                  <Fld label="Distancia Santiago (km)" value={form.distSantiago} onChange={v=>upd("distSantiago",v)} placeholder="41"/>
+                  <button onClick={()=>distanciasAuto()} disabled={distStatus&&distStatus.loading} style={{...bS,fontSize:11,padding:"6px 12px",marginTop:2}}>{distStatus&&distStatus.loading?"Calculando...":"📏 Calcular distancias"}</button>
+                  {distStatus&&!distStatus.loading&&<div style={{fontSize:11,color:distStatus.ok?G:"#c53030",marginTop:4,lineHeight:1.5}}>{distStatus.msg}</div>}
+                </div>
               </G2>
               <Fld label="Descripcion de Acceso" value={form.acceso} onChange={v=>upd("acceso",v)} multi placeholder="Ej: Acceso a traves de Camino Padre Hurtado (Ruta G-515H)..."/>
             </Card>
