@@ -84,23 +84,22 @@ function SecT({icon,title}){
     <h2 style={{margin:0,color:G,fontSize:16,fontFamily:FONT,fontWeight:700}}>{title}</h2>
   </div>;
 }
+function capTxt(s){return String(s||"").trim().toLowerCase().replace(/(^|[\s.\-("])([a-zaeiounü\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1])/g,(m,p,l)=>p+l.toUpperCase());}
 function PgFB({title,children}){
   return <div style={{padding:"46px 64px 28px",borderTop:"1px solid #f2f2f2",minHeight:420,display:"flex",flexDirection:"column",fontFamily:FONT}}>
     {title?<h2 style={{fontFamily:FONT,fontWeight:700,fontSize:17,letterSpacing:0.4,color:"#1a1a1a",borderBottom:"2px solid "+G,paddingBottom:8,marginBottom:26,marginTop:0}}>{title}</h2>:null}
     <div style={{flex:1}}>{children}</div>
     <div style={{marginTop:44}}>
-      <div style={{height:2,background:G}}/>
-      <div style={{height:1,background:ORO,marginTop:2}}/>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",paddingTop:10}}>
-        <span style={{fontSize:9.5,letterSpacing:2.5,textTransform:"uppercase",color:G,fontWeight:700}}>Farm Brokers Chile</span>
-        <span style={{fontSize:9.5,fontStyle:"italic",color:"#7d7d7d"}}>Tasaciones · Estudios · Venta de Campos</span>
-        <span style={{fontSize:9.5,letterSpacing:1,color:"#7d7d7d"}}>www.farmbrokers.cl</span>
+      <div style={{height:1,background:"#d8d8d8"}}/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",paddingTop:8}}>
+        <span style={{fontSize:9,color:"#8a8a8a"}}><span style={{fontWeight:700,color:G}}>Farm Brokers Chile</span> · Tasaciones, Estudios y Venta de Campos</span>
+        <span style={{fontSize:9,color:"#8a8a8a"}}>www.farmbrokers.cl</span>
       </div>
-      <div style={{textAlign:"center",fontSize:8.5,color:"#a0a0a0",marginTop:5,letterSpacing:0.5}}>Estoril N° 120, Of. 615, Las Condes · +56 9 7193 9040 · contacto@farmbrokers.cl</div>
     </div>
   </div>;
 }
 function IRw({label,value}){
+  if(value===null||value===undefined||String(value).trim()===""||String(value).trim()==="$"||String(value).trim()==="$ ")return null;
   return <div style={{display:"flex",gap:10,marginBottom:5,fontFamily:FONT,fontSize:13.5,lineHeight:1.7}}>
     <span style={{fontWeight:700,minWidth:210,color:"#1f1f1f"}}>{label}</span>
     <span style={{color:"#2b2b2b"}}>{value}</span>
@@ -570,7 +569,7 @@ export default function App(){
 
   return(
     <div style={{minHeight:"100vh",background:GRIS2,fontFamily:SANS}}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @media print{header,.noprint,button,.stepsbar{display:none!important} main{max-width:100%!important;padding:0!important} #informe{border:none!important;border-radius:0!important} #informe>div{page-break-after:always;min-height:auto!important} #informe>div:last-child{page-break-after:auto} table,img,tr{page-break-inside:avoid!important} h2{page-break-after:avoid} p{orphans:3;widows:3} body{background:white!important} @page{size:letter;margin:1.3cm}}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @media print{header,.noprint,button,.stepsbar{display:none!important} main{max-width:100%!important;padding:0!important} #informe{border:none!important;border-radius:0!important} #informe>div{page-break-after:always;min-height:auto!important} #informe>div:last-child{page-break-after:auto} table,img,tr{page-break-inside:avoid!important} h2{page-break-after:avoid} p{orphans:3;widows:3} body{background:white!important} @page{size:letter;margin:0} #informe>div{box-sizing:border-box;min-height:27.6cm;padding-left:1.9cm!important;padding-right:1.9cm!important;padding-top:1.5cm!important;padding-bottom:1.1cm!important}}`}</style>
 
       <header style={{background:G,color:"#fff",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:60,boxShadow:"0 2px 10px rgba(0,0,0,0.2)"}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -1048,10 +1047,10 @@ export default function App(){
                 </div>
                 <div style={{textAlign:"center",flex:1,display:"flex",flexDirection:"column",justifyContent:"center"}}>
                   <h1 style={{fontFamily:FONT,fontSize:34,fontWeight:700,color:"#1a1a1a",marginBottom:28}}>Informe Tasacion</h1>
-                  <p style={{fontSize:20,color:"#333",marginBottom:10}}>{report.predioNombre}</p>
-                  {report.roles.map((r,i)=><p key={i} style={{fontSize:16,color:"#444",marginBottom:4}}>Rol N {r.rol} - {r.comuna}</p>)}
-                  <p style={{fontSize:14,color:"#555",marginBottom:3}}>Provincia de {report.provincia}</p>
-                  <p style={{fontSize:14,color:"#555"}}>Region {report.region} - Chile</p>
+                  <p style={{fontSize:20,color:"#333",marginBottom:10}}>{capTxt(report.predioNombre)}</p>
+                  {report.roles.map((r,i)=><p key={i} style={{fontSize:16,color:"#444",marginBottom:4}}>Rol N° {r.rol} — {capTxt(r.comuna)}</p>)}
+                  {report.provincia?<p style={{fontSize:14,color:"#555",marginBottom:3}}>Provincia de {capTxt(report.provincia)}</p>:null}
+                  <p style={{fontSize:14,color:"#555"}}>Region de {capTxt(report.region)} — Chile</p>
                   <p style={{fontSize:13,color:"#777",marginTop:22}}>{report.fecha}</p>
                 </div>
                 <div style={{background:G,margin:"0 -60px",padding:"14px 60px",display:"flex",justifyContent:"space-between",color:"#fff",fontSize:10,marginTop:36}}>
@@ -1064,11 +1063,11 @@ export default function App(){
                 <IRw label="Solicitante:" value={report.solicitante}/>
                 <IRw label="Email:" value={report.email}/>
                 {report.roles.map((r,i)=><div key={i}><IRw label={"Propietario (Rol "+r.rol+"):"} value={r.datos.propietario}/><IRw label="RUT:" value={r.datos.rut}/></div>)}
-                <IRw label="Predio Tasado:" value={report.predioNombre}/>
-                {report.roles.map((r,i)=><IRw key={i} label={"Rol SII "+(i+1)+":"} value={r.rol+" - "+r.comuna}/>)}
+                <IRw label="Predio Tasado:" value={capTxt(report.predioNombre)}/>
+                {report.roles.map((r,i)=><IRw key={i} label={"Rol SII "+(i+1)+":"} value={r.rol+" — "+capTxt(r.comuna)}/>)}
                 <IRw label="Localidad:" value={report.localidad}/>
                 <IRw label="Provincia:" value={report.provincia}/>
-                <IRw label="Region:" value={report.region}/>
+                <IRw label="Region:" value={capTxt(report.region)}/>
                 {report.roles.map((r,i)=><IRw key={i} label={"Avaluo Fiscal Rol "+r.rol+":"} value={"$ "+fmtMiles(r.datos.avaluoFiscal)+"   "+r.datos.avaluoFecha}/>)}
                 {report.avaluoTotal>0&&<IRw label="Avaluo Fiscal Total:" value={"$ "+report.avaluoTotal.toLocaleString("es-CL")}/>}
                 <IRw label="Fecha Tasacion:" value={report.fecha}/>
@@ -1097,7 +1096,7 @@ export default function App(){
 
               <PgFB title="4. Antecedentes Legales">
                 <GTbl headers={["INMUEBLE","Ins. Dom.","N","Ano","Superf (ha)","Rol","C.B. Raices"]}
-                  rows={[...report.roles.map(r=>[report.predioNombre,"-","-","-",r.datos.superfSII,r.rol,r.comuna]),
+                  rows={[...report.roles.map(r=>[capTxt(report.predioNombre),"-","-","-",r.datos.superfSII,r.rol,capTxt(r.comuna)]),
                     report.cn1?[report.cn1,"-","-","-",report.ca1,"","Santiago"]:null,
                     report.cn2?[report.cn2,"-","-","-",report.ca2,"","Santiago"]:null]}/>
                 <p style={{...TXT,marginTop:14}}>{report.ia&&report.ia.titulos}</p>
@@ -1105,7 +1104,7 @@ export default function App(){
 
               <PgFB title="5. Antecedentes Tecnicos">
                 <Sub>Superficie:</Sub>
-                <GTbl headers={["SUPERFICIE","HECTAREAS"]} rows={[["Titulos de la Propiedad",report.superfTitulos],["SII (suma de roles)",report.superfSIITotal.toFixed(2)],["Google Earth",report.superfGoogleEarth]]}/>
+                <GTbl headers={["SUPERFICIE","HECTAREAS"]} rows={[["Titulos de la Propiedad",report.superfTitulos],["SII (suma de roles)",report.superfSIITotal>0?report.superfSIITotal.toFixed(2):""],["Google Earth",report.superfGoogleEarth]].filter(r=>String(r[1]||"").trim())}/>
                 {report.imagenSatelital&&<><img src={report.imagenSatelital} alt="Plano" style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:6,border:"1px solid #ddd",margin:"12px 0 4px"}}/><p style={{fontStyle:"italic",fontSize:12,textAlign:"center",color:"#888"}}>Fuente: Google Earth</p></>}
                 <Sub>Suelos:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.suelos}</p>
@@ -1121,7 +1120,7 @@ export default function App(){
                 {[["Pendiente",report.pendiente],["Profundidad",report.profundidad],["Erosion",report.erosion],["Pedregosidad",report.pedregosidad],["Drenaje",report.drenaje],["Textura",report.textura],["pH",report.ph],["Aptitud",report.aptitud],["Capacidad de Uso",report.capacidadUso]].filter(([,v])=>v).map(([l,v],i)=><IRw key={i} label={l+":"} value={v}/>)}
                 <Sub>Recursos Hidricos:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.hidrico}</p>
-                <GTbl headers={["CANAL","ORIGEN","Acciones","Caudal"]} rows={[report.cn1?[report.cn1,report.co1,report.ca1,report.cq1+" l/s"]:null,report.cn2?[report.cn2,report.co2,report.ca2,report.cq2]:null]}/>
+                {report.cn1?<GTbl headers={["CANAL","ORIGEN","Acciones","Caudal"]} rows={[[report.cn1,report.co1,report.ca1,report.cq1+" l/s"],report.cn2?[report.cn2,report.co2,report.ca2,report.cq2]:null]}/>:null}
                 <Sub>Clima:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.clima}</p>
                 <Sub>Construcciones:</Sub>
@@ -1195,7 +1194,7 @@ export default function App(){
               <button onClick={exportarWord} style={{...bP,background:ORO}}>📄 Descargar Word Editable</button>
               <button onClick={()=>{setReport(null);setStep(0);setForm(EMPTY);setSatelitalStatus("idle");setUfStatus("idle");}} style={bS}>Nueva Tasacion</button>
             </div>
-            <p style={{textAlign:"center",fontSize:12,color:"#aaa",marginTop:10}}>Imprimir → Guardar como PDF en tu navegador.</p>
+            <p style={{textAlign:"center",fontSize:12,color:"#aaa",marginTop:10}}>Imprimir → Guardar como PDF. En el dialogo: Margenes = "Ninguno" (o "Predeterminado") y en "Mas opciones" desactiva "Encabezados y pies de pagina" para un PDF limpio.</p>
           </div>
         )}
       </main>
