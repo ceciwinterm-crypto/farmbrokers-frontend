@@ -165,6 +165,7 @@ export default function App(){
   const upd=(k,v)=>setForm(f=>({...f,[k]:v}));
   const updRef=(i,k,v)=>setForm(f=>{const refs=[...f.refs];refs[i]={...refs[i],[k]:v};return{...f,refs};});
   const addRol=()=>setForm(f=>({...f,roles:[...f.roles,{rol:"",comuna:(f.roles[0]&&f.roles[0].comuna)||"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}]}));
+  const setCoordRol=(i,campo,v)=>{setForm(f=>{const roles=f.roles.map((rr,j)=>j===i?{...rr,datos:{...rr.datos,[campo]:v}}:rr);const pts=roles.map(rr=>{const la=parseFloat(rr.datos&&rr.datos.lat),lo=parseFloat(rr.datos&&rr.datos.lon);return (la&&lo)?{la,lo}:null;}).filter(Boolean);const nf={...f,roles};if(pts.length){nf.coordLat=(pts.reduce((s,p)=>s+p.la,0)/pts.length).toFixed(6);nf.coordLon=(pts.reduce((s,p)=>s+p.lo,0)/pts.length).toFixed(6);}return nf;});};
   const updRol=(i,k,v)=>setForm(f=>{
     const roles=[...f.roles];
     roles[i]={...roles[i],[k]:v};
@@ -742,6 +743,8 @@ export default function App(){
                     <Fld label="Fecha Avaluo" value={r.datos.avaluoFecha} onChange={v=>updRolDatos(i,"avaluoFecha",v)} placeholder="29/09/2025"/>
                     <Fld label="Superficie SII (ha)" value={r.datos.superfSII} onChange={v=>updRolDatos(i,"superfSII",v)} placeholder="8,23"/>
                     <Fld label="Destino / Uso" value={r.datos.destino} onChange={v=>updRolDatos(i,"destino",v)} placeholder="AGRICOLA"/>
+                    <Fld label="Latitud (rol)" value={r.datos.lat||""} onChange={v=>setCoordRol(i,"lat",v)} placeholder="-38.463920"/>
+                    <Fld label="Longitud (rol)" value={r.datos.lon||""} onChange={v=>setCoordRol(i,"lon",v)} placeholder="-72.768500"/>
                   </G2>
                 </div>
               </Card>
