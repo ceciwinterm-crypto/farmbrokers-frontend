@@ -380,9 +380,14 @@ export default function App(){
         if(num(d.superficie)>0){updRolDatos(i,"superfSII",String(d.superficie));ok.push("superficie");}else falta.push("superficie (el mapa SII no la publica para este predio - copiala del certificado)");
         if(d.destino){updRolDatos(i,"destino",String(d.destino).toUpperCase());ok.push("destino");}
         if(d.direccion&&String(d.direccion).trim()){if(!form.localidad)upd("localidad",String(d.direccion).trim());ok.push("direccion");}
-        if(d.lat&&i===0){upd("coordLat",String(d.lat));ok.push("coordenadas");}
-        if(d.lon&&i===0){upd("coordLon",String(d.lon));}
-        if(d.lat&&d.lon&&i===0){distanciasAuto(d.lat,d.lon,r.comuna);ok.push("distancias (calculando...)");}
+        if(d.lat&&d.lon){
+          updRolDatos(i,"lat",String(d.lat));updRolDatos(i,"lon",String(d.lon));
+          const pts=form.roles.map((rr,j)=>j===i?{la:parseFloat(d.lat),lo:parseFloat(d.lon)}:((rr.datos&&rr.datos.lat&&rr.datos.lon)?{la:parseFloat(rr.datos.lat),lo:parseFloat(rr.datos.lon)}:null)).filter(Boolean);
+          const cLat=pts.reduce((s,p)=>s+p.la,0)/pts.length, cLon=pts.reduce((s,p)=>s+p.lo,0)/pts.length;
+          upd("coordLat",cLat.toFixed(6));upd("coordLon",cLon.toFixed(6));
+          ok.push(pts.length>1?("coordenadas (punto medio de "+pts.length+" roles)"):"coordenadas");
+          distanciasAuto(cLat,cLon,r.comuna);ok.push("distancias (calculando...)");
+        }
         if(d.areaHomogenea){updRolDatos(i,"areaHomogenea",String(d.areaHomogenea));ok.push("area homogenea ("+d.areaHomogenea+")");}
         if(d.reavaluo){updRolDatos(i,"reavaluo",String(d.reavaluo));ok.push("reavaluo");}
         if(!d.areaHomogenea)falta.push("clasificacion de suelos (no publicada - usa el certificado detallado o SITRURAL)");
