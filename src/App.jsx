@@ -443,7 +443,7 @@ export default function App(){
           usosTxt=" Uso actual (CONAF): "+Object.entries(data.usos).map(([u,h])=>u+" "+h+" ha").join(" | ")+".";
         }
         if(data.bbox)generarPlanoSuelos(data.bbox,data.capaSueloId,data.capaPredioId);
-        setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(data.serie?" Serie: "+data.serie:"")+carTxt+usosTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null});
+        setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(data.serie?" Serie: "+data.serie:"")+carTxt+usosTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(data,null,2)});
       }else{
         setSuelosStatus({ok:false,msg:data.mensaje||"No se pudo obtener.",debug:JSON.stringify(data.debug||[],null,2).substring(0,1200)});
       }
@@ -859,6 +859,7 @@ export default function App(){
               {suelosStatus&&!suelosStatus.loading&&(
                 <div style={{background:suelosStatus.ok?"#f0faf4":"#fff5f5",border:"1px solid "+(suelosStatus.ok?G:"#feb2b2"),borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:12.5,color:suelosStatus.ok?G:"#c53030"}}>
                   {suelosStatus.msg}
+                  {suelosStatus.debugFull&&<div><button onClick={()=>{navigator.clipboard.writeText(suelosStatus.debugFull);alert("Detalle copiado. Pegalo en el chat de Claude.");}} style={{fontSize:11,padding:"5px 10px",marginTop:8,borderRadius:6,border:"1px solid #999",background:"#fff",cursor:"pointer"}}>📋 Copiar detalle para Claude</button></div>}
                   {suelosStatus.debug&&<pre style={{fontSize:10,overflow:"auto",maxHeight:140,background:"#fff",padding:8,borderRadius:6,marginTop:8,color:"#555"}}>{suelosStatus.debug}</pre>}
                 </div>
               )}
