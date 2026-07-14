@@ -165,7 +165,7 @@ export default function App(){
 
   const upd=(k,v)=>setForm(f=>({...f,[k]:v}));
   const updRef=(i,k,v)=>setForm(f=>{const refs=[...f.refs];refs[i]={...refs[i],[k]:v};return{...f,refs};});
-  const addRol=()=>setForm(f=>({...f,roles:[...f.roles,{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}]}));
+  const addRol=()=>setForm(f=>({...f,roles:[...f.roles,{rol:"",comuna:(f.roles[0]&&f.roles[0].comuna)||"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}]}));
   const updRol=(i,k,v)=>setForm(f=>{
     const roles=[...f.roles];
     roles[i]={...roles[i],[k]:v};
