@@ -329,7 +329,7 @@ export default function App(){
           cn1:form.cn1,co1:form.co1,ca1:form.ca1,cq1:form.cq1,
           cn2:form.cn2,co2:form.co2,ca2:form.ca2,cq2:form.cq2,
           plantacionDesc:form.plantacionDesc,plantacionHas:form.plantacionHas,
-          plantacionesTxt:(()=>{try{const l=JSON.parse(form.plantacionesCIREN||"[]");return l.filter(p=>String(p.especie||"").trim()).map(p=>p.especie+(p.variedad?" var. "+p.variedad:"")+(p.anio?", plantacion "+p.anio:"")+(p.arboles?", "+p.arboles+" arboles":"")+(p.has?", "+p.has+" ha":"")).join(" | ");}catch(e){return "";}})(),
+          plantacionesTxt:(()=>{try{const l=JSON.parse(form.plantacionesCIREN||"[]");return l.filter(p=>String(p.especie||"").trim()).map(p=>p.especie+(p.variedad?" var. "+p.variedad:"")+(p.anio?", plantacion "+p.anio:"")+(p.arboles?", "+p.arboles+" arboles":"")+(p.has?", "+p.has+" ha":"")+(p.vha?", valorizada en $"+p.vha+"/ha":"")).join(" | ");}catch(e){return "";}})(),
           construcciones:form.construcciones,
           coordLat:form.coordLat,coordLon:form.coordLon,distSantiago:form.distSantiago,distComuna:form.distComuna,acceso:form.acceso,
         })
@@ -912,6 +912,7 @@ export default function App(){
                       <input value={p.anio||""} onChange={e=>setP(i,"anio",e.target.value)} placeholder="Año" style={{...iS,width:70,margin:0,padding:"7px 10px",fontSize:12.5}}/>
                       <input value={p.arboles||""} onChange={e=>setP(i,"arboles",e.target.value)} placeholder="N° arb." style={{...iS,width:85,margin:0,padding:"7px 10px",fontSize:12.5}}/>
                       <input value={p.has||""} onChange={e=>setP(i,"has",e.target.value)} placeholder="ha" style={{...iS,width:80,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={p.vha||""} onChange={e=>setP(i,"vha",fmtMiles(e.target.value))} placeholder="$ x ha" style={{...iS,width:110,margin:0,padding:"7px 10px",fontSize:12.5}}/>
                       <button onClick={()=>guardarP(pls.filter((_,j)=>j!==i))} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
                     </div>
                   ))}
@@ -1186,6 +1187,12 @@ export default function App(){
                   </>;
                 })()}
                 <Sub>Valorizacion Comercial</Sub>
+                {(()=>{
+                  let plsV=[];try{plsV=JSON.parse(report.plantacionesCIREN||"[]").filter(p=>String(p.especie||"").trim());}catch(e){plsV=[];}
+                  const numP=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+                  const hasP=v=>parseFloat(String(v||"0").replace(",","."))||0;
+                  window.__plsValor=plsV.map(p=>({rotulo:capTxt(p.especie)+(p.variedad?" var. "+p.variedad:"")+(p.anio?" ("+p.anio+")":""),has:hasP(p.has),vha:numP(p.vha)}));
+                  return null;})()}
                 <GTbl boldLast={5} headers={["Componente","Has","$ x ha","Valor"]} rows={[
                   ...[1,2,3,4,5,6,7,8].filter(n=>parseFloat((report["c"+n]||"0").replace(",","."))>0).map(n=>{
                     const has=parseFloat((report["c"+n]||"0").replace(",","."));
@@ -1193,6 +1200,8 @@ export default function App(){
                     return ["Suelo Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1],report["c"+n],vha?"$ "+vha.toLocaleString("es-CL"):"-",vha?"$ "+Math.round(has*vha).toLocaleString("es-CL"):"-"];
                   }),
                   ["Total Suelos",[1,2,3,4,5,6,7,8].reduce((a,n)=>a+parseFloat((report["c"+n]||"0").replace(",","."))||a,0).toFixed(2),"",[1,2,3,4,5,6,7,8].reduce((a,n)=>{const h=parseFloat((report["c"+n]||"0").replace(",","."))||0;const v=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;return a+h*v;},0)>0?"$ "+Math.round([1,2,3,4,5,6,7,8].reduce((a,n)=>{const h=parseFloat((report["c"+n]||"0").replace(",","."))||0;const v=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;return a+h*v;},0)).toLocaleString("es-CL"):""],
+                  ...(window.__plsValor||[]).map(p=>["Plantacion "+p.rotulo,p.has?String(p.has):"-",p.vha?"$ "+Math.round(p.vha).toLocaleString("es-CL"):"-",(p.vha&&p.has)?"$ "+Math.round(p.vha*p.has).toLocaleString("es-CL"):"-"]),
+                  (window.__plsValor&&window.__plsValor.length)?["Total Plantaciones",window.__plsValor.reduce((s,p)=>s+p.has,0).toFixed(2),"",window.__plsValor.some(p=>p.vha&&p.has)?"$ "+Math.round(window.__plsValor.reduce((s,p)=>s+(p.vha*p.has||0),0)).toLocaleString("es-CL"):""]:null,
                   report.plantacionDesc?["Plantaciones",report.plantacionHas,"$ "+fmtMiles(report.plantacionValorHa),"-"]:null,
                   ["VALOR COMERCIAL $","","","$ "+fmtMiles(report.valorComercial)],
                   ["VALOR COMERCIAL UF","","","UF "+fmtMiles(report.valorComercialUF)],
