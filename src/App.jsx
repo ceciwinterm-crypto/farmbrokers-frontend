@@ -139,8 +139,8 @@ const EMPTY = {
   v1:"",v2:"",v3:"",v4:"",v5:"",v6:"",v7:"",v8:"",
   seriesSuelo:"",pendiente:"",profundidad:"",erosion:"",pedregosidad:"",
   drenaje:"",textura:"",ph:"",aptitud:"",capacidadUso:"",
-  cn1:"",co1:"",ca1:"",cq1:"",cn2:"",co2:"",ca2:"",cq2:"",
-  construcciones:"No posee construcciones ni instalaciones de ningun tipo.",
+  cn1:"",co1:"",ca1:"",cq1:"",cn2:"",co2:"",ca2:"",cq2:"",recursosHidricos:"",
+  construcciones:"No posee construcciones ni instalaciones de ningun tipo.",construccionesLista:"",metodologiaTxt:"",deslindeN:"",deslindeS:"",deslindeO:"",deslindeP:"",
   plantacionDesc:"",plantacionHas:"0",plantacionValorHa:"0",
   refs:[{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""}],
   valorComercial:"",valorComercialUF:"",valorFacilVenta:"",valorFacilVentaUF:"",
@@ -327,10 +327,13 @@ export default function App(){
           suelosDetalle:[1,2,3,4,5,6,7,8].map(n=>({n,h:parseFloat((form["c"+n]||"0").replace(",","."))})).filter(x=>x.h>0).map(x=>"Clase "+["I","II","III","IV","V","VI","VII","VIII"][x.n-1]+": "+x.h+" ha").join(", "),
           seriesSuelo:form.seriesSuelo,pendiente:form.pendiente,drenaje:form.drenaje,
           cn1:form.cn1,co1:form.co1,ca1:form.ca1,cq1:form.cq1,
+          recursosHidricosTxt:(()=>{try{const l=JSON.parse(form.recursosHidricos||"[]");return l.filter(r=>String(r.nombre||"").trim()||String(r.tipo||"").trim()).map(r=>(r.tipo||"")+" "+(r.nombre||"")+(r.origen?" (origen: "+r.origen+")":"")+(r.derechos?", "+r.derechos+" acciones/derechos":"")+(r.caudal?", "+r.caudal+" l/s":"")+(r.valor?", valorizado en $"+r.valor:"")).join(" | ");}catch(e){return "";}})(),
           cn2:form.cn2,co2:form.co2,ca2:form.ca2,cq2:form.cq2,
           plantacionDesc:form.plantacionDesc,plantacionHas:form.plantacionHas,
           plantacionesTxt:(()=>{try{const l=JSON.parse(form.plantacionesCIREN||"[]");return l.filter(p=>String(p.especie||"").trim()).map(p=>p.especie+(p.variedad?" var. "+p.variedad:"")+(p.anio?", plantacion "+p.anio:"")+(p.arboles?", "+p.arboles+" arboles":"")+(p.has?", "+p.has+" ha":"")+(p.vha?", valorizada en $"+p.vha+"/ha":"")).join(" | ");}catch(e){return "";}})(),
           construcciones:form.construcciones,
+          construccionesTxt:(()=>{try{const l=JSON.parse(form.construccionesLista||"[]");return l.filter(c=>String(c.nombre||"").trim()).map(c=>c.nombre+(c.m2?" ("+c.m2+" m2"+(c.anio?", año "+c.anio:"")+")":"")+(c.detalle?": "+c.detalle:"")).join(" | ");}catch(e){return "";}})(),
+          metodologiaTxt:form.metodologiaTxt,
           coordLat:form.coordLat,coordLon:form.coordLon,distSantiago:form.distSantiago,distComuna:form.distComuna,acceso:form.acceso,
         })
       });
@@ -554,7 +557,33 @@ export default function App(){
   const exportarWord=()=>{
     const el=document.getElementById("informe");
     if(!el)return;
-    const html="<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><style>body{font-family:Georgia,serif;} table{border-collapse:collapse;width:100%;} td,th{border:1px solid #999;padding:6px;}</style></head><body>"+el.innerHTML+"</body></html>";
+    // Limpieza para Word: se clona el informe y se adapta a documento carta editable
+    const clon=el.cloneNode(true);
+    // 1) Quitar los pies de pagina repetidos de pantalla (Word no los necesita)
+    clon.querySelectorAll("div").forEach(d=>{
+      const t=(d.textContent||"").trim();
+      if(t.includes("www.farmbrokers.cl")&&t.length<160)d.remove();
+    });
+    // 2) Cada pagina de pantalla = una seccion con salto de pagina en Word
+    Array.from(clon.children).forEach((pg,idx)=>{
+      pg.style.minHeight="";pg.style.height="";pg.style.padding="0";pg.style.display="block";
+      pg.style.boxShadow="none";pg.style.margin="0";
+      if(idx>0)pg.style.pageBreakBefore="always";
+    });
+    // 3) Filas etiqueta/valor (flex de pantalla) -> parrafos "Etiqueta: valor"
+    clon.querySelectorAll("div").forEach(d=>{
+      const st=(d.getAttribute("style")||"");
+      if(/display:\s*flex/i.test(st)&&d.children.length===2&&d.children[0].tagName==="SPAN"&&d.children[1].tagName==="SPAN"){
+        const p=document.createElement("p");
+        p.setAttribute("style","margin:3pt 0;font-size:11pt;");
+        p.innerHTML="<b>"+d.children[0].innerHTML+"</b> "+d.children[1].innerHTML;
+        d.replaceWith(p);
+      }else if(/display:\s*flex/i.test(st)){
+        d.style.display="block";
+      }
+    });
+    // 4) Documento Word con hoja carta configurada
+    const html="<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Informe de Tasacion</title><!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]--><style>@page Seccion1{size:21.59cm 27.94cm;margin:2.2cm 2.2cm 2.0cm 2.2cm;mso-page-orientation:portrait;}div.Seccion1{page:Seccion1;}body{font-family:Georgia,'Times New Roman',serif;font-size:11pt;color:#1f1f1f;line-height:1.5;}h1,h2,h3{font-family:Georgia,serif;color:#1e5631;}p{margin:6pt 0;text-align:justify;}table{border-collapse:collapse;width:100%;margin:8pt 0;}td,th{border:1pt solid #8a8a8a;padding:4pt 7pt;font-size:10pt;text-align:left;}th{background:#eef3ee;color:#1e5631;}img{max-width:100%;}</style></head><body><div class=Seccion1>"+clon.innerHTML+"</div></body></html>";
     const blob=new Blob(["\ufeff",html],{type:"application/msword"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
@@ -936,18 +965,45 @@ export default function App(){
 
             <SecT icon="💧" title="Recursos Hidricos"/>
             <Card>
-              {[1,2].map(i=>(
-                <div key={i} style={{marginBottom:i===1?14:0}}>
-                  <div style={{fontSize:12,color:"#888",marginBottom:6,fontWeight:600}}>Canal {i}</div>
-                  <G2>
-                    <Fld label="Nombre" value={form["cn"+i]} onChange={v=>upd("cn"+i,v)}/>
-                    <Fld label="Origen" value={form["co"+i]} onChange={v=>upd("co"+i,v)} placeholder="Rio Maipo"/>
-                    <Fld label="Acciones" value={form["ca"+i]} onChange={v=>upd("ca"+i,v)}/>
-                    <Fld label="Caudal (l/s)" value={form["cq"+i]} onChange={v=>upd("cq"+i,v)}/>
-                  </G2>
-                </div>
-              ))}
+              <div style={{fontSize:11.5,color:"#888",marginBottom:8}}>Agrega todos los derechos del predio: canales, pozos, embalses, drenes. El valor de cada uno suma a la valorizacion del informe.</div>
+              {(()=>{
+                let rh=[];
+                try{rh=JSON.parse(form.recursosHidricos||"[]");}catch(e){rh=[];}
+                // Migracion desde los campos antiguos de 2 canales
+                if(!rh.length&&(form.cn1||form.cn2)){
+                  rh=[form.cn1?{tipo:"Canal",nombre:form.cn1,origen:form.co1,derechos:form.ca1,caudal:form.cq1,valor:""}:null,
+                      form.cn2?{tipo:"Canal",nombre:form.cn2,origen:form.co2,derechos:form.ca2,caudal:form.cq2,valor:""}:null].filter(Boolean);
+                }
+                const guardarRH=(arr)=>upd("recursosHidricos",arr.length?JSON.stringify(arr):"");
+                const setRH=(i,cmp,v)=>guardarRH(rh.map((r,j)=>j===i?{...r,[cmp]:v}:r));
+                return <div>
+                  {rh.map((r,i)=>(
+                    <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center",flexWrap:"wrap"}}>
+                      <select value={r.tipo||"Canal"} onChange={e=>setRH(i,"tipo",e.target.value)} style={{...iS,width:110,margin:0,padding:"7px 8px",fontSize:12.5}}>
+                        <option>Canal</option><option>Pozo</option><option>Embalse</option><option>Dren</option><option>Rio/Estero</option><option>Otro</option>
+                      </select>
+                      <input value={r.nombre||""} onChange={e=>setRH(i,"nombre",e.target.value)} placeholder="Nombre (ej. Canal Cocalan / Pozo N°1)" style={{...iS,flex:2,minWidth:160,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.origen||""} onChange={e=>setRH(i,"origen",e.target.value)} placeholder="Origen / fuente" style={{...iS,flex:1.5,minWidth:120,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.derechos||""} onChange={e=>setRH(i,"derechos",e.target.value)} placeholder="Acciones / derechos" style={{...iS,width:130,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.caudal||""} onChange={e=>setRH(i,"caudal",e.target.value)} placeholder="Caudal l/s" style={{...iS,width:90,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.valor||""} onChange={e=>setRH(i,"valor",fmtMiles(e.target.value))} placeholder="Valor $" style={{...iS,width:120,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <button onClick={()=>guardarRH(rh.filter((_,j)=>j!==i))} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
+                    </div>
+                  ))}
+                  <button onClick={()=>guardarRH([...rh,{tipo:"Canal",nombre:"",origen:"",derechos:"",caudal:"",valor:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar recurso hidrico</button>
+                </div>;
+              })()}
               <button onClick={abrirDGA} style={{...bS,fontSize:12,marginTop:10}}>🌊 Verificar DGA</button>
+            </Card>
+
+            <SecT icon="🧭" title="Deslindes (segun titulos)"/>
+            <Card>
+              <G2>
+                <Fld label="Norte" value={form.deslindeN} onChange={v=>upd("deslindeN",v)} placeholder="Con Estero Los Coipos"/>
+                <Fld label="Sur" value={form.deslindeS} onChange={v=>upd("deslindeS",v)} placeholder="Con Rio La Ligua"/>
+                <Fld label="Oriente" value={form.deslindeO} onChange={v=>upd("deslindeO",v)} placeholder="Con resto del predio"/>
+                <Fld label="Poniente" value={form.deslindeP} onChange={v=>upd("deslindeP",v)} placeholder="Con camino publico"/>
+              </G2>
             </Card>
 
             <SecT icon="🌿" title="Plantaciones y Construcciones"/>
@@ -957,7 +1013,29 @@ export default function App(){
                 <Fld label="Superficie (ha)" value={form.plantacionHas} onChange={v=>upd("plantacionHas",v)}/>
                 <Fld label="Valor por ha ($)" value={form.plantacionValorHa} onChange={v=>upd("plantacionValorHa",fmtMiles(v))}/>
               </G2>
-              <Fld label="Construcciones" value={form.construcciones} onChange={v=>upd("construcciones",v)} multi/>
+              <Fld label="Construcciones (descripcion general)" value={form.construcciones} onChange={v=>upd("construcciones",v)} multi/>
+              <div style={{fontWeight:600,color:G,margin:"14px 0 6px",fontSize:13}}>Inmuebles e instalaciones (itemizado para el informe y su valorizacion)</div>
+              {(()=>{
+                let cs=[];
+                try{cs=JSON.parse(form.construccionesLista||"[]");}catch(e){cs=[];}
+                const guardarC=(arr)=>upd("construccionesLista",arr.length?JSON.stringify(arr):"");
+                const setC=(i,cmp,v)=>guardarC(cs.map((c,j)=>j===i?{...c,[cmp]:v}:c));
+                const numC=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+                return <div>
+                  {cs.map((c,i)=>(
+                    <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center",flexWrap:"wrap"}}>
+                      <input value={c.nombre||""} onChange={e=>setC(i,"nombre",e.target.value)} placeholder="Descripcion (ej. Galpon metalico, Casa patronal)" style={{...iS,flex:3,minWidth:200,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={c.m2||""} onChange={e=>setC(i,"m2",e.target.value)} placeholder="m²" style={{...iS,width:80,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={c.anio||""} onChange={e=>setC(i,"anio",e.target.value)} placeholder="Año" style={{...iS,width:70,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={c.vm2||""} onChange={e=>setC(i,"vm2",fmtMiles(e.target.value))} placeholder="$ x m²" style={{...iS,width:110,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <span style={{fontSize:11.5,color:"#666",minWidth:100}}>{(numC(c.m2)&&numC(c.vm2))?("$ "+Math.round(numC(c.m2.replace?c.m2:String(c.m2))*numC(c.vm2)).toLocaleString("es-CL")):""}</span>
+                      <button onClick={()=>guardarC(cs.filter((_,j)=>j!==i))} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
+                      <textarea value={c.detalle||""} onChange={e=>setC(i,"detalle",e.target.value)} rows={2} placeholder="Detalle constructivo: estructura, muros, techumbre, cubierta, pisos, estado (ej. Estructura de albañileria de ladrillos, muros estucados y pintados, techumbre de madera con cubierta de tejas de arcilla, piso radier revestido en ceramica. Buen estado.)" style={{...iS,width:"100%",margin:"2px 0 8px 0",padding:"7px 10px",fontSize:12,resize:"vertical"}}/>
+                    </div>
+                  ))}
+                  <button onClick={()=>guardarC([...cs,{nombre:"",m2:"",anio:"",vm2:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar inmueble / instalacion</button>
+                </div>;
+              })()}
             </Card>
 
             <SecT icon="📸" title="Fotografias del Predio"/>
@@ -1021,6 +1099,7 @@ export default function App(){
             <SecT icon="📊" title="Valorizacion Comercial"/>
             <Card>
               <G2>
+                <Fld label="Metodologia de valorizacion (opcional: si lo dejas vacio, el informe usa el texto estandar profesional)" value={form.metodologiaTxt} onChange={v=>upd("metodologiaTxt",v)} multi/>
                 <Fld warn label="Valor Comercial ($)" value={form.valorComercial} onChange={v=>upd("valorComercial",fmtMiles(v))} placeholder="466.850.000"/>
                 <Fld label="Valor Comercial (UF)" value={form.valorComercialUF} onChange={v=>upd("valorComercialUF",fmtMiles(v))} placeholder="11.802"/>
                 <Fld warn label="Valor Facil Venta ($)" value={form.valorFacilVenta} onChange={v=>upd("valorFacilVenta",fmtMiles(v))} placeholder="373.480.000"/>
@@ -1085,6 +1164,13 @@ export default function App(){
                   {report.provincia?<p style={{fontSize:14,color:"#555",marginBottom:3}}>Provincia de {capTxt(report.provincia)}</p>:null}
                   <p style={{fontSize:14,color:"#555"}}>Region de {capTxt(report.region)} — Chile</p>
                   <p style={{fontSize:13,color:"#777",marginTop:22}}>{report.fecha}</p>
+                  {(report.valorComercial||report.valorFacilVenta)?(
+                    <div style={{marginTop:34,display:"inline-block",textAlign:"left",border:"1px solid "+G,borderRadius:8,padding:"14px 24px"}}>
+                      <div style={{fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:G,fontWeight:700,marginBottom:8,textAlign:"center"}}>Resumen de Tasacion</div>
+                      {report.valorComercial?<div style={{fontSize:13.5,marginBottom:4}}><b>Valor Tasacion:</b>&nbsp; $ {fmtMiles(report.valorComercial)}{report.valorComercialUF?"  ·  UF "+fmtMiles(report.valorComercialUF):""}</div>:null}
+                      {report.valorFacilVenta?<div style={{fontSize:13.5}}><b>Valor Facil Venta:</b>&nbsp; $ {fmtMiles(report.valorFacilVenta)}{report.valorFacilVentaUF?"  ·  UF "+fmtMiles(report.valorFacilVentaUF):""}</div>:null}
+                    </div>
+                  ):null}
                 </div>
                 <div style={{background:G,margin:"0 -60px",padding:"14px 60px",display:"flex",justifyContent:"space-between",color:"#fff",fontSize:10,marginTop:36}}>
                   <span style={{fontStyle:"italic"}}>Tasaciones - Estudios - Ventas de Campos</span>
@@ -1132,6 +1218,15 @@ export default function App(){
                   rows={[...report.roles.map(r=>[capTxt(report.predioNombre),"-","-","-",r.datos.superfSII,r.rol,capTxt(r.comuna)]),
                     report.cn1?[report.cn1,"-","-","-",report.ca1,"","Santiago"]:null,
                     report.cn2?[report.cn2,"-","-","-",report.ca2,"","Santiago"]:null]}/>
+                {(report.deslindeN||report.deslindeS||report.deslindeO||report.deslindeP)?(
+                  <div style={{marginTop:14}}>
+                    <Sub>Deslindes (segun titulos)</Sub>
+                    <IRw label="Norte:" value={report.deslindeN}/>
+                    <IRw label="Sur:" value={report.deslindeS}/>
+                    <IRw label="Oriente:" value={report.deslindeO}/>
+                    <IRw label="Poniente:" value={report.deslindeP}/>
+                  </div>
+                ):null}
                 <p style={{...TXT,marginTop:14}}>{report.ia&&report.ia.titulos}</p>
               </PgFB>
 
@@ -1149,22 +1244,67 @@ export default function App(){
                 }catch(e){return null;}})()}
                 {(()=>{let pls=[];try{pls=JSON.parse(report.plantacionesCIREN||"[]");}catch(e){pls=[];}
                   const conDatos=pls.filter(p=>String(p.especie||"").trim());
-                  return conDatos.length?<><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><GTbl headers={["Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={conDatos.map(p=>[capTxt(p.especie),p.variedad||"-",p.anio||"-",p.arboles?String(p.arboles):"-",p.has?String(p.has):"-"])}/></>:null;})()}
+                  if(!conDatos.length)return null;
+                  const grupos={};
+                  conDatos.forEach(p=>{const k=capTxt(p.especie);(grupos[k]=grupos[k]||[]).push(p);});
+                  const nP=v=>parseFloat(String(v||"0").replace(",","."))||0;
+                  const filasP=[];let totHa=0,totArb=0;
+                  Object.keys(grupos).sort((x,y)=>grupos[y].reduce((s,p)=>s+nP(p.has),0)-grupos[x].reduce((s,p)=>s+nP(p.has),0)).forEach(esp=>{
+                    grupos[esp].forEach(p=>filasP.push([esp,p.variedad||"-",p.anio||"-",p.arboles?String(p.arboles):"-",p.has?String(p.has):"-"]));
+                    const sh=grupos[esp].reduce((s,p)=>s+nP(p.has),0),sa=grupos[esp].reduce((s,p)=>s+nP(p.arboles),0);
+                    totHa+=sh;totArb+=sa;
+                    filasP.push(["Subtotal "+esp,"","",sa?String(Math.round(sa)):"-",sh.toFixed(2)]);
+                  });
+                  filasP.push(["Total Plantaciones","","",totArb?String(Math.round(totArb)):"-",totHa.toFixed(2)]);
+                  return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><GTbl boldLast={1} headers={["Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={filasP}/></>;})()}
                 {report.imagenSuelosMap&&<div style={{marginTop:16}}><ImgBox src={report.imagenSuelosMap} label="Plano de Capacidad de Uso de Suelo — CIREN sobre imagen satelital (referencial)" height={330}/></div>}
                 <Sub>Caracteristicas CIREN:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.ciren}</p>
                 {[["Pendiente",report.pendiente],["Profundidad",report.profundidad],["Erosion",report.erosion],["Pedregosidad",report.pedregosidad],["Drenaje",report.drenaje],["Textura",report.textura],["pH",report.ph],["Aptitud",report.aptitud],["Capacidad de Uso",report.capacidadUso]].filter(([,v])=>v).map(([l,v],i)=><IRw key={i} label={l+":"} value={v}/>)}
                 <Sub>Recursos Hidricos:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.hidrico}</p>
-                {report.cn1?<GTbl headers={["CANAL","ORIGEN","Acciones","Caudal"]} rows={[[report.cn1,report.co1,report.ca1,report.cq1+" l/s"],report.cn2?[report.cn2,report.co2,report.ca2,report.cq2]:null]}/>:null}
+                {(()=>{
+                  let rh=[];try{rh=JSON.parse(report.recursosHidricos||"[]").filter(r=>String(r.nombre||"").trim());}catch(e){rh=[];}
+                  if(!rh.length&&report.cn1){rh=[{tipo:"Canal",nombre:report.cn1,origen:report.co1,derechos:report.ca1,caudal:report.cq1,valor:""},report.cn2?{tipo:"Canal",nombre:report.cn2,origen:report.co2,derechos:report.ca2,caudal:report.cq2,valor:""}:null].filter(Boolean);}
+                  if(!rh.length)return null;
+                  const numRH=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+                  const totalRH=rh.reduce((s,r)=>s+numRH(r.valor),0);
+                  window.__rhValor=totalRH;
+                  const conValor=rh.some(r=>numRH(r.valor)>0);
+                  return <GTbl headers={conValor?["Tipo","Nombre","Origen","Acciones/Derechos","Caudal","Valor"]:["Tipo","Nombre","Origen","Acciones/Derechos","Caudal"]}
+                    rows={[...rh.map(r=>{const base=[r.tipo||"-",r.nombre||"-",r.origen||"-",r.derechos||"-",r.caudal?r.caudal+" l/s":"-"];return conValor?[...base,numRH(r.valor)>0?"$ "+Math.round(numRH(r.valor)).toLocaleString("es-CL"):"-"]:base;}),
+                      conValor?["","","","Total Derechos de Agua","","$ "+Math.round(totalRH).toLocaleString("es-CL")]:null]}/>;
+                })()}
                 <Sub>Clima:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.clima}</p>
                 <Sub>Construcciones:</Sub>
                 <p style={TXT}>{report.construcciones}</p>
+                {(()=>{
+                  let cs=[];try{cs=JSON.parse(report.construccionesLista||"[]").filter(c=>String(c.nombre||"").trim());}catch(e){cs=[];}
+                  if(!cs.length){window.__consValor=0;return null;}
+                  const nC=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+                  const mC=v=>parseFloat(String(v||"0").replace(",","."))||0;
+                  const tot=cs.reduce((s,c)=>s+mC(c.m2)*nC(c.vm2),0);
+                  window.__consValor=tot;
+                  const conValor=cs.some(c=>nC(c.vm2)>0);
+                  const fichas=cs.filter(c=>String(c.detalle||"").trim()).map((c,i)=>(
+                    <p key={"fc"+i} style={{...TXT,marginBottom:8}}>
+                      <b>{c.nombre}{c.m2?" – "+c.m2+" m²":""}:</b> {c.detalle}{c.anio?" Año "+(String(c.detalle).trim().endsWith(".")?"":"— ")+c.anio+".":""}
+                    </p>
+                  ));
+                  return <>
+                  {fichas.length?<div style={{marginBottom:10}}>{fichas}</div>:null}
+                  <GTbl boldLast={conValor?1:0} headers={conValor?["Inmueble / Instalacion","m²","Año","$ x m²","Valor"]:["Inmueble / Instalacion","m²","Año"]}
+                    rows={[...cs.map(c=>{const base=[c.nombre,c.m2||"-",c.anio||"-"];return conValor?[...base,nC(c.vm2)>0?"$ "+Math.round(nC(c.vm2)).toLocaleString("es-CL"):"-",(nC(c.vm2)&&mC(c.m2))?"$ "+Math.round(mC(c.m2)*nC(c.vm2)).toLocaleString("es-CL"):"-"]:base;}),
+                      conValor?["Total Construcciones e Instalaciones",cs.reduce((s,c)=>s+mC(c.m2),0).toFixed(1),"","","$ "+Math.round(tot).toLocaleString("es-CL")]:null]}/>
+                  </>;
+                })()}
                 {report.plantacionDesc&&<><Sub>Plantaciones:</Sub><p style={TXT}>{report.plantacionDesc}</p></>}
               </PgFB>
 
               <PgFB title="6. Tasacion">
+                <Sub>Metodologia de Valorizacion</Sub>
+                <p style={TXT}>{report.metodologiaTxt||"El valor de tasacion corresponde a una estimacion del valor comercial de cada activo, entendido como el precio mas probable que el bien podria alcanzar en un mercado abierto y competitivo, en un plazo prudente de comercializacion. Los terrenos se valorizan segun sus caracteristicas tecnicas y comerciales, considerando referencias de compraventas y ofertas de bienes comparables del periodo, ponderadas por clase de capacidad de uso de los suelos. Las plantaciones frutales se estiman segun juicio tecnico de su valor comercial, considerando el valor de inversion ajustado por antigüedad, estado sanitario y productivo, vida util remanente y condiciones de mercado de cada especie y variedad. Los derechos de aguas se valorizan segun sus caracteristicas legales y tecnicas y las transacciones observadas en la zona. Las construcciones e instalaciones se valorizan a valor de reposicion depreciado por antigüedad, funcionalidad y calidad de materiales."}</p>
                 <Sub>Criterios de Tasacion</Sub>
                 <p style={TXT}>Esta propiedad se valora con un criterio comercial, considerando su ubicacion y acceso, calidad y aptitud de suelos, disponibilidad de agua de riego, asi como tambien valores de mercado de propiedades similares en el sector.</p>
                 <Sub>Referencias de Mercado y Homologacion</Sub>
@@ -1200,9 +1340,20 @@ export default function App(){
                     return ["Suelo Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1],report["c"+n],vha?"$ "+vha.toLocaleString("es-CL"):"-",vha?"$ "+Math.round(has*vha).toLocaleString("es-CL"):"-"];
                   }),
                   ["Total Suelos",[1,2,3,4,5,6,7,8].reduce((a,n)=>a+parseFloat((report["c"+n]||"0").replace(",","."))||a,0).toFixed(2),"",[1,2,3,4,5,6,7,8].reduce((a,n)=>{const h=parseFloat((report["c"+n]||"0").replace(",","."))||0;const v=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;return a+h*v;},0)>0?"$ "+Math.round([1,2,3,4,5,6,7,8].reduce((a,n)=>{const h=parseFloat((report["c"+n]||"0").replace(",","."))||0;const v=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;return a+h*v;},0)).toLocaleString("es-CL"):""],
-                  ...(window.__plsValor||[]).map(p=>["Plantacion "+p.rotulo,p.has?String(p.has):"-",p.vha?"$ "+Math.round(p.vha).toLocaleString("es-CL"):"-",(p.vha&&p.has)?"$ "+Math.round(p.vha*p.has).toLocaleString("es-CL"):"-"]),
-                  (window.__plsValor&&window.__plsValor.length)?["Total Plantaciones",window.__plsValor.reduce((s,p)=>s+p.has,0).toFixed(2),"",window.__plsValor.some(p=>p.vha&&p.has)?"$ "+Math.round(window.__plsValor.reduce((s,p)=>s+(p.vha*p.has||0),0)).toLocaleString("es-CL"):""]:null,
+                  (window.__consValor&&window.__consValor>0)?["Construcciones e Instalaciones","","","$ "+Math.round(window.__consValor).toLocaleString("es-CL")]:null,
+                  (window.__rhValor&&window.__rhValor>0)?["Derechos de Agua","","","$ "+Math.round(window.__rhValor).toLocaleString("es-CL")]:null,
+                  (window.__plsValor&&window.__plsValor.length)?["Plantaciones Frutales",window.__plsValor.reduce((s,p)=>s+p.has,0).toFixed(2),"",window.__plsValor.some(p=>p.vha&&p.has)?"$ "+Math.round(window.__plsValor.reduce((s,p)=>s+(p.vha*p.has||0),0)).toLocaleString("es-CL"):"-"]:null,
                   report.plantacionDesc?["Plantaciones",report.plantacionHas,"$ "+fmtMiles(report.plantacionValorHa),"-"]:null,
+                  (()=>{
+                    const nv=parseFloat(String(report.valorComercial||"0").replace(/\./g,"").replace(",","."))||0;
+                    const st=report.superfSIITotal||0;
+                    return (nv>0&&st>0)?["Valor x Hectarea",st.toFixed(2)+" ha","","$ "+Math.round(nv/st).toLocaleString("es-CL")]:null;
+                  })(),
+                  (()=>{
+                    const nv=parseFloat(String(report.valorComercial||"0").replace(/\./g,"").replace(",","."))||0;
+                    const hp=(window.__plsValor||[]).reduce((s,p)=>s+p.has,0);
+                    return (nv>0&&hp>0)?["Valor x Hectarea Plantada",hp.toFixed(2)+" ha","","$ "+Math.round(nv/hp).toLocaleString("es-CL")]:null;
+                  })(),
                   ["VALOR COMERCIAL $","","","$ "+fmtMiles(report.valorComercial)],
                   ["VALOR COMERCIAL UF","","","UF "+fmtMiles(report.valorComercialUF)],
                   ["VALOR FACIL VENTA $","","","$ "+fmtMiles(report.valorFacilVenta)],
