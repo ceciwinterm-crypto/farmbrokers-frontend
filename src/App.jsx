@@ -132,7 +132,7 @@ const EMPTY = {
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",
   coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",
-  googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",imagenSuelosMap:null,
+  googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",plantacionesCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
   c1:"0",c2:"0",c3:"0",c4:"0",c5:"0",c6:"0",c7:"0",c8:"0",
@@ -329,6 +329,7 @@ export default function App(){
           cn1:form.cn1,co1:form.co1,ca1:form.ca1,cq1:form.cq1,
           cn2:form.cn2,co2:form.co2,ca2:form.ca2,cq2:form.cq2,
           plantacionDesc:form.plantacionDesc,plantacionHas:form.plantacionHas,
+          plantacionesTxt:(()=>{try{const l=JSON.parse(form.plantacionesCIREN||"[]");return l.filter(p=>String(p.especie||"").trim()).map(p=>p.especie+(p.variedad?" var. "+p.variedad:"")+(p.anio?", plantacion "+p.anio:"")+(p.arboles?", "+p.arboles+" arboles":"")+(p.has?", "+p.has+" ha":"")).join(" | ");}catch(e){return "";}})(),
           construcciones:form.construcciones,
           coordLat:form.coordLat,coordLon:form.coordLon,distSantiago:form.distSantiago,distComuna:form.distComuna,acceso:form.acceso,
         })
@@ -443,8 +444,13 @@ export default function App(){
           upd("usosCIREN",JSON.stringify(data.usos));
           usosTxt=" Uso actual (CONAF): "+Object.entries(data.usos).map(([u,h])=>u+" "+h+" ha").join(" | ")+".";
         }
+        let frutTxt="";
+        if(data.plantaciones&&data.plantaciones.length){
+          upd("plantacionesCIREN",JSON.stringify(data.plantaciones));
+          frutTxt=" Catastro fruticola: "+data.plantaciones.map(p=>p.especie+(p.variedad?" "+p.variedad:"")+(p.anio?" ("+p.anio+")":"")+" "+p.has+" ha").join(" | ")+".";
+        }
         if(data.bbox)generarPlanoSuelos(data.bbox,data.capaSueloId,data.capaPredioId);
-        setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(data.serie?" Serie: "+data.serie:"")+carTxt+usosTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(data,null,2)});
+        setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(data.serie?" Serie: "+data.serie:"")+carTxt+usosTxt+frutTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(data,null,2)});
       }else{
         setSuelosStatus({ok:false,msg:data.mensaje||"No se pudo obtener.",debug:JSON.stringify(data.debug||[],null,2).substring(0,1200)});
       }
@@ -890,6 +896,27 @@ export default function App(){
                   <button onClick={()=>guardar([...usos,["",""]])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar uso</button>
                 </div>;
               })()}
+              <div style={{fontWeight:700,color:G,fontSize:14,margin:"20px 0 8px"}}>🍒 Plantaciones — Catastro Fruticola (CIREN)</div>
+              <div style={{fontSize:11.5,color:"#888",marginBottom:8}}>Se rellena con "Suelos Auto" si la comuna tiene catastro fruticola. Editable; aparece como tabla en el informe.</div>
+              {(()=>{
+                let pls=[];
+                try{pls=JSON.parse(form.plantacionesCIREN||"[]");}catch(e){pls=[];}
+                const guardarP=(arr)=>upd("plantacionesCIREN",arr.length?JSON.stringify(arr):"");
+                const setP=(i,cmp,v)=>guardarP(pls.map((p,j)=>j===i?{...p,[cmp]:v}:p));
+                return <div>
+                  {pls.map((p,i)=>(
+                    <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+                      <input value={p.especie||""} onChange={e=>setP(i,"especie",e.target.value)} placeholder="Especie" style={{...iS,flex:2,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={p.variedad||""} onChange={e=>setP(i,"variedad",e.target.value)} placeholder="Variedad" style={{...iS,flex:2,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={p.anio||""} onChange={e=>setP(i,"anio",e.target.value)} placeholder="Año" style={{...iS,width:70,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={p.arboles||""} onChange={e=>setP(i,"arboles",e.target.value)} placeholder="N° arb." style={{...iS,width:85,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={p.has||""} onChange={e=>setP(i,"has",e.target.value)} placeholder="ha" style={{...iS,width:80,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <button onClick={()=>guardarP(pls.filter((_,j)=>j!==i))} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
+                    </div>
+                  ))}
+                  <button onClick={()=>guardarP([...pls,{especie:"",variedad:"",anio:"",arboles:"",has:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar plantacion</button>
+                </div>;
+              })()}
               <div style={{fontWeight:600,color:G,margin:"14px 0 8px",fontSize:13}}>Caracteristicas CIREN</div>
               <G2>
                 <Fld label="Serie de Suelo" value={form.seriesSuelo} onChange={v=>upd("seriesSuelo",v)} placeholder="Serie Valdivia de Paine (VAP)"/>
@@ -1118,6 +1145,9 @@ export default function App(){
                   const rows=Object.entries(u).map(([k,v])=>[k,String(v).replace(".",",")]);
                   return rows.length?<><Sub>Uso Actual del Suelo y Vegetacion (Catastro CONAF - referencial)</Sub><GTbl headers={["Uso","Superficie (ha)"]} rows={rows}/></>:null;
                 }catch(e){return null;}})()}
+                {(()=>{let pls=[];try{pls=JSON.parse(report.plantacionesCIREN||"[]");}catch(e){pls=[];}
+                  const conDatos=pls.filter(p=>String(p.especie||"").trim());
+                  return conDatos.length?<><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><GTbl headers={["Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={conDatos.map(p=>[capTxt(p.especie),p.variedad||"-",p.anio||"-",p.arboles?String(p.arboles):"-",p.has?String(p.has):"-"])}/></>:null;})()}
                 {report.imagenSuelosMap&&<div style={{marginTop:16}}><ImgBox src={report.imagenSuelosMap} label="Plano de Capacidad de Uso de Suelo — CIREN sobre imagen satelital (referencial)" height={330}/></div>}
                 <Sub>Caracteristicas CIREN:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.ciren}</p>
