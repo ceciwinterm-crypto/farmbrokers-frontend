@@ -131,7 +131,7 @@ const EMPTY = {
   roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}],
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",
-  coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",
+  coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",plantacionesCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
@@ -453,6 +453,7 @@ export default function App(){
           upd("plantacionesCIREN",JSON.stringify(data.plantaciones));
           frutTxt=" Catastro fruticola: "+data.plantaciones.map(p=>p.especie+(p.variedad?" "+p.variedad:"")+(p.anio?" ("+p.anio+")":"")+" "+p.has+" ha").join(" | ")+".";
         }
+        if(data.bbox){upd("bboxPredio",JSON.stringify(data.bbox));upd("capaPredioId",String(data.capaPredioId));}
         if(data.bbox)generarPlanoSuelos(data.bbox,data.capaSueloId,data.capaPredioId);
         setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(data.serie?" Serie: "+data.serie:"")+carTxt+usosTxt+frutTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(data,null,2)});
       }else{
@@ -479,6 +480,7 @@ export default function App(){
       if(data.ok){
         if(data.santiago&&data.santiago.km){
           upd("distSantiago",String(Math.round(data.santiago.km)));
+          if(data.acceso&&!form.acceso)upd("acceso",data.acceso);
         }
         let msg="Distancia a Santiago: "+Math.round(data.santiago.km)+" km"+(data.santiago.min?" (~"+Math.floor(data.santiago.min/60)+"h "+(data.santiago.min%60)+"min por carretera)":" (estimada)");
         if(data.comuna&&data.comuna.km){
@@ -872,6 +874,7 @@ export default function App(){
                 <Fld label="Altitud (m.s.n.m.)" value={form.altitud} onChange={v=>upd("altitud",v)} placeholder="390"/>
                 <div>
                   <Fld label="Distancia Santiago (km)" value={form.distSantiago} onChange={v=>upd("distSantiago",v)} placeholder="41"/>
+                  <Fld label="Acceso (como llegar — se completa solo con las distancias)" value={form.acceso} onChange={v=>upd("acceso",v)} multi placeholder="Desde el centro de la comuna por Ruta H-776..."/>
                   <button onClick={()=>distanciasAuto()} disabled={distStatus&&distStatus.loading} style={{...bS,fontSize:11,padding:"6px 12px",marginTop:2}}>{distStatus&&distStatus.loading?"Calculando...":"📏 Calcular distancias"}</button>
                   {distStatus&&!distStatus.loading&&<div style={{fontSize:11,color:distStatus.ok?G:"#c53030",marginTop:4,lineHeight:1.5}}>{distStatus.msg}</div>}
                 </div>
@@ -974,8 +977,25 @@ export default function App(){
               <button onClick={abrirDGA} style={{...bS,fontSize:12,marginTop:10}}>🌊 Verificar DGA</button>
             </Card>
 
-            <SecT icon="🧭" title="Deslindes (segun titulos)"/>
+            <SecT icon="🧭" title="Deslindes"/>
             <Card>
+              <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:10}}>
+                <button onClick={async()=>{
+                  if(!form.bboxPredio){alert("Primero usa Suelos Auto para ubicar el predio.");return;}
+                  try{
+                    const r=await fetch(API+"/deslindes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({bbox:JSON.parse(form.bboxPredio),capaPredioId:form.capaPredioId,rol:(form.roles[0]||{}).rol})});
+                    const d=await r.json();
+                    if(d.ok){
+                      if(!form.deslindeN)upd("deslindeN",d.norte);
+                      if(!form.deslindeS)upd("deslindeS",d.sur);
+                      if(!form.deslindeO)upd("deslindeO",d.oriente);
+                      if(!form.deslindeP)upd("deslindeP",d.poniente);
+                      alert("Deslindes referenciales completados (demora ~5 seg por las consultas al mapa). Revisalos y ajustalos con los titulos.");
+                    }else alert(d.error||"No se pudo obtener deslindes");
+                  }catch(e){alert("Error: "+e.message);}
+                }} style={{...bP,fontSize:12,padding:"9px 16px"}}>🧭 Deslindes Auto (referencial)</button>
+                <span style={{fontSize:11.5,color:"#888"}}>Roles vecinos segun CIREN + caminos y rios de OpenStreetMap. Validar siempre con los titulos.</span>
+              </div>
               <G2>
                 <Fld label="Norte" value={form.deslindeN} onChange={v=>upd("deslindeN",v)} placeholder="Con Estero Los Coipos"/>
                 <Fld label="Sur" value={form.deslindeS} onChange={v=>upd("deslindeS",v)} placeholder="Con Rio La Ligua"/>
@@ -1103,6 +1123,32 @@ export default function App(){
             <SecT icon="📊" title="Valorizacion Comercial"/>
             <Card>
               <G2>
+                {(()=>{
+                  const num=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+                  const ha=v=>parseFloat(String(v||"0").replace(",","."))||0;
+                  const suelos=[1,2,3,4,5,6,7,8].reduce((s,n)=>s+ha(form["c"+n])*num(form["v"+n]),0);
+                  let pls=0;try{pls=JSON.parse(form.plantacionesCIREN||"[]").reduce((s,p)=>s+ha(p.has)*num(p.vha),0);}catch(e){}
+                  const legacy=ha(form.plantacionHas)*num(form.plantacionValorHa);
+                  let agua=0;try{agua=JSON.parse(form.recursosHidricos||"[]").reduce((s,r)=>s+num(r.valor),0);}catch(e){}
+                  let cons=0;try{cons=JSON.parse(form.construccionesLista||"[]").reduce((s,c2)=>s+ha(c2.m2)*num(c2.vm2),0);}catch(e){}
+                  const total=suelos+pls+legacy+agua+cons;
+                  if(total<=0)return null;
+                  const F=v=>"$ "+Math.round(v).toLocaleString("es-CL");
+                  const uf=num(form.ufBase);
+                  return (
+                    <div style={{background:"#f2f7f2",border:"1.5px solid "+G,borderRadius:8,padding:"12px 16px",marginBottom:14,fontSize:13}}>
+                      <div style={{fontWeight:700,color:G,marginBottom:6}}>🧮 Suma de componentes valorizados (se actualiza sola)</div>
+                      <div style={{lineHeight:1.8}}>
+                        Suelos: <b>{F(suelos)}</b>
+                        {(pls+legacy)>0?<> · Plantaciones: <b>{F(pls+legacy)}</b></>:null}
+                        {agua>0?<> · Derechos de Agua: <b>{F(agua)}</b></>:null}
+                        {cons>0?<> · Construcciones: <b>{F(cons)}</b></>:null}
+                      </div>
+                      <div style={{fontWeight:700,marginTop:6,fontSize:15,color:G}}>TOTAL: {F(total)}{uf>0?"  ·  UF "+Math.round(total/uf).toLocaleString("es-CL"):""}</div>
+                      <button onClick={()=>{upd("valorComercial",Math.round(total).toLocaleString("es-CL"));if(uf>0)upd("valorComercialUF",Math.round(total/uf).toLocaleString("es-CL"));}} style={{...bS,fontSize:12,marginTop:8}}>↴ Usar como Valor Comercial</button>
+                    </div>
+                  );
+                })()}
                 <Fld label="Metodologia de valorizacion (opcional: si lo dejas vacio, el informe usa el texto estandar profesional)" value={form.metodologiaTxt} onChange={v=>upd("metodologiaTxt",v)} multi/>
                 <Fld warn label="Valor Comercial ($)" value={form.valorComercial} onChange={v=>upd("valorComercial",fmtMiles(v))} placeholder="466.850.000"/>
                 <Fld label="Valor Comercial (UF)" value={form.valorComercialUF} onChange={v=>upd("valorComercialUF",fmtMiles(v))} placeholder="11.802"/>
