@@ -926,28 +926,6 @@ export default function App(){
                   <button onClick={()=>guardar([...usos,["",""]])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar uso</button>
                 </div>;
               })()}
-              <div style={{fontWeight:700,color:G,fontSize:14,margin:"20px 0 8px"}}>🍒 Plantaciones — Catastro Fruticola (CIREN)</div>
-              <div style={{fontSize:11.5,color:"#888",marginBottom:8}}>Se rellena con "Suelos Auto" si la comuna tiene catastro fruticola. Editable; aparece como tabla en el informe.</div>
-              {(()=>{
-                let pls=[];
-                try{pls=JSON.parse(form.plantacionesCIREN||"[]");}catch(e){pls=[];}
-                const guardarP=(arr)=>upd("plantacionesCIREN",arr.length?JSON.stringify(arr):"");
-                const setP=(i,cmp,v)=>guardarP(pls.map((p,j)=>j===i?{...p,[cmp]:v}:p));
-                return <div>
-                  {pls.map((p,i)=>(
-                    <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
-                      <input value={p.especie||""} onChange={e=>setP(i,"especie",e.target.value)} placeholder="Especie" style={{...iS,flex:2,margin:0,padding:"7px 10px",fontSize:12.5}}/>
-                      <input value={p.variedad||""} onChange={e=>setP(i,"variedad",e.target.value)} placeholder="Variedad" style={{...iS,flex:2,margin:0,padding:"7px 10px",fontSize:12.5}}/>
-                      <input value={p.anio||""} onChange={e=>setP(i,"anio",e.target.value)} placeholder="Año" style={{...iS,width:70,margin:0,padding:"7px 10px",fontSize:12.5}}/>
-                      <input value={p.arboles||""} onChange={e=>setP(i,"arboles",e.target.value)} placeholder="N° arb." style={{...iS,width:85,margin:0,padding:"7px 10px",fontSize:12.5}}/>
-                      <input value={p.has||""} onChange={e=>setP(i,"has",e.target.value)} placeholder="ha" style={{...iS,width:80,margin:0,padding:"7px 10px",fontSize:12.5}}/>
-                      <input value={p.vha||""} onChange={e=>setP(i,"vha",fmtMiles(e.target.value))} placeholder="$ x ha" style={{...iS,width:110,margin:0,padding:"7px 10px",fontSize:12.5}}/>
-                      <button onClick={()=>guardarP(pls.filter((_,j)=>j!==i))} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
-                    </div>
-                  ))}
-                  <button onClick={()=>guardarP([...pls,{especie:"",variedad:"",anio:"",arboles:"",has:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar plantacion</button>
-                </div>;
-              })()}
               <div style={{fontWeight:600,color:G,margin:"14px 0 8px",fontSize:13}}>Caracteristicas CIREN</div>
               <G2>
                 <Fld label="Serie de Suelo" value={form.seriesSuelo} onChange={v=>upd("seriesSuelo",v)} placeholder="Serie Valdivia de Paine (VAP)"/>
@@ -1006,13 +984,39 @@ export default function App(){
               </G2>
             </Card>
 
-            <SecT icon="🌿" title="Plantaciones y Construcciones"/>
+            <SecT icon="🍒" title="Plantaciones"/>
             <Card>
               <Fld label="Descripcion de Plantaciones" value={form.plantacionDesc} onChange={v=>upd("plantacionDesc",v)} multi placeholder="Ej: Uva de Mesa Thomson Seedless 2000..."/>
               <G2 mt={10}>
                 <Fld label="Superficie (ha)" value={form.plantacionHas} onChange={v=>upd("plantacionHas",v)}/>
                 <Fld label="Valor por ha ($)" value={form.plantacionValorHa} onChange={v=>upd("plantacionValorHa",fmtMiles(v))}/>
               </G2>
+              <div style={{fontWeight:700,color:G,fontSize:14,margin:"20px 0 8px"}}>🍒 Plantaciones — Catastro Fruticola (CIREN)</div>
+              <div style={{fontSize:11.5,color:"#888",marginBottom:8}}>Se rellena con "Suelos Auto" si la comuna tiene catastro fruticola. Editable; aparece como tabla en el informe.</div>
+              {(()=>{
+                let pls=[];
+                try{pls=JSON.parse(form.plantacionesCIREN||"[]");}catch(e){pls=[];}
+                const guardarP=(arr)=>upd("plantacionesCIREN",arr.length?JSON.stringify(arr):"");
+                const setP=(i,cmp,v)=>guardarP(pls.map((p,j)=>j===i?{...p,[cmp]:v}:p));
+                return <div>
+                  {pls.map((p,i)=>(
+                    <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+                      <input value={p.especie||""} onChange={e=>setP(i,"especie",e.target.value)} placeholder="Especie" style={{...iS,flex:2,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={p.variedad||""} onChange={e=>setP(i,"variedad",e.target.value)} placeholder="Variedad" style={{...iS,flex:2,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={p.anio||""} onChange={e=>setP(i,"anio",e.target.value)} placeholder="Año" style={{...iS,width:70,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={p.arboles||""} onChange={e=>setP(i,"arboles",e.target.value)} placeholder="N° arb." style={{...iS,width:85,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={p.has||""} onChange={e=>setP(i,"has",e.target.value)} placeholder="ha" style={{...iS,width:80,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={p.vha||""} onChange={e=>setP(i,"vha",fmtMiles(e.target.value))} placeholder="$ x ha" style={{...iS,width:110,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <button onClick={()=>guardarP(pls.filter((_,j)=>j!==i))} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
+                    </div>
+                  ))}
+                  <button onClick={()=>guardarP([...pls,{especie:"",variedad:"",anio:"",arboles:"",has:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar plantacion</button>
+                </div>;
+              })()}
+            </Card>
+
+            <SecT icon="🏠" title="Infraestructura e Inmuebles"/>
+            <Card>
               <Fld label="Construcciones (descripcion general)" value={form.construcciones} onChange={v=>upd("construcciones",v)} multi/>
               <div style={{fontWeight:600,color:G,margin:"14px 0 6px",fontSize:13}}>Inmuebles e instalaciones (itemizado para el informe y su valorizacion)</div>
               {(()=>{
