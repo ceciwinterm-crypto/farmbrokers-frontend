@@ -445,6 +445,7 @@ export default function App(){
           usosTxt=" Uso actual (CONAF): "+Object.entries(data.usos).map(([u,h])=>u+" "+h+" ha").join(" | ")+".";
         }
         let frutTxt="";
+        if(data.fruticolaNota)frutTxt=" "+data.fruticolaNota;
         if(data.plantaciones&&data.plantaciones.length){
           upd("plantacionesCIREN",JSON.stringify(data.plantaciones));
           frutTxt=" Catastro fruticola: "+data.plantaciones.map(p=>p.especie+(p.variedad?" "+p.variedad:"")+(p.anio?" ("+p.anio+")":"")+" "+p.has+" ha").join(" | ")+".";
