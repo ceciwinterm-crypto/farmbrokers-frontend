@@ -983,7 +983,7 @@ export default function App(){
                 <button onClick={async()=>{
                   if(!form.bboxPredio){alert("Primero usa Suelos Auto para ubicar el predio.");return;}
                   try{
-                    const r=await fetch(API+"/deslindes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({bbox:JSON.parse(form.bboxPredio),capaPredioId:form.capaPredioId,rol:(form.roles[0]||{}).rol})});
+                    const r=await fetch(form.backendUrl+"/deslindes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({bbox:JSON.parse(form.bboxPredio),capaPredioId:form.capaPredioId,rol:(form.roles[0]||{}).rol})});
                     const d=await r.json();
                     if(d.ok){
                       if(!form.deslindeN)upd("deslindeN",d.norte);
