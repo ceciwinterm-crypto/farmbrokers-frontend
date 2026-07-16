@@ -825,6 +825,11 @@ export default function App(){
                     <Fld label="Destino / Uso" value={r.datos.destino} onChange={v=>updRolDatos(i,"destino",v)} placeholder="AGRICOLA"/>
                     <Fld label="Latitud (rol)" value={r.datos.lat||""} onChange={v=>setCoordRol(i,"lat",v)} placeholder="-38.463920"/>
                     <Fld label="Longitud (rol)" value={r.datos.lon||""} onChange={v=>setCoordRol(i,"lon",v)} placeholder="-72.768500"/>
+                    <Fld label="Inscripcion Dominio — Fojas" value={r.datos.fojas||""} onChange={v=>updRolDatos(i,"fojas",v)} placeholder="1813"/>
+                    <Fld label="Inscripcion Dominio — N°" value={r.datos.numInsc||""} onChange={v=>updRolDatos(i,"numInsc",v)} placeholder="1773"/>
+                    <Fld label="Inscripcion Dominio — Año" value={r.datos.anioInsc||""} onChange={v=>updRolDatos(i,"anioInsc",v)} placeholder="2001"/>
+                    <Fld label="Conservador de Bienes Raices" value={r.datos.cbr||""} onChange={v=>updRolDatos(i,"cbr",v)} placeholder="CBR Quinta de Tilcoco"/>
+                    <Fld label="Nombre del paño (opcional)" value={r.datos.nombrePano||""} onChange={v=>updRolDatos(i,"nombrePano",v)} placeholder="Hijuela El Peumo"/>
                   </G2>
                 </div>
               </Card>
@@ -1307,7 +1312,7 @@ export default function App(){
 
               <PgFB title="4. Antecedentes Legales">
                 <GTbl headers={["INMUEBLE","Ins. Dom.","N","Ano","Superf (ha)","Rol","C.B. Raices"]}
-                  rows={[...report.roles.map(r=>[capTxt(report.predioNombre),"-","-","-",r.datos.superfSII,r.rol,capTxt(r.comuna)]),
+                  rows={[...report.roles.map(r=>[capTxt(r.datos.nombrePano||report.predioNombre),r.datos.fojas||"-",r.datos.numInsc||"-",r.datos.anioInsc||"-",r.datos.superfSII||"-",r.rol,r.datos.cbr?capTxt(r.datos.cbr):capTxt(r.comuna)]),
                     report.cn1?[report.cn1,"-","-","-",report.ca1,"","Santiago"]:null,
                     report.cn2?[report.cn2,"-","-","-",report.ca2,"","Santiago"]:null]}/>
                 {(report.deslindeN||report.deslindeS||report.deslindeO||report.deslindeP)?(
