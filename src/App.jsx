@@ -408,67 +408,101 @@ export default function App(){
 
   const [suelosStatus,setSuelosStatus]=useState(null);
   const suelosAuto=async()=>{
-    const r=form.roles[0]||{};
-    if(!r.rol||!r.comuna){alert("Ingresa primero el rol y la comuna en el Paso 1.");return;}
+    const roles=(form.roles||[]).filter(r=>String(r.rol||"").trim()&&String(r.comuna||"").trim());
+    if(!roles.length){alert("Ingresa primero el rol y la comuna en el Paso 1.");return;}
     if(!form.backendUrl){alert("Falta la URL del servidor.");return;}
-    setSuelosStatus({loading:true});
+    setSuelosStatus({loading:true,msg:roles.length>1?("Consultando "+roles.length+" roles...") : null});
     try{
-      const resp=await fetch(form.backendUrl.replace(/\/$/,"")+"/suelos-rol",{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({rol:r.rol,comuna:r.comuna,region:form.region})
-      });
-      const data=await resp.json();
-      if(data.ok){
-        const ROM=["I","II","III","IV","V","VI","VII","VIII"];
-        const rellenadas=[];
-        ROM.forEach((cl,idx)=>{
-          if(data.clases&&data.clases[cl]>0){upd("c"+(idx+1),String(data.clases[cl]).replace(".",","));rellenadas.push("Clase "+cl+": "+data.clases[cl]+" ha");}
+      // Consulta cada rol y acumula los resultados de todos los paños
+      const resultados=[];
+      for(const r of roles){
+        const resp=await fetch(form.backendUrl.replace(/\/$/,"")+"/suelos-rol",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({rol:r.rol,comuna:r.comuna,region:form.region})
         });
-        if(data.serie&&!form.seriesSuelo)upd("seriesSuelo",data.serie);
-        const car=data.caracteristicas||{};
-        const llenarSi=(campo,valor)=>{if(valor&&!String(form[campo]||"").trim())upd(campo,valor);};
-        llenarSi("textura",car.textura);
-        llenarSi("profundidad",car.profundidad);
-        llenarSi("drenaje",car.drenaje);
-        llenarSi("pendiente",car.pendiente);
-        llenarSi("erosion",car.erosion);
-        llenarSi("pedregosidad",car.pedregosidad);
-        llenarSi("ph",car.ph);
-        llenarSi("aptitud",car.aptitud);
-        llenarSi("capacidadUso",data.capacidadUso);
-        const NOMBRES={textura:"Textura",profundidad:"Profundidad",drenaje:"Drenaje",pendiente:"Pendiente",erosion:"Erosion",pedregosidad:"Pedregosidad",ph:"pH",aptitud:"Aptitud"};
-        const faltantes=Object.keys(NOMBRES).filter(k=>!car[k]||!String(car[k]).trim());
-        let carTxt="";
-        const obtenidas=Object.keys(NOMBRES).filter(k=>car[k]&&String(car[k]).trim());
-        if(obtenidas.length)carTxt=" Caracteristicas CIREN → "+obtenidas.map(k=>NOMBRES[k]+": "+car[k]).join(" | ")+".";
-        if(faltantes.length)carTxt+=" Sin dato CIREN para: "+faltantes.map(k=>NOMBRES[k]).join(", ")+" (completa manual o envia el detalle a Claude).";
-        let usosTxt="";
-        if(data.usos&&Object.keys(data.usos).length){
-          upd("usosCIREN",JSON.stringify(data.usos));
-          usosTxt=" Uso actual (CONAF): "+Object.entries(data.usos).map(([u,h])=>u+" "+h+" ha").join(" | ")+".";
-        }
-        let frutTxt="";
-        if(data.fruticolaNota)frutTxt=" "+data.fruticolaNota;
-        if(data.plantaciones&&data.plantaciones.length){
-          upd("plantacionesCIREN",JSON.stringify(data.plantaciones));
-          frutTxt=" Catastro fruticola: "+data.plantaciones.map(p=>p.especie+(p.variedad?" "+p.variedad:"")+(p.anio?" ("+p.anio+")":"")+" "+p.has+" ha").join(" | ")+".";
-        }
-        if(data.bbox){
-          upd("bboxPredio",JSON.stringify(data.bbox));upd("capaPredioId",String(data.capaPredioId));
-          // Coordenadas gratis desde CIREN (centro del predio): evita gastar cuota de SimpleAPI
-          const cLat=((data.bbox[1]+data.bbox[3])/2).toFixed(6), cLon=((data.bbox[0]+data.bbox[2])/2).toFixed(6);
-          if(!form.coordLat||!form.coordLon){
-            upd("coordLat",cLat);upd("coordLon",cLon);
-            distanciasAuto(cLat,cLon,(form.roles[0]||{}).comuna);
-          }
-        }
-        if(data.bbox)generarPlanoSuelos(data.bbox,data.capaSueloId,data.capaPredioId);
-        setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(data.serie?" Serie: "+data.serie:"")+carTxt+usosTxt+frutTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(data,null,2)});
-      }else{
-        setSuelosStatus({ok:false,msg:data.mensaje||"No se pudo obtener.",debug:JSON.stringify(data.debug||[],null,2).substring(0,1200)});
+        const d=await resp.json();
+        resultados.push({rol:r.rol,comuna:r.comuna,d});
       }
+      const oks=resultados.filter(x=>x.d&&x.d.ok);
+      const fallidos=resultados.filter(x=>!x.d||!x.d.ok);
+      if(!oks.length){
+        const p=resultados[0]&&resultados[0].d;
+        setSuelosStatus({ok:false,msg:(p&&p.mensaje)||"No se pudo obtener.",debug:JSON.stringify((p&&p.debug)||[],null,2).substring(0,1200)});
+        return;
+      }
+      // ── Sumar clases, usos, superficie y frutales de TODOS los roles ──
+      const num=v=>parseFloat(String(v||"0").replace(",","."))||0;
+      const clases={},usos={},seriesSet=[];let supTotal=0;const plants=[];
+      oks.forEach(({d})=>{
+        supTotal+=num(d.superficieHa);
+        Object.entries(d.clases||{}).forEach(([k,v])=>{clases[k]=(clases[k]||0)+num(v);});
+        Object.entries(d.usos||{}).forEach(([k,v])=>{usos[k]=(usos[k]||0)+num(v);});
+        (d.serie||"").split(",").map(s=>s.trim()).filter(Boolean).forEach(s=>{if(!seriesSet.includes(s))seriesSet.push(s);});
+        (d.plantaciones||[]).forEach(p=>{
+          const ex=plants.find(q=>q.especie===p.especie&&q.variedad===p.variedad&&q.anio===p.anio);
+          if(ex){ex.has=Math.round((num(ex.has)+num(p.has))*100)/100;ex.arboles=Math.round(num(ex.arboles)+num(p.arboles));}
+          else plants.push({...p});
+        });
+      });
+      Object.keys(clases).forEach(k=>clases[k]=Math.round(clases[k]*100)/100);
+      Object.keys(usos).forEach(k=>usos[k]=Math.round(usos[k]*100)/100);
+      plants.sort((x,y)=>num(y.has)-num(x.has));
+      const data=oks[0].d; // caracteristicas y plano: del rol principal
+      const multi=oks.length>1;
+
+      const ROM=["I","II","III","IV","V","VI","VII","VIII"];
+      const rellenadas=[];
+      ROM.forEach((cl,idx)=>{
+        if(clases[cl]>0){upd("c"+(idx+1),String(clases[cl]).replace(".",","));rellenadas.push("Clase "+cl+": "+clases[cl]+" ha");}
+      });
+      const serieTxt=seriesSet.join(", ");
+      if(serieTxt&&!form.seriesSuelo)upd("seriesSuelo",serieTxt);
+      const car=data.caracteristicas||{};
+      const llenarSi=(campo,valor)=>{if(valor&&!String(form[campo]||"").trim())upd(campo,valor);};
+      llenarSi("textura",car.textura);
+      llenarSi("profundidad",car.profundidad);
+      llenarSi("drenaje",car.drenaje);
+      llenarSi("pendiente",car.pendiente);
+      llenarSi("erosion",car.erosion);
+      llenarSi("pedregosidad",car.pedregosidad);
+      llenarSi("ph",car.ph);
+      llenarSi("aptitud",car.aptitud);
+      llenarSi("capacidadUso",Object.keys(clases).sort((x,y)=>ROM.indexOf(x)-ROM.indexOf(y)).join("-"));
+      const NOMBRES={textura:"Textura",profundidad:"Profundidad",drenaje:"Drenaje",pendiente:"Pendiente",erosion:"Erosion",pedregosidad:"Pedregosidad",ph:"pH",aptitud:"Aptitud"};
+      const faltantes=Object.keys(NOMBRES).filter(k=>!car[k]||!String(car[k]).trim());
+      let carTxt="";
+      const obtenidas=Object.keys(NOMBRES).filter(k=>car[k]&&String(car[k]).trim());
+      if(obtenidas.length)carTxt=" Caracteristicas CIREN → "+obtenidas.map(k=>NOMBRES[k]+": "+car[k]).join(" | ")+".";
+      if(faltantes.length)carTxt+=" Sin dato CIREN para: "+faltantes.map(k=>NOMBRES[k]).join(", ")+" (completa manual o envia el detalle a Claude).";
+      let usosTxt="";
+      if(Object.keys(usos).length){
+        upd("usosCIREN",JSON.stringify(usos));
+        usosTxt=" Uso actual (CONAF): "+Object.entries(usos).map(([u,h])=>u+" "+h+" ha").join(" | ")+".";
+      }
+      let frutTxt="";
+      const notas=oks.map(x=>x.d.fruticolaNota).filter(Boolean);
+      if(notas.length&&!plants.length)frutTxt=" "+notas[0];
+      if(plants.length){
+        upd("plantacionesCIREN",JSON.stringify(plants));
+        frutTxt=" Catastro fruticola: "+plants.map(p=>p.especie+(p.variedad?" "+p.variedad:"")+(p.anio?" ("+p.anio+")":"")+" "+p.has+" ha").join(" | ")+".";
+      }
+      // Union de los bbox de todos los roles (plano y coordenadas del conjunto)
+      const bbs=oks.map(x=>x.d.bbox).filter(Boolean);
+      if(bbs.length){
+        const bb=[Math.min(...bbs.map(b=>b[0])),Math.min(...bbs.map(b=>b[1])),Math.max(...bbs.map(b=>b[2])),Math.max(...bbs.map(b=>b[3]))];
+        upd("bboxPredio",JSON.stringify(bb));upd("capaPredioId",String(data.capaPredioId));
+        const cLat=((bb[1]+bb[3])/2).toFixed(6), cLon=((bb[0]+bb[2])/2).toFixed(6);
+        if(!form.coordLat||!form.coordLon){
+          upd("coordLat",cLat);upd("coordLon",cLon);
+          distanciasAuto(cLat,cLon,roles[0].comuna);
+        }
+        generarPlanoSuelos(bb,data.capaSueloId,data.capaPredioId);
+      }
+      const cab=multi?("Analisis de "+oks.length+" roles ("+oks.map(x=>x.rol).join(" + ")+"). Superficie CIREN total: "+(Math.round(supTotal*100)/100)+" ha. "):("Superficie CIREN del predio: "+(Math.round(supTotal*100)/100)+" ha. ");
+      const errTxt=fallidos.length?(" ⚠ No se pudo consultar: "+fallidos.map(x=>x.rol).join(", ")+"."):"";
+      setSuelosStatus({ok:true,msg:cab+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(serieTxt?" Serie: "+serieTxt:"")+carTxt+usosTxt+frutTxt+errTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(resultados.map(x=>({rol:x.rol,resultado:x.d})),null,2)});
     }catch(e){
-      setSuelosStatus({ok:false,msg:"Error de conexion: "+e.message});
+      setSuelosStatus({ok:false,msg:"Error: "+e.message});
     }
   };
 
@@ -904,7 +938,7 @@ export default function App(){
               </div>
               <div style={{marginBottom:12}}>
                 <button onClick={suelosAuto} disabled={suelosStatus&&suelosStatus.loading} style={{...bP,fontSize:12,padding:"9px 16px"}}>{suelosStatus&&suelosStatus.loading?"Consultando CIREN...":"🌱 Suelos Auto (CIREN)"}</button>
-                <span style={{fontSize:11,color:"#888",marginLeft:10}}>Rellena las clases automaticamente desde el estudio agrologico CIREN usando el rol del Paso 1.</span>
+                <span style={{fontSize:11,color:"#888",marginLeft:10}}>Analiza <b>todos los roles</b> del Paso 1 y suma sus clases, usos, series y plantaciones (CIREN + SIT Rural).</span>
               </div>
               {suelosStatus&&!suelosStatus.loading&&(
                 <div style={{background:suelosStatus.ok?"#f0faf4":"#fff5f5",border:"1px solid "+(suelosStatus.ok?G:"#feb2b2"),borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:12.5,color:suelosStatus.ok?G:"#c53030"}}>
