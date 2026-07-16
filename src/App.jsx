@@ -453,7 +453,15 @@ export default function App(){
           upd("plantacionesCIREN",JSON.stringify(data.plantaciones));
           frutTxt=" Catastro fruticola: "+data.plantaciones.map(p=>p.especie+(p.variedad?" "+p.variedad:"")+(p.anio?" ("+p.anio+")":"")+" "+p.has+" ha").join(" | ")+".";
         }
-        if(data.bbox){upd("bboxPredio",JSON.stringify(data.bbox));upd("capaPredioId",String(data.capaPredioId));}
+        if(data.bbox){
+          upd("bboxPredio",JSON.stringify(data.bbox));upd("capaPredioId",String(data.capaPredioId));
+          // Coordenadas gratis desde CIREN (centro del predio): evita gastar cuota de SimpleAPI
+          const cLat=((data.bbox[1]+data.bbox[3])/2).toFixed(6), cLon=((data.bbox[0]+data.bbox[2])/2).toFixed(6);
+          if(!form.coordLat||!form.coordLon){
+            upd("coordLat",cLat);upd("coordLon",cLon);
+            distanciasAuto(cLat,cLon,(form.roles[0]||{}).comuna);
+          }
+        }
         if(data.bbox)generarPlanoSuelos(data.bbox,data.capaSueloId,data.capaPredioId);
         setSuelosStatus({ok:true,msg:"Superficie CIREN del predio: "+data.superficieHa+" ha. "+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(data.serie?" Serie: "+data.serie:"")+carTxt+usosTxt+frutTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(data,null,2)});
       }else{
