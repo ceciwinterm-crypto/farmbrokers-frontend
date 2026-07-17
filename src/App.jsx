@@ -170,13 +170,8 @@ export default function App(){
     const t=setTimeout(()=>{dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form}).catch(()=>{});},800);
     return ()=>clearTimeout(t);
   },[form]);
-  useEffect(()=>{
-    (async()=>{
-      try{const regs=await dbListar();const b=regs.find(r=>r.id==="__borrador__");
-        if(b&&b.form&&JSON.stringify(b.form)!==JSON.stringify(EMPTY)){setForm(b.form);setAvisoGuardado("Se restauro tu borrador anterior automaticamente.");setTimeout(()=>setAvisoGuardado(""),6000);}
-      }catch(e){}
-    })();
-  },[]);
+  // Restauracion manual: el borrador queda disponible en 📂 Mis Tasaciones, no se autocarga
+
   const guardarTasacion=async()=>{
     const nombreSug=(form.predioNombre||"").trim()||((form.roles[0]||{}).rol?("Rol "+form.roles[0].rol):"Tasacion");
     let actualizar=false;
@@ -190,7 +185,7 @@ export default function App(){
     setIdTasacionActual(id);
     setAvisoGuardado((actualizar?"✓ Actualizada: ":"✓ Guardada: ")+(nombre||nombreSug));setTimeout(()=>setAvisoGuardado(""),4000);
   };
-  const abrirMisTasaciones=async()=>{const regs=await dbListar();setListaTas(regs.filter(r=>r.id!=="__borrador__").sort((x,y)=>y.fecha.localeCompare(x.fecha)));setShowTas(true);};
+  const abrirMisTasaciones=async()=>{const regs=await dbListar();setListaTas(regs.sort((x,y)=>y.fecha.localeCompare(x.fecha)));setShowTas(true);};
   const exportarTasacion=(reg)=>{const blob=new Blob([JSON.stringify(reg,null,2)],{type:"application/json"});const u=URL.createObjectURL(blob);const el=document.createElement("a");el.href=u;el.download=("Tasacion_"+reg.nombre.replace(/[^\w\-]+/g,"_")+".json");el.click();URL.revokeObjectURL(u);};
   const importarTasacion=(ev)=>{const file=ev.target.files&&ev.target.files[0];if(!file)return;const rd=new FileReader();rd.onload=()=>{try{const reg=JSON.parse(rd.result);if(reg&&reg.form){setForm({...EMPTY,...reg.form});setShowTas(false);setAvisoGuardado("✓ Tasacion importada desde archivo.");setTimeout(()=>setAvisoGuardado(""),4000);}else alert("El archivo no es una tasacion valida.");}catch(e){alert("Archivo invalido: "+e.message);}};rd.readAsText(file);ev.target.value="";};
   const [satelitalStatus,setSatelitalStatus]=useState("idle");
@@ -811,7 +806,8 @@ export default function App(){
               <div style={{fontSize:10,letterSpacing:3,textTransform:"uppercase",color:ORO,marginBottom:10}}>Sistema Profesional</div>
               <h1 style={{fontFamily:FONT,fontSize:30,margin:"0 0 10px",lineHeight:1.2}}>Informe de Tasacion de Campos Agricolas</h1>
               <p style={{opacity:0.75,fontSize:14,margin:"0 0 28px",maxWidth:500,lineHeight:1.6}}>Multiples roles SII, comarca enlazada con region, UF del dia automatica, plano SII y satelital integrados.</p>
-              <button onClick={()=>setStep(1)} style={{...bP,background:ORO}}>Nueva Tasacion →</button>
+              <button onClick={()=>{setForm({...EMPTY});setIdTasacionActual(null);setReport(null);dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form:{...EMPTY}}).catch(()=>{});setStep(1);}} style={{...bP,background:ORO}}>Nueva Tasacion →</button>
+              <button onClick={abrirMisTasaciones} style={{...bS,marginLeft:10}}>📂 Continuar una guardada</button>
               {ufStatus==="ok"&&<div style={{position:"absolute",top:20,right:30,background:"rgba(255,255,255,0.1)",borderRadius:10,padding:"12px 20px",textAlign:"center"}}>
                 <div style={{fontSize:11,opacity:0.7}}>UF hoy {form.ufFecha}</div>
                 <div style={{fontWeight:700,fontSize:22,color:ORO}}>${form.ufBase}</div>
@@ -1276,30 +1272,6 @@ export default function App(){
         {/* ══ PASO 2: TASACION ══ */}
         {step===2&&(
           <div>
-            <SecT icon="💰" title="Referencias de Mercado"/>
-            <Card>
-              <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                  <thead><tr style={{background:G,color:"#fff"}}>
-                    {["Oferta / Corredor","Ubicacion","Sup. (ha)","Valor Total ($)","Valor ($/ha)","Ajuste %"].map((h,i)=>(
-                      <th key={i} style={{padding:"10px 8px",textAlign:"left",fontWeight:600,fontSize:12}}>{h}</th>
-                    ))}
-                  </tr></thead>
-                  <tbody>{form.refs.map((r,i)=>(
-                    <tr key={i} style={{background:i%2===0?"#fff":GH}}>
-                      {["oferta","ubicacion","has","valorTotal","valorHa","ajuste"].map(k=>(
-                        <td key={k} style={{padding:"4px 6px"}}><input value={r[k]} onChange={e=>updRef(i,k,(k==="valorTotal"||k==="valorHa")?fmtMiles(e.target.value):e.target.value)} placeholder={k==="ajuste"?"0":""} style={{...iS,margin:0,padding:"6px 8px",fontSize:12,minWidth:k==="ajuste"?52:80}}/></td>
-                      ))}
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </div>
-              <div style={{fontSize:11.5,color:"#777",marginTop:8,lineHeight:1.6}}>
-                <b>Ajuste %:</b> corrige cada testigo respecto del predio en estudio (negociacion, acceso, tamano, suelos, ubicacion). Ej: -5 si el testigo es mejor que el predio, +10 si es peor. El promedio homologado se calcula solo y aparece en el informe.
-              </div>
-              <button onClick={()=>upd("refs",[...form.refs,{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""}])} style={{...bS,marginTop:10,fontSize:12}}>+ Agregar fila</button>
-            </Card>
-
             <SecT icon="🌾" title="Valores por Clase de Suelo"/>
             <Card>
               <div style={{fontSize:12,color:"#666",marginBottom:10}}>Ingresa el valor por hectarea de cada clase presente en el predio. El valor total se calcula solo en la tabla del informe.</div>
@@ -1603,25 +1575,6 @@ export default function App(){
                 <p style={TXT}>{report.metodologiaTxt||"El valor de tasacion corresponde a una estimacion del valor comercial de cada activo, entendido como el precio mas probable que el bien podria alcanzar en un mercado abierto y competitivo, en un plazo prudente de comercializacion. Los terrenos se valorizan segun sus caracteristicas tecnicas y comerciales, considerando referencias de compraventas y ofertas de bienes comparables del periodo, ponderadas por clase de capacidad de uso de los suelos. Las plantaciones frutales se estiman segun juicio tecnico de su valor comercial, considerando el valor de inversion ajustado por antigüedad, estado sanitario y productivo, vida util remanente y condiciones de mercado de cada especie y variedad. Los derechos de aguas se valorizan segun sus caracteristicas legales y tecnicas y las transacciones observadas en la zona. Las construcciones e instalaciones se valorizan a valor de reposicion depreciado por antigüedad, funcionalidad y calidad de materiales."}</p>
                 <Sub>Criterios de Tasacion</Sub>
                 <p style={TXT}>Esta propiedad se valora con un criterio comercial, considerando su ubicacion y acceso, calidad y aptitud de suelos, disponibilidad de agua de riego, asi como tambien valores de mercado de propiedades similares en el sector.</p>
-                <Sub>Referencias de Mercado y Homologacion</Sub>
-                {(()=>{
-                  const num=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
-                  const filas=report.refs.filter(r=>r.oferta).map(r=>{
-                    const vha=num(r.valorHa)||(num(r.valorTotal)&&num(r.has)?num(r.valorTotal)/parseFloat(String(r.has).replace(",",".")):0);
-                    const aj=parseFloat(String(r.ajuste||"0").replace(",","."))||0;
-                    const hom=vha*(1+aj/100);
-                    return {r,vha,aj,hom};
-                  });
-                  const conDato=filas.filter(f=>f.hom>0);
-                  const prom=conDato.length?conDato.reduce((a,f)=>a+f.hom,0)/conDato.length:0;
-                  return <>
-                    <GTbl headers={["Oferta","Ubicacion","Sup. (ha)","Valor ($/ha)","Ajuste %","$/ha Homologado"]} rows={[
-                      ...filas.map(f=>[f.r.oferta,f.r.ubicacion,f.r.has,f.vha?"$ "+Math.round(f.vha).toLocaleString("es-CL"):"-",(f.aj>0?"+":"")+f.aj+"%",f.hom?"$ "+Math.round(f.hom).toLocaleString("es-CL"):"-"]),
-                      prom?["PROMEDIO HOMOLOGADO","","","","","$ "+Math.round(prom).toLocaleString("es-CL")]:null,
-                    ].filter(Boolean)} boldLast={prom?1:0}/>
-                    {prom>0&&<p style={{...TXT,marginTop:10}}>Del analisis de las referencias de mercado homologadas se obtiene un valor promedio de $ {Math.round(prom).toLocaleString("es-CL")} por hectarea, el cual se adopta como base para la valorizacion del predio en estudio, ponderado segun la calidad de suelos, acceso y disponibilidad de agua de la propiedad.</p>}
-                  </>;
-                })()}
                 <Sub>Valorizacion Comercial</Sub>
                 {(()=>{
                   let plsV=[];try{plsV=JSON.parse(report.plantacionesCIREN||"[]").filter(p=>String(p.especie||"").trim());}catch(e){plsV=[];}
