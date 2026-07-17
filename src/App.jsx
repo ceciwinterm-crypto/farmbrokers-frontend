@@ -1520,7 +1520,7 @@ export default function App(){
                 })()}
                 <Sub>Clima:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.clima}</p>
-                <Sub>Construcciones:</Sub>
+                <Sub>Infraestructura:</Sub>
                 <p style={TXT}>{report.construcciones}</p>
                 {(()=>{
                   let cs=[];try{cs=JSON.parse(report.construccionesLista||"[]").filter(c=>String(c.nombre||"").trim());}catch(e){cs=[];}
@@ -1537,9 +1537,9 @@ export default function App(){
                   ));
                   return <>
                   {fichas.length?<div style={{marginBottom:10}}>{fichas}</div>:null}
-                  <GTbl boldLast={conValor?1:0} headers={conValor?["Inmueble / Instalacion","m²","Año","$ x m²","Valor"]:["Inmueble / Instalacion","m²","Año"]}
+                  <GTbl boldLast={conValor?1:0} headers={conValor?["Infraestructura","m²","Año","$ x m²","Valor"]:["Infraestructura","m²","Año"]}
                     rows={[...cs.map(c=>{const base=[c.nombre,c.m2||"-",c.anio||"-"];return conValor?[...base,nC(c.vm2)>0?"$ "+Math.round(nC(c.vm2)).toLocaleString("es-CL"):"-",(nC(c.vm2)&&mC(c.m2))?"$ "+Math.round(mC(c.m2)*nC(c.vm2)).toLocaleString("es-CL"):"-"]:base;}),
-                      conValor?["Total Construcciones e Instalaciones",cs.reduce((s,c)=>s+mC(c.m2),0).toFixed(1),"","","$ "+Math.round(tot).toLocaleString("es-CL")]:null]}/>
+                      conValor?["Total Infraestructura",cs.reduce((s,c)=>s+mC(c.m2),0).toFixed(1),"","","$ "+Math.round(tot).toLocaleString("es-CL")]:null]}/>
                   </>;
                 })()}
                 {report.plantacionDesc&&<><Sub>Plantaciones:</Sub><p style={TXT}>{report.plantacionDesc}</p></>}
@@ -1583,7 +1583,7 @@ export default function App(){
                     return ["Suelo Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1],report["c"+n],vha?"$ "+vha.toLocaleString("es-CL"):"-",vha?"$ "+Math.round(has*vha).toLocaleString("es-CL"):"-"];
                   }),
                   ["Total Suelos",[1,2,3,4,5,6,7,8].reduce((a,n)=>a+parseFloat((report["c"+n]||"0").replace(",","."))||a,0).toFixed(2),"",[1,2,3,4,5,6,7,8].reduce((a,n)=>{const h=parseFloat((report["c"+n]||"0").replace(",","."))||0;const v=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;return a+h*v;},0)>0?"$ "+Math.round([1,2,3,4,5,6,7,8].reduce((a,n)=>{const h=parseFloat((report["c"+n]||"0").replace(",","."))||0;const v=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;return a+h*v;},0)).toLocaleString("es-CL"):""],
-                  (window.__consValor&&window.__consValor>0)?["Construcciones e Instalaciones","","","$ "+Math.round(window.__consValor).toLocaleString("es-CL")]:null,
+                  (window.__consValor&&window.__consValor>0)?["Infraestructura","","","$ "+Math.round(window.__consValor).toLocaleString("es-CL")]:null,
                   (window.__rhValor&&window.__rhValor>0)?["Derechos de Agua","","","$ "+Math.round(window.__rhValor).toLocaleString("es-CL")]:null,
                   (window.__plsValor&&window.__plsValor.length)?["Plantaciones Frutales",window.__plsValor.reduce((s,p)=>s+p.has,0).toFixed(2),"",window.__plsValor.some(p=>p.vha&&p.has)?"$ "+Math.round(window.__plsValor.reduce((s,p)=>s+(p.vha*p.has||0),0)).toLocaleString("es-CL"):"-"]:null,
                   report.plantacionDesc?["Plantaciones",report.plantacionHas,"$ "+fmtMiles(report.plantacionValorHa),"-"]:null,
