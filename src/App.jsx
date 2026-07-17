@@ -138,7 +138,7 @@ const EMPTY = {
   roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}],
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",
-  numTasacion:"",climaTxt:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
+  numTasacion:"",climaTxt:"",guiaConclusion:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",plantacionesCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
@@ -367,7 +367,8 @@ export default function App(){
           plantacionesTxt:(()=>{try{const l=JSON.parse(form.plantacionesCIREN||"[]");return l.filter(p=>String(p.especie||"").trim()).map(p=>p.especie+(p.variedad?" var. "+p.variedad:"")+(p.anio?", plantacion "+p.anio:"")+(p.arboles?", "+p.arboles+" arboles":"")+(p.has?", "+p.has+" ha":"")+(p.vha?", valorizada en $"+p.vha+"/ha":"")).join(" | ");}catch(e){return "";}})(),
           construcciones:form.construcciones,
           construccionesTxt:(()=>{try{const l=JSON.parse(form.construccionesLista||"[]");return l.filter(c=>String(c.nombre||"").trim()).map(c=>c.nombre+(c.m2?" ("+c.m2+" m2"+(c.anio?", año "+c.anio:"")+")":"")+(c.detalle?": "+c.detalle:"")).join(" | ");}catch(e){return "";}})(),
-          metodologiaTxt:form.metodologiaTxt,climaTxt:form.climaTxt,numTasacion:form.numTasacion,
+          metodologiaTxt:form.metodologiaTxt,climaTxt:form.climaTxt,numTasacion:form.numTasacion,guiaConclusion:form.guiaConclusion,
+          usosResumen:(()=>{try{const u=JSON.parse(form.usosCIREN||"{}");return Object.entries(u).map(([k,v])=>k+" "+v+" ha").join(", ");}catch(e){return "";}})(),
           coordLat:form.coordLat,coordLon:form.coordLon,distSantiago:form.distSantiago,distComuna:form.distComuna,acceso:form.acceso,
         })
       });
@@ -478,6 +479,11 @@ export default function App(){
           else plants.push({...p});
         });
       });
+      // Superficie SII de cada rol: si esta vacia, se completa con la superficie CIREN (referencial)
+      oks.forEach(x=>{
+        const ri=form.roles.findIndex(r=>r.rol===x.rol&&r.comuna===x.comuna);
+        if(ri>=0&&!String((form.roles[ri].datos||{}).superfSII||"").trim())updRolDatos(ri,"superfSII",x.d.superficieHa);
+      });
       Object.keys(clases).forEach(k=>clases[k]=Math.round(clases[k]*100)/100);
       Object.keys(usos).forEach(k=>usos[k]=Math.round(usos[k]*100)/100);
       plants.sort((x,y)=>num(y.has)-num(x.has));
@@ -530,7 +536,8 @@ export default function App(){
           upd("coordLat",cLat);upd("coordLon",cLon);
           distanciasAuto(cLat,cLon,roles[0].comuna);
         }
-        generarPlanoSuelos(bb,data.capaSueloId,data.capaPredioId);
+        const capaF=oks.map(x=>x.d.capaFruticola).find(Boolean);
+        generarPlanoSuelos(bb,data.capaSueloId,data.capaPredioId,capaF,oks.map(x=>x.rol).join(" + "));
       }
       const cab=multi?("Analisis de "+oks.length+" roles ("+oks.map(x=>x.rol).join(" + ")+"). Superficie CIREN total: "+(Math.round(supTotal*100)/100)+" ha. "):("Superficie CIREN del predio: "+(Math.round(supTotal*100)/100)+" ha. ");
       const errTxt=fallidos.length?(" ⚠ No se pudo consultar: "+fallidos.map(x=>x.rol).join(", ")+"."):"";
@@ -602,7 +609,7 @@ export default function App(){
     }catch(e){setDistStatus({ok:false,msg:"Error: "+e.message});}
   };
 
-  const generarPlanoSuelos=(bbox,capaId,capaPredioId)=>{
+  const generarPlanoSuelos=(bbox,capaId,capaPredioId,capaFrut,rotuloRoles)=>{
     if(!bbox||capaId===null||capaId===undefined)return;
     const [w,s,e,n]=bbox;
     const cLon=(w+e)/2, cLat=(s+n)/2;
@@ -634,16 +641,30 @@ export default function App(){
         const py1=(extN-n)/(extN-extS)*canvas.height, py2=(extN-s)/(extN-extS)*canvas.height;
         ctx.strokeStyle="#e53935"; ctx.lineWidth=3;
         ctx.strokeRect(px1,py1,px2-px1,py2-py1);
-        ctx.fillStyle="rgba(255,255,255,0.85)"; ctx.fillRect(canvas.width-330,canvas.height-20,330,20);
+        if(rotuloRoles){
+          ctx.fillStyle="rgba(255,255,255,0.9)"; ctx.fillRect(8,8,14+ctx.measureText("Rol(es): "+rotuloRoles).width+120,26);
+          ctx.fillStyle="#1e5631"; ctx.font="bold 14px Arial";
+          ctx.fillText("Rol(es): "+rotuloRoles,16,26);
+        }
+        ctx.fillStyle="rgba(255,255,255,0.85)"; ctx.fillRect(canvas.width-395,canvas.height-20,395,20);
         ctx.fillStyle="#333"; ctx.font="10px Arial";
-        ctx.fillText("Capacidad de Uso CIREN + Roles SII sobre Esri Imagery (referencial)",canvas.width-322,canvas.height-6);
+        ctx.fillText("Capacidad de Uso CIREN"+(capaFrut?" + Catastro Fruticola":"")+" + Roles SII sobre Esri Imagery (referencial)",canvas.width-388,canvas.height-6);
         upd("imagenSuelosMap",canvas.toDataURL("image/jpeg",0.9));
       };
+      const dibujarFruticola=()=>{
+        if(!capaFrut||!form.backendUrl){terminar();return;}
+        const wms="https://visor.sitrural.cl/geoserver/wms?service=WMS&version=1.1.0&request=GetMap&layers="+encodeURIComponent(capaFrut)+
+          "&bbox="+extW+","+extS+","+extE+","+extN+"&srs=EPSG:4326&width="+canvas.width+"&height="+canvas.height+"&format=image/png&transparent=true";
+        const img5=new Image(); img5.crossOrigin="anonymous";
+        img5.onload=()=>{ ctx.globalAlpha=0.85; ctx.drawImage(img5,0,0,canvas.width,canvas.height); ctx.globalAlpha=1; terminar(); };
+        img5.onerror=()=>terminar();
+        img5.src=form.backendUrl.replace(/\/$/,"")+"/img-sitrural?u="+encodeURIComponent(wms);
+      };
       const dibujarRoles=()=>{
-        if(capaPredioId===null||capaPredioId===undefined){terminar();return;}
+        if(capaPredioId===null||capaPredioId===undefined){dibujarFruticola();return;}
         const img3=new Image(); img3.crossOrigin="anonymous";
-        img3.onload=()=>{ ctx.globalAlpha=0.9; ctx.drawImage(img3,0,0,canvas.width,canvas.height); ctx.globalAlpha=1; terminar(); };
-        img3.onerror=()=>terminar();
+        img3.onload=()=>{ ctx.globalAlpha=0.9; ctx.drawImage(img3,0,0,canvas.width,canvas.height); ctx.globalAlpha=1; dibujarFruticola(); };
+        img3.onerror=()=>dibujarFruticola();
         img3.src="https://esri.ciren.cl/server/rest/services/IDEMINAGRI/PROPIEDADES_RURALES/MapServer/export?bbox="+extW+","+extS+","+extE+","+extN+"&bboxSR=4326&imageSR=4326&size="+canvas.width+","+canvas.height+"&layers=show:"+capaPredioId+"&format=png32&transparent=true&f=image";
       };
       img2.onload=()=>{
@@ -1291,6 +1312,7 @@ export default function App(){
                     </div>
                   );
                 })()}
+                <Fld label="Guia para la conclusion de la IA (opcional: que quieres destacar — ej. 'enfatizar potencial fruticola y disponibilidad de agua', 'orientar a inversionista forestal')" value={form.guiaConclusion} onChange={v=>upd("guiaConclusion",v)} multi/>
                 <Fld label="Metodologia de valorizacion (opcional: si lo dejas vacio, el informe usa el texto estandar profesional)" value={form.metodologiaTxt} onChange={v=>upd("metodologiaTxt",v)} multi/>
                 <Fld warn label="Valor Comercial ($)" value={form.valorComercial} onChange={v=>upd("valorComercial",fmtMiles(v))} placeholder="466.850.000"/>
                 <Fld label="Valor Comercial (UF)" value={form.valorComercialUF} onChange={v=>upd("valorComercialUF",fmtMiles(v))} placeholder="11.802"/>
@@ -1447,14 +1469,24 @@ export default function App(){
               <PgFB title="5. Antecedentes Tecnicos">
                 <Sub>Superficie:</Sub>
                 <GTbl headers={["SUPERFICIE","HECTAREAS"]} rows={[["Titulos de la Propiedad",report.superfTitulos],["SII (suma de roles)",report.superfSIITotal>0?report.superfSIITotal.toFixed(2):""],["Google Earth",report.superfGoogleEarth]].filter(r=>String(r[1]||"").trim())}/>
+                {report.ia&&report.ia.topografia?<p style={{...TXT,marginTop:10}}>{report.ia.topografia}</p>:null}
                 {report.imagenSatelital&&<><img src={report.imagenSatelital} alt="Plano" style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:6,border:"1px solid #ddd",margin:"12px 0 4px"}}/><p style={{fontStyle:"italic",fontSize:12,textAlign:"center",color:"#888"}}>Fuente: Google Earth</p></>}
                 <Sub>Suelos:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.suelos}</p>
-                <GTbl headers={["Linea","Clase de Suelo","Superficie (Ha)"]} rows={[1,2,3,4,5,6,7,8].filter(n=>parseFloat((report["c"+n]||"0").replace(",","."))>0).map((n,i)=>[String(i+1),"CLASE "+["I","II","III","IV","V","VI","VII","VIII"][n-1],report["c"+n]])}/>
-                {report.usosCIREN&&(()=>{try{
+                {(()=>{
+                  const activos=[1,2,3,4,5,6,7,8].filter(n=>parseFloat((report["c"+n]||"0").replace(",","."))>0);
+                  const filas=activos.map((n,i)=>[String(i+1),"CLASE "+["I","II","III","IV","V","VI","VII","VIII"][n-1],report["c"+n]]);
+                  const tot=activos.reduce((s,n)=>s+parseFloat((report["c"+n]||"0").replace(",",".")),0);
+                  if(filas.length)filas.push(["","Total Superficie",tot.toFixed(2).replace(".",",")]);
+                  return <GTbl boldLast={1} headers={["Linea","Clase de Suelo","Superficie (Ha)"]} rows={filas}/>;
+                })()}
+                                <Sub>Caracteristicas CIREN:</Sub>
+                <p style={TXT}>{report.ia&&report.ia.ciren}</p>
+                {[["Pendiente",report.pendiente],["Profundidad",report.profundidad],["Erosion",report.erosion],["Pedregosidad",report.pedregosidad],["Drenaje",report.drenaje],["Textura",report.textura],["pH",report.ph],["Aptitud",report.aptitud],["Capacidad de Uso",report.capacidadUso]].filter(([,v])=>v).map(([l,v],i)=><IRw key={i} label={l+":"} value={v}/>)}
+{report.usosCIREN&&(()=>{try{
                   const u=JSON.parse(report.usosCIREN);
                   const rows=Object.entries(u).map(([k,v])=>[k,String(v).replace(".",",")]);
-                  return rows.length?<><Sub>Uso Actual del Suelo y Vegetacion (Catastro CONAF - referencial)</Sub><GTbl headers={["Uso","Superficie (ha)"]} rows={rows}/></>:null;
+                  return rows.length?<><Sub>Uso Actual del Suelo y Vegetacion (Catastro CONAF - referencial)</Sub>{report.ia&&report.ia.usoActual?<p style={TXT}>{report.ia.usoActual}</p>:null}<GTbl headers={["Uso","Superficie (ha)"]} rows={rows}/></>:null;
                 }catch(e){return null;}})()}
                 {(()=>{let pls=[];try{pls=JSON.parse(report.plantacionesCIREN||"[]");}catch(e){pls=[];}
                   const conDatos=pls.filter(p=>String(p.especie||"").trim());
@@ -1472,9 +1504,6 @@ export default function App(){
                   filasP.push(["Total Plantaciones","","",totArb?String(Math.round(totArb)):"-",totHa.toFixed(2)]);
                   return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><GTbl boldLast={1} headers={["Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={filasP}/></>;})()}
                 {report.imagenSuelosMap&&<div style={{marginTop:16}}><ImgBox src={report.imagenSuelosMap} label="Plano de Capacidad de Uso de Suelo — CIREN sobre imagen satelital (referencial)" height={330}/></div>}
-                <Sub>Caracteristicas CIREN:</Sub>
-                <p style={TXT}>{report.ia&&report.ia.ciren}</p>
-                {[["Pendiente",report.pendiente],["Profundidad",report.profundidad],["Erosion",report.erosion],["Pedregosidad",report.pedregosidad],["Drenaje",report.drenaje],["Textura",report.textura],["pH",report.ph],["Aptitud",report.aptitud],["Capacidad de Uso",report.capacidadUso]].filter(([,v])=>v).map(([l,v],i)=><IRw key={i} label={l+":"} value={v}/>)}
                 <Sub>Recursos Hidricos:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.hidrico}</p>
                 {(()=>{
