@@ -1,6 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 
 const G = "#2D6A4F";
+
+// ── Almacen local de tasaciones (IndexedDB: soporta imagenes y muchas tasaciones) ──
+const abrirDB=()=>new Promise((res,rej)=>{const r=indexedDB.open("farmbrokers",1);r.onupgradeneeded=()=>{r.result.createObjectStore("tasaciones",{keyPath:"id"});};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});
+const dbGuardar=async(reg)=>{const db=await abrirDB();return new Promise((res,rej)=>{const tx=db.transaction("tasaciones","readwrite");tx.objectStore("tasaciones").put(reg);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});};
+const dbListar=async()=>{const db=await abrirDB();return new Promise((res,rej)=>{const rq=db.transaction("tasaciones").objectStore("tasaciones").getAll();rq.onsuccess=()=>res(rq.result||[]);rq.onerror=()=>rej(rq.error);});};
+const dbBorrar=async(id)=>{const db=await abrirDB();return new Promise((res,rej)=>{const tx=db.transaction("tasaciones","readwrite");tx.objectStore("tasaciones").delete(id);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});};
+const proximoCorrelativo=()=>{const y=new Date().getFullYear();const k="fb_correlativo_"+y;const n=(parseInt(localStorage.getItem(k)||"0",10)||0)+1;localStorage.setItem(k,String(n));return "T-"+y+"-"+String(n).padStart(3,"0");};
 const GL = "#52A77A";
 const GH = "#E8F5EE";
 const ORO = "#C8A84B";
@@ -131,7 +138,7 @@ const EMPTY = {
   roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}],
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",
-  coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
+  numTasacion:"",climaTxt:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",plantacionesCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
@@ -151,6 +158,33 @@ export default function App(){
   const [step,setStep]=useState(0);
   const [loading,setLoading]=useState(false);
   const [report,setReport]=useState(null);
+  const [showTas,setShowTas]=useState(false);
+  const [listaTas,setListaTas]=useState([]);
+  const [avisoGuardado,setAvisoGuardado]=useState("");
+  // Borrador automatico: todo cambio queda guardado en el navegador
+  useEffect(()=>{
+    const t=setTimeout(()=>{dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form}).catch(()=>{});},800);
+    return ()=>clearTimeout(t);
+  },[form]);
+  useEffect(()=>{
+    (async()=>{
+      try{const regs=await dbListar();const b=regs.find(r=>r.id==="__borrador__");
+        if(b&&b.form&&JSON.stringify(b.form)!==JSON.stringify(EMPTY)){setForm(b.form);setAvisoGuardado("Se restauro tu borrador anterior automaticamente.");setTimeout(()=>setAvisoGuardado(""),6000);}
+      }catch(e){}
+    })();
+  },[]);
+  const guardarTasacion=async()=>{
+    const nombreSug=(form.predioNombre||"").trim()||((form.roles[0]||{}).rol?("Rol "+form.roles[0].rol):"Tasacion");
+    const nombre=prompt("Nombre para guardar esta tasacion:",nombreSug);
+    if(nombre===null)return;
+    let num=form.numTasacion;
+    if(!num){num=proximoCorrelativo();upd("numTasacion",num);}
+    await dbGuardar({id:"tas_"+Date.now(),nombre:(nombre||nombreSug)+"  ["+num+"]",fecha:new Date().toISOString(),form:{...form,numTasacion:num}});
+    setAvisoGuardado("✓ Guardada: "+(nombre||nombreSug));setTimeout(()=>setAvisoGuardado(""),4000);
+  };
+  const abrirMisTasaciones=async()=>{const regs=await dbListar();setListaTas(regs.filter(r=>r.id!=="__borrador__").sort((x,y)=>y.fecha.localeCompare(x.fecha)));setShowTas(true);};
+  const exportarTasacion=(reg)=>{const blob=new Blob([JSON.stringify(reg,null,2)],{type:"application/json"});const u=URL.createObjectURL(blob);const el=document.createElement("a");el.href=u;el.download=("Tasacion_"+reg.nombre.replace(/[^\w\-]+/g,"_")+".json");el.click();URL.revokeObjectURL(u);};
+  const importarTasacion=(ev)=>{const file=ev.target.files&&ev.target.files[0];if(!file)return;const rd=new FileReader();rd.onload=()=>{try{const reg=JSON.parse(rd.result);if(reg&&reg.form){setForm({...EMPTY,...reg.form});setShowTas(false);setAvisoGuardado("✓ Tasacion importada desde archivo.");setTimeout(()=>setAvisoGuardado(""),4000);}else alert("El archivo no es una tasacion valida.");}catch(e){alert("Archivo invalido: "+e.message);}};rd.readAsText(file);ev.target.value="";};
   const [genMsg,setGenMsg]=useState("");
   const [genError,setGenError]=useState("");
   const [form,setForm]=useState(EMPTY);
@@ -333,7 +367,7 @@ export default function App(){
           plantacionesTxt:(()=>{try{const l=JSON.parse(form.plantacionesCIREN||"[]");return l.filter(p=>String(p.especie||"").trim()).map(p=>p.especie+(p.variedad?" var. "+p.variedad:"")+(p.anio?", plantacion "+p.anio:"")+(p.arboles?", "+p.arboles+" arboles":"")+(p.has?", "+p.has+" ha":"")+(p.vha?", valorizada en $"+p.vha+"/ha":"")).join(" | ");}catch(e){return "";}})(),
           construcciones:form.construcciones,
           construccionesTxt:(()=>{try{const l=JSON.parse(form.construccionesLista||"[]");return l.filter(c=>String(c.nombre||"").trim()).map(c=>c.nombre+(c.m2?" ("+c.m2+" m2"+(c.anio?", año "+c.anio:"")+")":"")+(c.detalle?": "+c.detalle:"")).join(" | ");}catch(e){return "";}})(),
-          metodologiaTxt:form.metodologiaTxt,
+          metodologiaTxt:form.metodologiaTxt,climaTxt:form.climaTxt,numTasacion:form.numTasacion,
           coordLat:form.coordLat,coordLon:form.coordLon,distSantiago:form.distSantiago,distComuna:form.distComuna,acceso:form.acceso,
         })
       });
@@ -507,7 +541,39 @@ export default function App(){
   };
 
   const [distStatus,setDistStatus]=useState(null);
+  const geoExtraAuto=async(latP,lonP)=>{
+    // Altitud (Open-Meteo Elevation, gratis)
+    try{
+      const re=await fetch("https://api.open-meteo.com/v1/elevation?latitude="+latP+"&longitude="+lonP);
+      const je=await re.json();
+      if(je.elevation&&je.elevation.length&&!form.altitud)upd("altitud",String(Math.round(je.elevation[0])));
+    }catch(e){}
+    // Clima historico del punto (Open-Meteo Archive: ultimos 5 años)
+    try{
+      const hoy=new Date();const fin=hoy.getFullYear()-1;
+      const rc=await fetch("https://archive-api.open-meteo.com/v1/archive?latitude="+latP+"&longitude="+lonP+
+        "&start_date="+(fin-4)+"-01-01&end_date="+fin+"-12-31&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=America%2FSantiago");
+      const jc=await rc.json();
+      const d=jc.daily;
+      if(d&&d.time&&d.time.length){
+        const anios=5;
+        const pp=d.precipitation_sum.reduce((s,v)=>s+(v||0),0)/anios;
+        let sumMax=0,nMax=0,sumMin=0,nMin=0,heladas=0;
+        d.time.forEach((t,i)=>{
+          const mes=parseInt(t.substring(5,7),10);
+          if(mes===1){if(d.temperature_2m_max[i]!=null){sumMax+=d.temperature_2m_max[i];nMax++;}}
+          if(mes===7){if(d.temperature_2m_min[i]!=null){sumMin+=d.temperature_2m_min[i];nMin++;}}
+          if(d.temperature_2m_min[i]!=null&&d.temperature_2m_min[i]<0)heladas++;
+        });
+        const txt="Precipitacion media anual: "+Math.round(pp)+" mm. Temperatura maxima media de enero: "+
+          (nMax?(sumMax/nMax).toFixed(1):"?")+"°C; minima media de julio: "+(nMin?(sumMin/nMin).toFixed(1):"?")+
+          "°C. Promedio de "+Math.round(heladas/anios)+" dias de helada al año. (Open-Meteo, periodo "+(fin-4)+"-"+fin+", punto del predio)";
+        if(!form.climaTxt)upd("climaTxt",txt);
+      }
+    }catch(e){}
+  };
   const distanciasAuto=async(latP,lonP,comunaP)=>{
+    geoExtraAuto(latP,lonP);
     const la=latP||form.coordLat, lo=lonP||form.coordLon;
     const com=comunaP||(form.roles[0]&&form.roles[0].comuna)||"";
     if(!la||!lo){alert("Primero necesito las coordenadas (usa Buscar Auto o ingresalas).");return;}
@@ -663,7 +729,34 @@ export default function App(){
         {/* UF en tiempo real en el header */}
         <div style={{textAlign:"right"}}>
           {ufStatus==="ok"
-            ? <div><div style={{fontSize:10,opacity:0.6}}>UF HOY</div><div style={{fontWeight:700,fontSize:16,color:ORO}}>${form.ufBase}</div></div>
+            ? <div style={{display:"flex",gap:14,alignItems:"center"}}>
+                {avisoGuardado?<div style={{position:"fixed",top:74,right:20,zIndex:99,background:"#1e5631",color:"#fff",padding:"10px 18px",borderRadius:8,fontSize:13,boxShadow:"0 4px 14px rgba(0,0,0,0.25)"}}>{avisoGuardado}</div>:null}
+                {showTas?<div onClick={()=>setShowTas(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:98,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <div onClick={e=>e.stopPropagation()} style={{background:"#fff",color:"#222",borderRadius:12,padding:24,width:"min(640px,92vw)",maxHeight:"80vh",overflow:"auto"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                      <div style={{fontWeight:700,fontSize:17,color:G}}>📂 Mis Tasaciones</div>
+                      <button onClick={()=>setShowTas(false)} style={{border:"none",background:"transparent",fontSize:18,cursor:"pointer"}}>✕</button>
+                    </div>
+                    <div style={{fontSize:12,color:"#777",marginBottom:12}}>Guardadas en este navegador. Usa "Exportar" para respaldar en archivo (y poder abrirlas en otro computador con "Importar").</div>
+                    <label style={{display:"inline-block",border:"1px solid "+G,color:G,borderRadius:6,padding:"7px 12px",fontSize:12.5,cursor:"pointer",marginBottom:14}}>⬆ Importar desde archivo<input type="file" accept=".json" onChange={importarTasacion} style={{display:"none"}}/></label>
+                    {listaTas.length===0?<div style={{color:"#999",fontSize:14,padding:"18px 0"}}>Aun no hay tasaciones guardadas. Usa 💾 Guardar.</div>:
+                      listaTas.map(reg=>(
+                        <div key={reg.id} style={{display:"flex",gap:10,alignItems:"center",borderTop:"1px solid #eee",padding:"10px 0"}}>
+                          <div style={{flex:1}}>
+                            <div style={{fontWeight:600,fontSize:14}}>{reg.nombre}</div>
+                            <div style={{fontSize:11.5,color:"#999"}}>{new Date(reg.fecha).toLocaleString("es-CL")}</div>
+                          </div>
+                          <button onClick={()=>{setForm({...EMPTY,...reg.form});setShowTas(false);setAvisoGuardado("✓ Abierta: "+reg.nombre);setTimeout(()=>setAvisoGuardado(""),4000);}} style={{border:"1px solid "+G,background:G,color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>Abrir</button>
+                          <button onClick={()=>exportarTasacion(reg)} style={{border:"1px solid #999",background:"#fff",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>Exportar</button>
+                          <button onClick={async()=>{if(confirm("¿Eliminar \""+reg.nombre+"\"?")){await dbBorrar(reg.id);abrirMisTasaciones();}}} style={{border:"1px solid #c66",background:"#fff",color:"#c66",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>✕</button>
+                        </div>
+                      ))}
+                  </div>
+                </div>:null}
+                <button onClick={guardarTasacion} style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>💾 Guardar</button>
+                <button onClick={abrirMisTasaciones} style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>📂 Mis Tasaciones</button>
+                <div><div style={{fontSize:10,opacity:0.6}}>UF HOY</div><div style={{fontWeight:700,fontSize:16,color:ORO}}>${form.ufBase}</div></div>
+              </div>
             : ufStatus==="loading"
               ? <div style={{fontSize:11,opacity:0.6}}>Cargando UF...</div>
               : <button onClick={fetchUF} style={{background:"none",border:"1px solid rgba(255,255,255,0.3)",color:"#fff",padding:"4px 10px",borderRadius:5,fontSize:11,cursor:"pointer"}}>Obtener UF</button>
@@ -922,6 +1015,7 @@ export default function App(){
                 <div>
                   <Fld label="Distancia Santiago (km)" value={form.distSantiago} onChange={v=>upd("distSantiago",v)} placeholder="41"/>
                   <Fld label="Acceso (como llegar — se completa solo con las distancias)" value={form.acceso} onChange={v=>upd("acceso",v)} multi placeholder="Desde el centro de la comuna por Ruta H-776..."/>
+                  <Fld label="Clima de la zona (se completa solo con datos historicos del punto)" value={form.climaTxt} onChange={v=>upd("climaTxt",v)} multi placeholder="Precipitacion media anual..."/>
                   <button onClick={()=>distanciasAuto()} disabled={distStatus&&distStatus.loading} style={{...bS,fontSize:11,padding:"6px 12px",marginTop:2}}>{distStatus&&distStatus.loading?"Calculando...":"📏 Calcular distancias"}</button>
                   {distStatus&&!distStatus.loading&&<div style={{fontSize:11,color:distStatus.ok?G:"#c53030",marginTop:4,lineHeight:1.5}}>{distStatus.msg}</div>}
                 </div>
@@ -1214,6 +1308,27 @@ export default function App(){
 
             <div style={{display:"flex",justifyContent:"space-between",marginTop:20}}>
               <button onClick={()=>setStep(1)} style={bS}>← Volver</button>
+              {(()=>{
+                const faltan=[];
+                if(!String(form.valorComercial||"").trim())faltan.push("Valor Comercial");
+                if(!String(form.fecha||"").trim())faltan.push("Fecha de tasacion");
+                if(!String(form.predioNombre||"").trim())faltan.push("Nombre del predio");
+                (form.roles||[]).forEach((r,i)=>{if(String(r.rol||"").trim()&&!String((r.datos||{}).avaluoFiscal||"").trim())faltan.push("Avaluo del rol "+r.rol);});
+                if(!String(form.coordLat||"").trim())faltan.push("Coordenadas");
+                const nFotos=(form.imagenes||[]).length;
+                if(nFotos===0)faltan.push("Fotografias del predio");
+                const haySuelos=[1,2,3,4,5,6,7,8].some(n=>parseFloat(String(form["c"+n]||"0").replace(",","."))>0);
+                if(!haySuelos)faltan.push("Clases de suelo (usa Suelos Auto)");
+                return faltan.length?(
+                  <div style={{background:"#fff8e6",border:"1px solid #d4a017",borderRadius:8,padding:"12px 16px",marginBottom:14,fontSize:13,color:"#7a5c00"}}>
+                    <b>📋 Antes de generar, te falta:</b> {faltan.join(" · ")}
+                  </div>
+                ):(
+                  <div style={{background:"#eef7ee",border:"1px solid "+G,borderRadius:8,padding:"10px 16px",marginBottom:14,fontSize:13,color:G}}>
+                    ✓ Checklist completo: todos los datos clave estan ingresados.
+                  </div>
+                );
+              })()}
               <button onClick={generarInforme} disabled={loading} style={{...bP,minWidth:220,background:loading?"#aaa":G}}>
                 {loading?(genMsg||"Generando..."):"✨ Generar Informe con IA"}
               </button>
@@ -1255,7 +1370,8 @@ export default function App(){
                   <img src={LOGO} alt="Farm Brokers" style={{height:70,width:"auto",objectFit:"contain"}}/>
                 </div>
                 <div style={{textAlign:"center",flex:1,display:"flex",flexDirection:"column",justifyContent:"center"}}>
-                  <h1 style={{fontFamily:FONT,fontSize:34,fontWeight:700,color:"#1a1a1a",marginBottom:28}}>Informe Tasacion</h1>
+                  <h1 style={{fontFamily:FONT,fontSize:34,fontWeight:700,color:"#1a1a1a",marginBottom:report.numTasacion?8:28}}>Informe Tasacion</h1>
+                  {report.numTasacion?<p style={{fontSize:13,letterSpacing:2,color:"#8a8a8a",marginBottom:24}}>N° {report.numTasacion}</p>:null}
                   <p style={{fontSize:20,color:"#333",marginBottom:10}}>{capTxt(report.predioNombre)}</p>
                   {report.roles.map((r,i)=><p key={i} style={{fontSize:16,color:"#444",marginBottom:4}}>Rol N° {r.rol} — {capTxt(r.comuna)}</p>)}
                   {report.provincia?<p style={{fontSize:14,color:"#555",marginBottom:3}}>Provincia de {capTxt(report.provincia)}</p>:null}
