@@ -113,7 +113,7 @@ function IRw({label,value}){
   </div>;
 }
 function Sub({children}){
-  return <div style={{margin:"22px 0 9px"}}>
+  return <div data-sub="1" style={{margin:"22px 0 9px"}}>
     <div style={{fontFamily:FONT,fontWeight:700,fontSize:13.5,letterSpacing:0.4,color:"#1a1a1a"}}>{children}</div>
     <div style={{width:44,height:2,background:ORO,marginTop:4}}/>
   </div>;
@@ -138,7 +138,7 @@ const EMPTY = {
   roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}],
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",
-  numTasacion:"",climaTxt:"",guiaConclusion:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
+  numTasacion:"",climaTxt:"",guiaConclusion:"",instalacionesLista:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",plantacionesCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
@@ -162,6 +162,7 @@ export default function App(){
   const [genError,setGenError]=useState("");
   const [form,setForm]=useState(EMPTY);
   const [showTas,setShowTas]=useState(false);
+  const [idTasacionActual,setIdTasacionActual]=useState(null);
   const [listaTas,setListaTas]=useState([]);
   const [avisoGuardado,setAvisoGuardado]=useState("");
   // Borrador automatico: todo cambio queda guardado en el navegador
@@ -178,12 +179,16 @@ export default function App(){
   },[]);
   const guardarTasacion=async()=>{
     const nombreSug=(form.predioNombre||"").trim()||((form.roles[0]||{}).rol?("Rol "+form.roles[0].rol):"Tasacion");
+    let actualizar=false;
+    if(idTasacionActual){actualizar=confirm("¿Actualizar la tasacion abierta? (Aceptar = actualizar | Cancelar = guardar como nueva)");}
     const nombre=prompt("Nombre para guardar esta tasacion:",nombreSug);
     if(nombre===null)return;
     let num=form.numTasacion;
     if(!num){num=proximoCorrelativo();upd("numTasacion",num);}
-    await dbGuardar({id:"tas_"+Date.now(),nombre:(nombre||nombreSug)+"  ["+num+"]",fecha:new Date().toISOString(),form:{...form,numTasacion:num}});
-    setAvisoGuardado("✓ Guardada: "+(nombre||nombreSug));setTimeout(()=>setAvisoGuardado(""),4000);
+    const id=(actualizar&&idTasacionActual)?idTasacionActual:("tas_"+Date.now());
+    await dbGuardar({id,nombre:(nombre||nombreSug)+"  ["+num+"]",fecha:new Date().toISOString(),form:{...form,numTasacion:num}});
+    setIdTasacionActual(id);
+    setAvisoGuardado((actualizar?"✓ Actualizada: ":"✓ Guardada: ")+(nombre||nombreSug));setTimeout(()=>setAvisoGuardado(""),4000);
   };
   const abrirMisTasaciones=async()=>{const regs=await dbListar();setListaTas(regs.filter(r=>r.id!=="__borrador__").sort((x,y)=>y.fecha.localeCompare(x.fecha)));setShowTas(true);};
   const exportarTasacion=(reg)=>{const blob=new Blob([JSON.stringify(reg,null,2)],{type:"application/json"});const u=URL.createObjectURL(blob);const el=document.createElement("a");el.href=u;el.download=("Tasacion_"+reg.nombre.replace(/[^\w\-]+/g,"_")+".json");el.click();URL.revokeObjectURL(u);};
@@ -366,7 +371,7 @@ export default function App(){
           plantacionDesc:form.plantacionDesc,plantacionHas:form.plantacionHas,
           plantacionesTxt:(()=>{try{const l=JSON.parse(form.plantacionesCIREN||"[]");return l.filter(p=>String(p.especie||"").trim()).map(p=>p.especie+(p.variedad?" var. "+p.variedad:"")+(p.anio?", plantacion "+p.anio:"")+(p.arboles?", "+p.arboles+" arboles":"")+(p.has?", "+p.has+" ha":"")+(p.vha?", valorizada en $"+p.vha+"/ha":"")).join(" | ");}catch(e){return "";}})(),
           construcciones:form.construcciones,
-          construccionesTxt:(()=>{try{const l=JSON.parse(form.construccionesLista||"[]");return l.filter(c=>String(c.nombre||"").trim()).map(c=>c.nombre+(c.m2?" ("+c.m2+" m2"+(c.anio?", año "+c.anio:"")+")":"")+(c.detalle?": "+c.detalle:"")).join(" | ");}catch(e){return "";}})(),
+          construccionesTxt:(()=>{try{const l=JSON.parse(form.construccionesLista||"[]").filter(c=>String(c.nombre||"").trim());const li=JSON.parse(form.instalacionesLista||"[]").filter(r=>String(r.nombre||"").trim());const t=[...l.map(c=>c.nombre+(c.m2?" ("+c.m2+" m2"+(c.anio?", año "+c.anio:"")+")":"")+(c.detalle?": "+c.detalle:"")),...li.map(r=>"Instalacion: "+r.nombre+(r.cantidad?" ("+r.cantidad+" "+(r.unidad||"")+")":""))];return t.join(" | ");}catch(e){return "";}})(),
           metodologiaTxt:form.metodologiaTxt,climaTxt:form.climaTxt,numTasacion:form.numTasacion,guiaConclusion:form.guiaConclusion,
           usosResumen:(()=>{try{const u=JSON.parse(form.usosCIREN||"{}");return Object.entries(u).map(([k,v])=>k+" "+v+" ha").join(", ");}catch(e){return "";}})(),
           coordLat:form.coordLat,coordLon:form.coordLon,distSantiago:form.distSantiago,distComuna:form.distComuna,acceso:form.acceso,
@@ -737,7 +742,7 @@ export default function App(){
 
   return(
     <div style={{minHeight:"100vh",background:GRIS2,fontFamily:SANS}}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @media print{header,.noprint,button,.stepsbar{display:none!important} main{max-width:100%!important;padding:0!important} #informe{border:none!important;border-radius:0!important} #informe>div{page-break-after:always;min-height:auto!important} #informe>div:last-child{page-break-after:auto} table,img,tr{page-break-inside:avoid!important} h2{page-break-after:avoid} p{orphans:3;widows:3} body{background:white!important} @page{size:letter;margin:0} #informe>div{box-sizing:border-box;min-height:27.6cm;padding-left:1.9cm!important;padding-right:1.9cm!important;padding-top:1.5cm!important;padding-bottom:1.1cm!important}}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @media print{header,.noprint,button,.stepsbar{display:none!important} main{max-width:100%!important;padding:0!important} #informe{border:none!important;border-radius:0!important} #informe>div{page-break-after:always;min-height:auto!important} #informe>div:last-child{page-break-after:auto} table,img,tr,thead{page-break-inside:avoid!important;break-inside:avoid!important} h2,h3,[data-sub]{page-break-after:avoid!important;break-after:avoid!important} [data-sub]+p,[data-sub]+table{page-break-before:avoid!important} p{orphans:3;widows:3} #informe td,#informe th{page-break-inside:avoid!important} body{background:white!important} @page{size:letter;margin:0} #informe>div{box-sizing:border-box;min-height:27.6cm;padding-left:1.9cm!important;padding-right:1.9cm!important;padding-top:1.5cm!important;padding-bottom:1.1cm!important}}`}</style>
 
       <header style={{background:G,color:"#fff",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:60,boxShadow:"0 2px 10px rgba(0,0,0,0.2)"}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -766,7 +771,7 @@ export default function App(){
                             <div style={{fontWeight:600,fontSize:14}}>{reg.nombre}</div>
                             <div style={{fontSize:11.5,color:"#999"}}>{new Date(reg.fecha).toLocaleString("es-CL")}</div>
                           </div>
-                          <button onClick={()=>{setForm({...EMPTY,...reg.form});setShowTas(false);setAvisoGuardado("✓ Abierta: "+reg.nombre);setTimeout(()=>setAvisoGuardado(""),4000);}} style={{border:"1px solid "+G,background:G,color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>Abrir</button>
+                          <button onClick={()=>{setForm({...EMPTY,...reg.form});setIdTasacionActual(reg.id);setShowTas(false);setAvisoGuardado("✓ Abierta para editar: "+reg.nombre);setTimeout(()=>setAvisoGuardado(""),4000);}} style={{border:"1px solid "+G,background:G,color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>Editar</button>
                           <button onClick={()=>exportarTasacion(reg)} style={{border:"1px solid #999",background:"#fff",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>Exportar</button>
                           <button onClick={async()=>{if(confirm("¿Eliminar \""+reg.nombre+"\"?")){await dbBorrar(reg.id);abrirMisTasaciones();}}} style={{border:"1px solid #c66",background:"#fff",color:"#c66",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>✕</button>
                         </div>
@@ -1201,7 +1206,7 @@ export default function App(){
             <SecT icon="🏠" title="Infraestructura e Inmuebles"/>
             <Card>
               <Fld label="Construcciones (descripcion general)" value={form.construcciones} onChange={v=>upd("construcciones",v)} multi/>
-              <div style={{fontWeight:600,color:G,margin:"14px 0 6px",fontSize:13}}>Inmuebles e instalaciones (itemizado para el informe y su valorizacion)</div>
+              <div style={{fontWeight:600,color:G,margin:"14px 0 6px",fontSize:13}}>Construcciones (con superficie en m²)</div>
               {(()=>{
                 let cs=[];
                 try{cs=JSON.parse(form.construccionesLista||"[]");}catch(e){cs=[];}
@@ -1220,7 +1225,30 @@ export default function App(){
                       <textarea value={c.detalle||""} onChange={e=>setC(i,"detalle",e.target.value)} rows={2} placeholder="Detalle constructivo: estructura, muros, techumbre, cubierta, pisos, estado (ej. Estructura de albañileria de ladrillos, muros estucados y pintados, techumbre de madera con cubierta de tejas de arcilla, piso radier revestido en ceramica. Buen estado.)" style={{...iS,width:"100%",margin:"2px 0 8px 0",padding:"7px 10px",fontSize:12,resize:"vertical"}}/>
                     </div>
                   ))}
-                  <button onClick={()=>guardarC([...cs,{nombre:"",m2:"",anio:"",vm2:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar inmueble / instalacion</button>
+                  <button onClick={()=>guardarC([...cs,{nombre:"",m2:"",anio:"",vm2:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar construccion</button>
+                </div>;
+              })()}
+              <div style={{fontWeight:600,color:G,margin:"16px 0 6px",fontSize:13}}>Instalaciones (sin m²: cantidad + valor unitario, o valor global)</div>
+              {(()=>{
+                let ins=[];
+                try{ins=JSON.parse(form.instalacionesLista||"[]");}catch(e){ins=[];}
+                const guardarI=(arr)=>upd("instalacionesLista",arr.length?JSON.stringify(arr):"");
+                const setI=(i,cmp,v)=>guardarI(ins.map((r,j)=>j===i?{...r,[cmp]:v}:r));
+                const nI=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+                const cI=v=>parseFloat(String(v||"0").replace(",","."))||0;
+                return <div>
+                  {ins.map((r,i)=>(
+                    <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center",flexWrap:"wrap"}}>
+                      <input value={r.nombre||""} onChange={e=>setI(i,"nombre",e.target.value)} placeholder="Instalacion (ej. Riego tecnificado, Cerco electrico, Tranque)" style={{...iS,flex:3,minWidth:200,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.cantidad||""} onChange={e=>setI(i,"cantidad",e.target.value)} placeholder="Cant." style={{...iS,width:70,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.unidad||""} onChange={e=>setI(i,"unidad",e.target.value)} placeholder="Unidad (ha, m, KVA...)" style={{...iS,width:120,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.vu||""} onChange={e=>setI(i,"vu",fmtMiles(e.target.value))} placeholder="$ unitario" style={{...iS,width:105,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.vg||""} onChange={e=>setI(i,"vg",fmtMiles(e.target.value))} placeholder="$ global" style={{...iS,width:110,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <span style={{fontSize:11.5,color:"#666",minWidth:95}}>{(nI(r.vg)||cI(r.cantidad)*nI(r.vu))?("$ "+Math.round(nI(r.vg)||cI(r.cantidad)*nI(r.vu)).toLocaleString("es-CL")):""}</span>
+                      <button onClick={()=>guardarI(ins.filter((_,j)=>j!==i))} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
+                    </div>
+                  ))}
+                  <button onClick={()=>guardarI([...ins,{nombre:"",cantidad:"",unidad:"",vu:"",vg:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar instalacion</button>
                 </div>;
               })()}
             </Card>
@@ -1502,7 +1530,15 @@ export default function App(){
                     filasP.push(["Subtotal "+esp,"","",sa?String(Math.round(sa)):"-",sh.toFixed(2)]);
                   });
                   filasP.push(["Total Plantaciones","","",totArb?String(Math.round(totArb)):"-",totHa.toFixed(2)]);
-                  return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><GTbl boldLast={1} headers={["Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={filasP}/></>;})()}
+                  const resumen=Object.keys(grupos).map(esp=>{
+                    const arr=grupos[esp];
+                    const ha=arr.reduce((s,p)=>s+nP(p.has),0), arb=arr.reduce((s,p)=>s+nP(p.arboles),0);
+                    const vars=[...new Set(arr.map(p=>String(p.variedad||"").trim()).filter(Boolean))];
+                    const anios=[...new Set(arr.map(p=>String(p.anio||"").trim()).filter(Boolean))].sort();
+                    return ha.toFixed(2)+" ha de "+esp+(vars.length?" (variedad"+(vars.length>1?"es ":" ")+vars.join(", ")+")":"")+(anios.length?", plantaciones "+(anios.length>1?(anios[0]+" a "+anios[anios.length-1]):anios[0]):"")+(arb?", "+Math.round(arb).toLocaleString("es-CL")+" arboles":"");
+                  }).join("; ");
+                  const parrafoFrut="El predio cuenta con "+totHa.toFixed(2)+" ha de huertos frutales"+(totArb?" y un total de "+Math.round(totArb).toLocaleString("es-CL")+" arboles":"")+", correspondientes a: "+resumen+".";
+                  return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><p style={TXT}>{parrafoFrut}</p><GTbl boldLast={1} headers={["Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={filasP}/></>;})()}
                 {report.imagenSuelosMap&&<div style={{marginTop:16}}><ImgBox src={report.imagenSuelosMap} label="Plano de Capacidad de Uso de Suelo — CIREN sobre imagen satelital (referencial)" height={330}/></div>}
                 <Sub>Recursos Hidricos:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.hidrico}</p>
@@ -1521,25 +1557,42 @@ export default function App(){
                 <Sub>Clima:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.clima}</p>
                 <Sub>Infraestructura:</Sub>
-                <p style={TXT}>{report.construcciones}</p>
                 {(()=>{
                   let cs=[];try{cs=JSON.parse(report.construccionesLista||"[]").filter(c=>String(c.nombre||"").trim());}catch(e){cs=[];}
-                  if(!cs.length){window.__consValor=0;return null;}
+                  let ins=[];try{ins=JSON.parse(report.instalacionesLista||"[]").filter(r=>String(r.nombre||"").trim());}catch(e){ins=[];}
                   const nC=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
                   const mC=v=>parseFloat(String(v||"0").replace(",","."))||0;
-                  const tot=cs.reduce((s,c)=>s+mC(c.m2)*nC(c.vm2),0);
-                  window.__consValor=tot;
-                  const conValor=cs.some(c=>nC(c.vm2)>0);
+                  const subC=cs.reduce((s,c)=>s+mC(c.m2)*nC(c.vm2),0);
+                  const subI=ins.reduce((s,r)=>s+(nC(r.vg)||mC(r.cantidad)*nC(r.vu)),0);
+                  window.__consValor=subC+subI;
+                  // Parrafo: descripcion manual solo si no hay items; si hay, resumen automatico coherente
+                  const esDefault=/no posee construcciones/i.test(report.construcciones||"");
+                  let intro=report.construcciones;
+                  if(cs.length||ins.length){
+                    const m2tot=cs.reduce((s,c)=>s+mC(c.m2),0);
+                    const partes=[];
+                    if(cs.length)partes.push(cs.length+" construccion"+(cs.length>1?"es":"")+" por un total de "+m2tot.toFixed(0)+" m² edificados ("+cs.map(c=>c.nombre).join(", ")+")");
+                    if(ins.length)partes.push(ins.length+" instalacion"+(ins.length>1?"es":"")+" ("+ins.map(r=>r.nombre).join(", ")+")");
+                    const auto="El predio cuenta con "+partes.join(" y ")+".";
+                    intro=esDefault?auto:(report.construcciones+" "+auto);
+                  }
                   const fichas=cs.filter(c=>String(c.detalle||"").trim()).map((c,i)=>(
                     <p key={"fc"+i} style={{...TXT,marginBottom:8}}>
-                      <b>{c.nombre}{c.m2?" – "+c.m2+" m²":""}:</b> {c.detalle}{c.anio?" Año "+(String(c.detalle).trim().endsWith(".")?"":"— ")+c.anio+".":""}
+                      <b>{c.nombre}{c.m2?" – "+c.m2+" m²":""}:</b> {c.detalle}{c.anio?" Año "+c.anio+".":""}
                     </p>
                   ));
+                  const conValorC=cs.some(c=>nC(c.vm2)>0);
+                  const conValorI=ins.some(r=>nC(r.vg)>0||nC(r.vu)>0);
                   return <>
-                  {fichas.length?<div style={{marginBottom:10}}>{fichas}</div>:null}
-                  <GTbl boldLast={conValor?1:0} headers={conValor?["Infraestructura","m²","Año","$ x m²","Valor"]:["Infraestructura","m²","Año"]}
-                    rows={[...cs.map(c=>{const base=[c.nombre,c.m2||"-",c.anio||"-"];return conValor?[...base,nC(c.vm2)>0?"$ "+Math.round(nC(c.vm2)).toLocaleString("es-CL"):"-",(nC(c.vm2)&&mC(c.m2))?"$ "+Math.round(mC(c.m2)*nC(c.vm2)).toLocaleString("es-CL"):"-"]:base;}),
-                      conValor?["Total Infraestructura",cs.reduce((s,c)=>s+mC(c.m2),0).toFixed(1),"","","$ "+Math.round(tot).toLocaleString("es-CL")]:null]}/>
+                    <p style={TXT}>{intro}</p>
+                    {fichas.length?<div style={{marginBottom:10}}>{fichas}</div>:null}
+                    {cs.length?<GTbl boldLast={1} headers={conValorC?["Construcciones","m²","Año","$ x m²","Valor"]:["Construcciones","m²","Año"]}
+                      rows={[...cs.map(c=>{const base=[c.nombre,c.m2||"-",c.anio||"-"];return conValorC?[...base,nC(c.vm2)>0?"$ "+Math.round(nC(c.vm2)).toLocaleString("es-CL"):"-",(nC(c.vm2)&&mC(c.m2))?"$ "+Math.round(mC(c.m2)*nC(c.vm2)).toLocaleString("es-CL"):"-"]:base;}),
+                        conValorC?["Subtotal Construcciones",cs.reduce((s,c)=>s+mC(c.m2),0).toFixed(1),"","","$ "+Math.round(subC).toLocaleString("es-CL")]:null]}/>:null}
+                    {ins.length?<GTbl boldLast={1} headers={conValorI?["Instalaciones","Cantidad","Unidad","$ unitario","Valor"]:["Instalaciones","Cantidad","Unidad"]}
+                      rows={[...ins.map(r=>{const val=nC(r.vg)||mC(r.cantidad)*nC(r.vu);const base=[r.nombre,r.cantidad||"-",r.unidad||"-"];return conValorI?[...base,nC(r.vu)>0?"$ "+Math.round(nC(r.vu)).toLocaleString("es-CL"):(nC(r.vg)>0?"global":"-"),val>0?"$ "+Math.round(val).toLocaleString("es-CL"):"-"]:base;}),
+                        conValorI?["Subtotal Instalaciones","","","","$ "+Math.round(subI).toLocaleString("es-CL")]:null]}/>:null}
+                    {(conValorC||conValorI)?<p style={{...TXT,fontWeight:700,textAlign:"right",marginTop:6}}>Total Infraestructura: $ {Math.round(subC+subI).toLocaleString("es-CL")}</p>:null}
                   </>;
                 })()}
                 {report.plantacionDesc&&<><Sub>Plantaciones:</Sub><p style={TXT}>{report.plantacionDesc}</p></>}
@@ -1630,7 +1683,7 @@ export default function App(){
             <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:20}}>
               <button onClick={()=>window.print()} style={bP}>🖨️ Imprimir / Guardar PDF</button>
               <button onClick={exportarWord} style={{...bP,background:ORO}}>📄 Descargar Word Editable</button>
-              <button onClick={()=>{setReport(null);setStep(0);setForm(EMPTY);setSatelitalStatus("idle");setUfStatus("idle");}} style={bS}>Nueva Tasacion</button>
+              <button onClick={()=>{setReport(null);setStep(0);setForm({...EMPTY});setIdTasacionActual(null);dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form:{...EMPTY}}).catch(()=>{});setSatelitalStatus("idle");setUfStatus("idle");}} style={bS}>Nueva Tasacion</button>
             </div>
             <p style={{textAlign:"center",fontSize:12,color:"#aaa",marginTop:10}}>Imprimir → Guardar como PDF. En el dialogo: Margenes = "Ninguno" (o "Predeterminado") y en "Mas opciones" desactiva "Encabezados y pies de pagina" para un PDF limpio.</p>
           </div>
