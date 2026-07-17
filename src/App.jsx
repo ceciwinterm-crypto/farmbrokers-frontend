@@ -158,6 +158,9 @@ export default function App(){
   const [step,setStep]=useState(0);
   const [loading,setLoading]=useState(false);
   const [report,setReport]=useState(null);
+  const [genMsg,setGenMsg]=useState("");
+  const [genError,setGenError]=useState("");
+  const [form,setForm]=useState(EMPTY);
   const [showTas,setShowTas]=useState(false);
   const [listaTas,setListaTas]=useState([]);
   const [avisoGuardado,setAvisoGuardado]=useState("");
@@ -185,9 +188,6 @@ export default function App(){
   const abrirMisTasaciones=async()=>{const regs=await dbListar();setListaTas(regs.filter(r=>r.id!=="__borrador__").sort((x,y)=>y.fecha.localeCompare(x.fecha)));setShowTas(true);};
   const exportarTasacion=(reg)=>{const blob=new Blob([JSON.stringify(reg,null,2)],{type:"application/json"});const u=URL.createObjectURL(blob);const el=document.createElement("a");el.href=u;el.download=("Tasacion_"+reg.nombre.replace(/[^\w\-]+/g,"_")+".json");el.click();URL.revokeObjectURL(u);};
   const importarTasacion=(ev)=>{const file=ev.target.files&&ev.target.files[0];if(!file)return;const rd=new FileReader();rd.onload=()=>{try{const reg=JSON.parse(rd.result);if(reg&&reg.form){setForm({...EMPTY,...reg.form});setShowTas(false);setAvisoGuardado("✓ Tasacion importada desde archivo.");setTimeout(()=>setAvisoGuardado(""),4000);}else alert("El archivo no es una tasacion valida.");}catch(e){alert("Archivo invalido: "+e.message);}};rd.readAsText(file);ev.target.value="";};
-  const [genMsg,setGenMsg]=useState("");
-  const [genError,setGenError]=useState("");
-  const [form,setForm]=useState(EMPTY);
   const [satelitalStatus,setSatelitalStatus]=useState("idle");
   const [ufStatus,setUfStatus]=useState("idle"); // idle|loading|ok|error
   const [buscandoRol,setBuscandoRol]=useState(-1);
@@ -727,9 +727,8 @@ export default function App(){
           </div>
         </div>
         {/* UF en tiempo real en el header */}
-        <div style={{textAlign:"right"}}>
-          {ufStatus==="ok"
-            ? <div style={{display:"flex",gap:14,alignItems:"center"}}>
+        <div style={{textAlign:"right",display:"flex",gap:14,alignItems:"center"}}>
+
                 {avisoGuardado?<div style={{position:"fixed",top:74,right:20,zIndex:99,background:"#1e5631",color:"#fff",padding:"10px 18px",borderRadius:8,fontSize:13,boxShadow:"0 4px 14px rgba(0,0,0,0.25)"}}>{avisoGuardado}</div>:null}
                 {showTas?<div onClick={()=>setShowTas(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:98,display:"flex",alignItems:"center",justifyContent:"center"}}>
                   <div onClick={e=>e.stopPropagation()} style={{background:"#fff",color:"#222",borderRadius:12,padding:24,width:"min(640px,92vw)",maxHeight:"80vh",overflow:"auto"}}>
@@ -755,6 +754,8 @@ export default function App(){
                 </div>:null}
                 <button onClick={guardarTasacion} style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>💾 Guardar</button>
                 <button onClick={abrirMisTasaciones} style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>📂 Mis Tasaciones</button>
+          {ufStatus==="ok"
+            ? <div style={{display:"flex",gap:14,alignItems:"center"}}>
                 <div><div style={{fontSize:10,opacity:0.6}}>UF HOY</div><div style={{fontWeight:700,fontSize:16,color:ORO}}>${form.ufBase}</div></div>
               </div>
             : ufStatus==="loading"
