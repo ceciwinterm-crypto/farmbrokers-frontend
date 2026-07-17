@@ -479,10 +479,12 @@ export default function App(){
           else plants.push({...p});
         });
       });
-      // Superficie SII de cada rol: si esta vacia, se completa con la superficie CIREN (referencial)
+      // Superficie SII de cada rol: primero la registrada en el catastro (oficial);
+      // si no existe, la superficie CIREN calculada como respaldo referencial
       oks.forEach(x=>{
         const ri=form.roles.findIndex(r=>r.rol===x.rol&&r.comuna===x.comuna);
-        if(ri>=0&&!String((form.roles[ri].datos||{}).superfSII||"").trim())updRolDatos(ri,"superfSII",x.d.superficieHa);
+        const val=(x.d.superficieSII&&x.d.superficieSII>0)?String(x.d.superficieSII):x.d.superficieHa;
+        if(ri>=0&&!String((form.roles[ri].datos||{}).superfSII||"").trim())updRolDatos(ri,"superfSII",val);
       });
       Object.keys(clases).forEach(k=>clases[k]=Math.round(clases[k]*100)/100);
       Object.keys(usos).forEach(k=>usos[k]=Math.round(usos[k]*100)/100);
