@@ -1274,6 +1274,28 @@ export default function App(){
         {/* ══ PASO 2: TASACION ══ */}
         {step===2&&(
           <div>
+            <SecT icon="💰" title="Referencias de Mercado"/>
+            <Card>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                  <thead><tr style={{background:G,color:"#fff"}}>
+                    {["Oferta / Corredor","Ubicacion","Sup. (ha)","Valor Total ($)","Valor ($/ha)"].map((h,i)=>(
+                      <th key={i} style={{padding:"10px 8px",textAlign:"left",fontWeight:600,fontSize:12}}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>{form.refs.map((r,i)=>(
+                    <tr key={i} style={{background:i%2===0?"#fff":GH}}>
+                      {["oferta","ubicacion","has","valorTotal","valorHa"].map(k=>(
+                        <td key={k} style={{padding:"4px 6px"}}><input value={r[k]} onChange={e=>updRef(i,k,(k==="valorTotal"||k==="valorHa")?fmtMiles(e.target.value):e.target.value)} style={{...iS,margin:0,padding:"6px 8px",fontSize:12,minWidth:80}}/></td>
+                      ))}
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              <div style={{fontSize:11.5,color:"#777",marginTop:8}}>Si dejas el "Valor ($/ha)" vacio, se calcula solo desde el valor total y la superficie.</div>
+              <button onClick={()=>upd("refs",[...form.refs,{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""}])} style={{...bS,marginTop:10,fontSize:12}}>+ Agregar fila</button>
+            </Card>
+
             <SecT icon="🌾" title="Valores por Clase de Suelo"/>
             <Card>
               <div style={{fontSize:12,color:"#666",marginBottom:10}}>Ingresa el valor por hectarea de cada clase presente en el predio. El valor total se calcula solo en la tabla del informe.</div>
@@ -1577,6 +1599,24 @@ export default function App(){
                 <p style={TXT}>{report.metodologiaTxt||"El valor de tasacion corresponde a una estimacion del valor comercial de cada activo, entendido como el precio mas probable que el bien podria alcanzar en un mercado abierto y competitivo, en un plazo prudente de comercializacion. Los terrenos se valorizan segun sus caracteristicas tecnicas y comerciales, considerando referencias de compraventas y ofertas de bienes comparables del periodo, ponderadas por clase de capacidad de uso de los suelos. Las plantaciones frutales se estiman segun juicio tecnico de su valor comercial, considerando el valor de inversion ajustado por antigüedad, estado sanitario y productivo, vida util remanente y condiciones de mercado de cada especie y variedad. Los derechos de aguas se valorizan segun sus caracteristicas legales y tecnicas y las transacciones observadas en la zona. Las construcciones e instalaciones se valorizan a valor de reposicion depreciado por antigüedad, funcionalidad y calidad de materiales."}</p>
                 <Sub>Criterios de Tasacion</Sub>
                 <p style={TXT}>Esta propiedad se valora con un criterio comercial, considerando su ubicacion y acceso, calidad y aptitud de suelos, disponibilidad de agua de riego, asi como tambien valores de mercado de propiedades similares en el sector.</p>
+                <Sub>Referencias de Mercado</Sub>
+                {(()=>{
+                  const num=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+                  const filas=(report.refs||[]).filter(r=>r.oferta).map(r=>{
+                    const vha=num(r.valorHa)||(num(r.valorTotal)&&num(r.has)?num(r.valorTotal)/parseFloat(String(r.has).replace(",",".")):0);
+                    return {r,vha};
+                  });
+                  if(!filas.length)return null;
+                  const conDato=filas.filter(f=>f.vha>0);
+                  const prom=conDato.length?conDato.reduce((s,f)=>s+f.vha,0)/conDato.length:0;
+                  return <>
+                    <GTbl boldLast={prom?1:0} headers={["Oferta","Ubicacion","Sup. (ha)","Valor Total ($)","Valor ($/ha)"]} rows={[
+                      ...filas.map(f=>[f.r.oferta,f.r.ubicacion,f.r.has,num(f.r.valorTotal)?"$ "+Math.round(num(f.r.valorTotal)).toLocaleString("es-CL"):"-",f.vha?"$ "+Math.round(f.vha).toLocaleString("es-CL"):"-"]),
+                      prom?["PROMEDIO","","","","$ "+Math.round(prom).toLocaleString("es-CL")]:null
+                    ].filter(Boolean)}/>
+                    {prom>0&&<p style={{...TXT,marginTop:10}}>Las referencias de mercado de la zona muestran valores en torno a $ {Math.round(prom).toLocaleString("es-CL")} por hectarea, antecedente que se considera en la valorizacion del predio en estudio junto a su calidad de suelos, acceso y disponibilidad de agua.</p>}
+                  </>;
+                })()}
                 <Sub>Valorizacion Comercial</Sub>
                 {(()=>{
                   let plsV=[];try{plsV=JSON.parse(report.plantacionesCIREN||"[]").filter(p=>String(p.especie||"").trim());}catch(e){plsV=[];}
