@@ -253,12 +253,18 @@ export default function App(){
   const abrirSITRURAL=()=>window.open("https://www.sitrural.cl","_blank");
   const abrirDGA=()=>window.open("https://dga.mop.gob.cl","_blank");
 
-  const generarSatelital=()=>{
-    if(!form.coordLat||!form.coordLon){ alert("Ingresa las coordenadas primero (o usa Buscar Auto)."); return; }
+  const generarSatelital=(bboxOpt)=>{
+    let bb=bboxOpt;
+    if(!bb){try{bb=JSON.parse(form.bboxPredio||"null");}catch(e){bb=null;}}
+    let lat,lon;
+    if(bb){lat=(bb[1]+bb[3])/2;lon=(bb[0]+bb[2])/2;}
+    else{
+      if(!form.coordLat||!form.coordLon){ alert("Ingresa las coordenadas primero (o usa Buscar Auto)."); return; }
+      lat=parseFloat(form.coordLat.trim().replace(",","."));
+      const lonRaw=form.coordLon.trim().replace(",",".");
+      lon=parseFloat(lonRaw.startsWith("-")?lonRaw:"-"+lonRaw);
+    }
     setSatelitalStatus("loading");
-    const lat=parseFloat(form.coordLat.trim().replace(",","."));
-    const lonRaw=form.coordLon.trim().replace(",",".");
-    const lon=parseFloat(lonRaw.startsWith("-")?lonRaw:"-"+lonRaw);
 
     // Opcion 1: Google Maps si el usuario puso su API key
     if(form.googleMapsKey){
@@ -278,7 +284,15 @@ export default function App(){
     }
 
     // Opcion 2 (por defecto, GRATIS sin API key): Esri World Imagery armando mosaico de teselas
-    const z=16;
+    // Zoom dinamico: se acerca lo mas posible manteniendo el predio completo en el encuadre
+    let z=16;
+    if(bb){
+      for(let zz=18;zz>=12;zz--){
+        const px=(bb[2]-bb[0])/360*Math.pow(2,zz)*256;
+        const py=Math.abs(bb[3]-bb[1])/170*Math.pow(2,zz)*256;
+        if(px<=820&&py<=560){z=zz;break;}
+      }
+    }
     const n=Math.pow(2,z);
     const xF=(lon+180)/360*n;
     const latRad=lat*Math.PI/180;
@@ -540,6 +554,8 @@ export default function App(){
         }
         const capaF=oks.map(x=>x.d.capaFruticola).find(Boolean);
         generarPlanoSuelos(bb,data.capaSueloId,data.capaPredioId,capaF,oks.map(x=>x.rol).join(" + "));
+        if(!form.imagenMapaSII)generarPlanoCatastral(bb,data.capaPredioId,oks.map(x=>x.rol).join(" + "));
+        if(!form.imagenSatelital)generarSatelital(bb);
       }
       const cab=multi?("Analisis de "+oks.length+" roles ("+oks.map(x=>x.rol).join(" + ")+"). Superficie CIREN total: "+(Math.round(supTotal*100)/100)+" ha. "):("Superficie CIREN del predio: "+(Math.round(supTotal*100)/100)+" ha. ");
       const errTxt=fallidos.length?(" ⚠ No se pudo consultar: "+fallidos.map(x=>x.rol).join(", ")+"."):"";
@@ -611,6 +627,59 @@ export default function App(){
     }catch(e){setDistStatus({ok:false,msg:"Error: "+e.message});}
   };
 
+  const generarPlanoCatastral=(bbox,capaPredioId,rotuloRoles)=>{
+    if(!bbox)return;
+    const [w,s,e,n]=bbox;
+    const cLon=(w+e)/2, cLat=(s+n)/2;
+    // acercamiento: el predio ocupa la mayor parte del encuadre
+    let z=16;
+    for(let zz=18;zz>=12;zz--){
+      const px=(e-w)/360*Math.pow(2,zz)*256;
+      const py=Math.abs(n-s)/170*Math.pow(2,zz)*256;
+      if(px<=820&&py<=560){z=zz;break;}
+    }
+    const nT=Math.pow(2,z);
+    const xF=(cLon+180)/360*nT;
+    const latR=cLat*Math.PI/180;
+    const yF=(1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*nT;
+    const T=256,COLS=4,ROWS=3;
+    const x0=Math.floor(xF)-Math.floor(COLS/2), y0=Math.floor(yF)-Math.floor(ROWS/2);
+    const tile2lon=x=>x/nT*360-180;
+    const tile2lat=y=>Math.atan(Math.sinh(Math.PI*(1-2*y/nT)))*180/Math.PI;
+    const extW=tile2lon(x0), extE=tile2lon(x0+COLS), extN=tile2lat(y0), extS=tile2lat(y0+ROWS);
+    const canvas=document.createElement("canvas");
+    canvas.width=COLS*T; canvas.height=ROWS*T;
+    const ctx=canvas.getContext("2d");
+    let cargadas=0;
+    const cerrar=()=>{
+      const roles=new Image(); roles.crossOrigin="anonymous";
+      const marcar=()=>{
+        const px1=(w-extW)/(extE-extW)*canvas.width, px2=(e-extW)/(extE-extW)*canvas.width;
+        const py1=(extN-n)/(extN-extS)*canvas.height, py2=(extN-s)/(extN-extS)*canvas.height;
+        ctx.strokeStyle="#e53935"; ctx.lineWidth=4;
+        ctx.strokeRect(px1,py1,px2-px1,py2-py1);
+        if(rotuloRoles){
+          ctx.font="bold 15px Arial";
+          ctx.fillStyle="rgba(255,255,255,0.92)"; ctx.fillRect(8,8,ctx.measureText("Rol(es): "+rotuloRoles).width+22,28);
+          ctx.fillStyle="#1e5631"; ctx.fillText("Rol(es): "+rotuloRoles,17,27);
+        }
+        ctx.fillStyle="rgba(255,255,255,0.85)"; ctx.fillRect(canvas.width-360,canvas.height-20,360,20);
+        ctx.fillStyle="#333"; ctx.font="10px Arial";
+        ctx.fillText("Plano catastral referencial — Roles SII (CIREN) sobre Esri Imagery",canvas.width-352,canvas.height-6);
+        upd("imagenMapaSII",canvas.toDataURL("image/jpeg",0.9));
+      };
+      if(capaPredioId===null||capaPredioId===undefined){marcar();return;}
+      roles.onload=()=>{ctx.globalAlpha=0.95;ctx.drawImage(roles,0,0,canvas.width,canvas.height);ctx.globalAlpha=1;marcar();};
+      roles.onerror=marcar;
+      roles.src="https://esri.ciren.cl/server/rest/services/IDEMINAGRI/PROPIEDADES_RURALES/MapServer/export?bbox="+extW+","+extS+","+extE+","+extN+"&bboxSR=4326&imageSR=4326&size="+canvas.width+","+canvas.height+"&layers=show:"+capaPredioId+"&format=png32&transparent=true&f=image";
+    };
+    for(let dx=0;dx<COLS;dx++)for(let dy=0;dy<ROWS;dy++){
+      const img=new Image(); img.crossOrigin="anonymous";
+      img.onload=()=>{ctx.drawImage(img,dx*T,dy*T,T,T);if(++cargadas===COLS*ROWS)cerrar();};
+      img.onerror=()=>{if(++cargadas===COLS*ROWS)cerrar();};
+      img.src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"+z+"/"+(y0+dy)+"/"+(x0+dx);
+    }
+  };
   const generarPlanoSuelos=(bbox,capaId,capaPredioId,capaFrut,rotuloRoles)=>{
     if(!bbox||capaId===null||capaId===undefined)return;
     const [w,s,e,n]=bbox;
@@ -659,7 +728,7 @@ export default function App(){
           "&bbox="+extW+","+extS+","+extE+","+extN+"&srs=EPSG:4326&width="+canvas.width+"&height="+canvas.height+"&format=image/png&transparent=true";
         const img5=new Image(); img5.crossOrigin="anonymous";
         img5.onload=()=>{ ctx.globalAlpha=0.85; ctx.drawImage(img5,0,0,canvas.width,canvas.height); ctx.globalAlpha=1; terminar(); };
-        img5.onerror=()=>terminar();
+        img5.onerror=()=>{setAvisoGuardado("⚠ La capa fruticola no se pudo superponer en el plano (se genero sin ella). Reintenta Suelos Auto.");setTimeout(()=>setAvisoGuardado(""),7000);terminar();};
         img5.src=form.backendUrl.replace(/\/$/,"")+"/img-sitrural?u="+encodeURIComponent(wms);
       };
       const dibujarRoles=()=>{
@@ -1140,6 +1209,33 @@ export default function App(){
                   <button onClick={()=>guardarRH([...rh,{tipo:"Canal",nombre:"",origen:"",derechos:"",caudal:"",valor:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar recurso hidrico</button>
                 </div>;
               })()}
+              <button onClick={async()=>{
+                if(!form.bboxPredio){alert("Primero usa Suelos Auto para ubicar el predio.");return;}
+                if(!form.region){alert("Falta la region en el Paso 1.");return;}
+                setAvisoGuardado("Consultando derechos de agua DGA (30-60 seg la primera vez)...");
+                try{
+                  const r=await fetch(form.backendUrl.replace(/\/$/,"")+"/derechos-agua",{method:"POST",headers:{"Content-Type":"application/json"},
+                    body:JSON.stringify({region:form.region,comuna:(form.roles[0]||{}).comuna,titular:((form.roles[0]||{}).datos||{}).propietario||"",bbox:JSON.parse(form.bboxPredio)})});
+                  const d=await r.json();
+                  if(!d.ok){setAvisoGuardado("");alert(d.error||"No se pudo consultar la DGA");return;}
+                  if(!d.derechos||!d.derechos.length){
+                    setAvisoGuardado("DGA: sin derechos con punto de captacion en el predio ni a nombre del titular ("+d.totalComuna+" derechos en la comuna). Los derechos de canal suelen estar solo en el CBR: ingresalos manual.");
+                    setTimeout(()=>setAvisoGuardado(""),9000);return;
+                  }
+                  let rhAct=[];try{rhAct=JSON.parse(form.recursosHidricos||"[]");}catch(e){rhAct=[];}
+                  const nuevos=d.derechos.map(x=>({
+                    tipo:/SUBTERR/i.test(x.naturaleza||"")?"Pozo":(/SUPERF/i.test(x.naturaleza||"")?"Canal":"Otro"),
+                    nombre:(x.fuente||x.tipo||"Derecho DGA")+(x.titular?" — "+x.titular:""),
+                    origen:(x.motivo||"DGA")+(x.resolucion?" (Res. "+x.resolucion+(x.fecha?" "+x.fecha:"")+")":""),
+                    derechos:x.acciones||"",
+                    caudal:(x.caudal?x.caudal+(x.unidad?" "+x.unidad:""):""),
+                    valor:""
+                  }));
+                  upd("recursosHidricos",JSON.stringify([...rhAct,...nuevos]));
+                  setAvisoGuardado("✓ "+nuevos.length+" derecho(s) DGA agregados. Revisa y valoriza cada uno. Fuente referencial: validar con el CBR.");
+                  setTimeout(()=>setAvisoGuardado(""),8000);
+                }catch(e){setAvisoGuardado("");alert("Error: "+e.message);}
+              }} style={{...bP,fontSize:12,marginTop:10,marginRight:10}}>💧 Derechos DGA Auto</button>
               <button onClick={abrirDGA} style={{...bS,fontSize:12,marginTop:10}}>🌊 Verificar DGA</button>
             </Card>
 
