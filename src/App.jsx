@@ -712,12 +712,12 @@ export default function App(){
     if(!bbox||capaId===null||capaId===undefined)return;
     const [w,s,e,n]=bbox;
     const cLon=(w+e)/2, cLat=(s+n)/2;
-    // Acercamiento maximo: el predio (recuadro rojo) llena el encuadre
+    // Acercamiento maximo: se elige el zoom mas alto donde el predio cabe en el mosaico
     let z=15;
     for(let zz=18;zz>=11;zz--){
       const px=(e-w)/360*Math.pow(2,zz)*256;
       const py=Math.abs(n-s)/170*Math.pow(2,zz)*256;
-      if(px<=880&&py<=620){z=zz;break;}
+      if(px<=1000&&py<=700){z=zz;break;}
     }
     const nT=Math.pow(2,z);
     const xF=(cLon+180)/360*nT;
@@ -739,17 +739,27 @@ export default function App(){
       const terminar=()=>{
         const px1=(w-extW)/(extE-extW)*canvas.width, px2=(e-extW)/(extE-extW)*canvas.width;
         const py1=(extN-n)/(extN-extS)*canvas.height, py2=(extN-s)/(extN-extS)*canvas.height;
-        ctx.strokeStyle="#e53935"; ctx.lineWidth=3;
+        ctx.strokeStyle="#e53935"; ctx.lineWidth=4;
         ctx.strokeRect(px1,py1,px2-px1,py2-py1);
+        // RECORTE: la imagen final es SOLO el recuadro rojo con un pequeño margen
+        const mx=(px2-px1)*0.07, my=(py2-py1)*0.07;
+        const cx0=Math.max(0,px1-mx), cy0=Math.max(0,py1-my);
+        const cw=Math.min(canvas.width,px2+mx)-cx0, ch=Math.min(canvas.height,py2+my)-cy0;
+        const c2=document.createElement("canvas");
+        c2.width=Math.max(200,Math.round(cw)); c2.height=Math.max(160,Math.round(ch));
+        const ctx2=c2.getContext("2d");
+        ctx2.drawImage(canvas,cx0,cy0,cw,ch,0,0,c2.width,c2.height);
+        ctx2.font="bold 14px Arial";
         if(rotuloRoles){
-          ctx.fillStyle="rgba(255,255,255,0.9)"; ctx.fillRect(8,8,14+ctx.measureText("Rol(es): "+rotuloRoles).width+120,26);
-          ctx.fillStyle="#1e5631"; ctx.font="bold 14px Arial";
-          ctx.fillText("Rol(es): "+rotuloRoles,16,26);
+          ctx2.fillStyle="rgba(255,255,255,0.9)"; ctx2.fillRect(6,6,ctx2.measureText("Rol(es): "+rotuloRoles).width+18,24);
+          ctx2.fillStyle="#1e5631"; ctx2.fillText("Rol(es): "+rotuloRoles,14,23);
         }
-        ctx.fillStyle="rgba(255,255,255,0.85)"; ctx.fillRect(canvas.width-395,canvas.height-20,395,20);
-        ctx.fillStyle="#333"; ctx.font="10px Arial";
-        ctx.fillText("Capacidad de Uso CIREN"+(capaFrut?" + Catastro Fruticola":"")+" + Roles SII sobre Esri Imagery (referencial)",canvas.width-388,canvas.height-6);
-        upd("imagenSuelosMap",canvas.toDataURL("image/jpeg",0.9));
+        ctx2.font="10px Arial";
+        const ley="Capacidad de Uso CIREN"+(capaFrut?" + Cat. Fruticola":"")+" + Roles SII (referencial)";
+        const lw=ctx2.measureText(ley).width+14;
+        ctx2.fillStyle="rgba(255,255,255,0.85)"; ctx2.fillRect(c2.width-lw,c2.height-18,lw,18);
+        ctx2.fillStyle="#333"; ctx2.fillText(ley,c2.width-lw+7,c2.height-5);
+        upd("imagenSuelosMap",c2.toDataURL("image/jpeg",0.92));
       };
       const dibujarFruticola=()=>{
         if(!capaFrut||!form.backendUrl){terminar();return;}
