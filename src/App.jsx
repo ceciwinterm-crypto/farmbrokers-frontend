@@ -138,7 +138,7 @@ const EMPTY = {
   roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}],
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",
-  numTasacion:"",climaTxt:"",guiaConclusion:"",instalacionesLista:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
+  numTasacion:"",climaTxt:"",guiaConclusion:"",instalacionesLista:"",firmaImg:null,escasezTxt:"",pendienteMedida:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",plantacionesCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
@@ -382,7 +382,7 @@ export default function App(){
           plantacionesTxt:(()=>{try{const l=JSON.parse(form.plantacionesCIREN||"[]");return l.filter(p=>String(p.especie||"").trim()).map(p=>p.especie+(p.variedad?" var. "+p.variedad:"")+(p.anio?", plantacion "+p.anio:"")+(p.arboles?", "+p.arboles+" arboles":"")+(p.has?", "+p.has+" ha":"")+(p.vha?", valorizada en $"+p.vha+"/ha":"")).join(" | ");}catch(e){return "";}})(),
           construcciones:form.construcciones,
           construccionesTxt:(()=>{try{const l=JSON.parse(form.construccionesLista||"[]").filter(c=>String(c.nombre||"").trim());const li=JSON.parse(form.instalacionesLista||"[]").filter(r=>String(r.nombre||"").trim());const t=[...l.map(c=>c.nombre+(c.m2?" ("+c.m2+" m2"+(c.anio?", año "+c.anio:"")+")":"")+(c.detalle?": "+c.detalle:"")),...li.map(r=>"Instalacion: "+r.nombre+(r.cantidad?" ("+r.cantidad+" "+(r.unidad||"")+")":""))];return t.join(" | ");}catch(e){return "";}})(),
-          metodologiaTxt:form.metodologiaTxt,climaTxt:form.climaTxt,numTasacion:form.numTasacion,guiaConclusion:form.guiaConclusion,
+          metodologiaTxt:form.metodologiaTxt,climaTxt:form.climaTxt,numTasacion:form.numTasacion,guiaConclusion:form.guiaConclusion,escasezTxt:form.escasezTxt,
           usosResumen:(()=>{try{const u=JSON.parse(form.usosCIREN||"{}");return Object.entries(u).map(([k,v])=>k+" "+v+" ha").join(", ");}catch(e){return "";}})(),
           coordLat:form.coordLat,coordLon:form.coordLon,distSantiago:form.distSantiago,distComuna:form.distComuna,acceso:form.acceso,
         })
@@ -553,6 +553,33 @@ export default function App(){
           upd("coordLat",cLat);upd("coordLon",cLon);
           distanciasAuto(cLat,cLon,roles[0].comuna);
         }
+        (async()=>{try{
+          const gx=4,gy=4,lats=[],lons=[];
+          for(let ix=0;ix<gx;ix++)for(let iy=0;iy<gy;iy++){lons.push(bb[0]+(bb[2]-bb[0])*(ix+0.5)/gx);lats.push(bb[1]+(bb[3]-bb[1])*(iy+0.5)/gy);}
+          const re=await fetch("https://api.open-meteo.com/v1/elevation?latitude="+lats.join(",")+"&longitude="+lons.join(","));
+          const je=await re.json();
+          const el=je.elevation;
+          if(el&&el.length===gx*gy){
+            const dxm=(bb[2]-bb[0])/gx*111320*Math.cos((bb[1]+bb[3])/2*Math.PI/180);
+            const dym=(bb[3]-bb[1])/gy*110540;
+            let s=0,nP2=0;
+            for(let ix=0;ix<gx;ix++)for(let iy=0;iy<gy;iy++){
+              const k=ix*gy+iy;
+              if(ix+1<gx){s+=Math.abs(el[(ix+1)*gy+iy]-el[k])/dxm;nP2++;}
+              if(iy+1<gy){s+=Math.abs(el[ix*gy+iy+1]-el[k])/dym;nP2++;}
+            }
+            upd("pendienteMedida",Math.round(s/nP2*100)+"% promedio (modelo de elevacion, referencial)");
+          }
+        }catch(e){}})();
+        (async()=>{try{
+          const r=await fetch(form.backendUrl.replace(/\/$/,"")+"/escasez?comuna="+encodeURIComponent((form.roles[0]||{}).comuna||"")+"&provincia="+encodeURIComponent(form.provincia||"")+"&region="+encodeURIComponent(form.region||""));
+          const d=await r.json();
+          if(d.ok&&d.enEscasez){
+            upd("escasezTxt","ZONA BAJO DECRETO DE ESCASEZ HIDRICA VIGENTE (DGA): "+(d.decretos[0]||"").substring(0,220));
+            setAvisoGuardado("⚠ La comuna esta bajo decreto de escasez hidrica vigente — se agrego la advertencia al informe.");
+            setTimeout(()=>setAvisoGuardado(""),8000);
+          }
+        }catch(e){}})();
         const capaF=oks.map(x=>x.d.capaFruticola).find(Boolean);
         generarPlanoSuelos(bb,data.capaSueloId,data.capaPredioId,capaF,oks.map(x=>x.rol).join(" + "));
         if(!form.imagenMapaSII)generarPlanoCatastral(bb,data.capaPredioId,oks.map(x=>x.rol).join(" + "));
@@ -847,6 +874,7 @@ export default function App(){
                             <div style={{fontSize:11.5,color:"#999"}}>{new Date(reg.fecha).toLocaleString("es-CL")}</div>
                           </div>
                           <button onClick={()=>{setForm({...EMPTY,...reg.form});setIdTasacionActual(reg.id);setShowTas(false);setAvisoGuardado("✓ Abierta para editar: "+reg.nombre);setTimeout(()=>setAvisoGuardado(""),4000);}} style={{border:"1px solid "+G,background:G,color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>Editar</button>
+                          <button onClick={()=>{const f2={...EMPTY,...reg.form,numTasacion:"",predioNombre:(reg.form.predioNombre||"")+" (copia)",fecha:""};setForm(f2);setIdTasacionActual(null);setShowTas(false);setAvisoGuardado("✓ Duplicada como nueva tasacion. Ajusta lo que cambie y guarda.");setTimeout(()=>setAvisoGuardado(""),6000);}} style={{border:"1px solid #999",background:"#fff",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>Duplicar</button>
                           <button onClick={()=>exportarTasacion(reg)} style={{border:"1px solid #999",background:"#fff",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>Exportar</button>
                           <button onClick={async()=>{if(confirm("¿Eliminar \""+reg.nombre+"\"?")){await dbBorrar(reg.id);abrirMisTasaciones();}}} style={{border:"1px solid #c66",background:"#fff",color:"#c66",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>✕</button>
                         </div>
@@ -1367,6 +1395,7 @@ export default function App(){
                 {form.imagenes.map((img,i)=>(
                   <div key={i} style={{position:"relative"}}>
                     <img src={img.url} alt={img.name} style={{width:110,height:85,objectFit:"cover",borderRadius:6,border:"2px solid "+G}}/>
+                    <input value={img.cap||""} onChange={e=>upd("imagenes",form.imagenes.map((im,j)=>j===i?{...im,cap:e.target.value}:im))} placeholder="Leyenda (ej. Acceso al predio)" style={{...iS,width:110,margin:"4px 0 0",padding:"4px 6px",fontSize:10.5}}/>
                     <button onClick={()=>upd("imagenes",form.imagenes.filter((_,j)=>j!==i))} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#e53e3e",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>x</button>
                   </div>
                 ))}
@@ -1444,6 +1473,11 @@ export default function App(){
                     </div>
                   );
                 })()}
+                <div style={{margin:"6px 0 14px"}}>
+                  <div style={{fontSize:12.5,fontWeight:600,color:"#444",marginBottom:6}}>Firma del tasador (imagen; aparece sobre el nombre en la pagina final)</div>
+                  {form.firmaImg?<div style={{display:"flex",gap:12,alignItems:"center"}}><img src={form.firmaImg} alt="firma" style={{height:60,border:"1px solid #ddd",borderRadius:6,background:"#fff",padding:4}}/><button onClick={()=>upd("firmaImg",null)} style={{...bS,fontSize:12}}>Quitar</button></div>
+                  :<label style={{display:"inline-block",border:"1px dashed "+G,color:G,borderRadius:6,padding:"8px 14px",fontSize:12.5,cursor:"pointer"}}>⬆ Subir firma (PNG/JPG)<input type="file" accept="image/*" onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>upd("firmaImg",r.result);r.readAsDataURL(f);e.target.value="";}} style={{display:"none"}}/></label>}
+                </div>
                 <Fld label="Guia para la conclusion de la IA (opcional: que quieres destacar — ej. 'enfatizar potencial fruticola y disponibilidad de agua', 'orientar a inversionista forestal')" value={form.guiaConclusion} onChange={v=>upd("guiaConclusion",v)} multi/>
                 <Fld label="Metodologia de valorizacion (opcional: si lo dejas vacio, el informe usa el texto estandar profesional)" value={form.metodologiaTxt} onChange={v=>upd("metodologiaTxt",v)} multi/>
                 <Fld warn label="Valor Comercial ($)" value={form.valorComercial} onChange={v=>upd("valorComercial",fmtMiles(v))} placeholder="466.850.000"/>
@@ -1624,7 +1658,7 @@ export default function App(){
                 })()}
                                 <Sub>Caracteristicas CIREN:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.ciren}</p>
-                {[["Pendiente",report.pendiente],["Profundidad",report.profundidad],["Erosion",report.erosion],["Pedregosidad",report.pedregosidad],["Drenaje",report.drenaje],["Textura",report.textura],["pH",report.ph],["Aptitud",report.aptitud],["Capacidad de Uso",report.capacidadUso]].filter(([,v])=>v).map(([l,v],i)=><IRw key={i} label={l+":"} value={v}/>)}
+                {[["Pendiente",report.pendiente],["Pendiente medida (DEM)",report.pendienteMedida],["Profundidad",report.profundidad],["Erosion",report.erosion],["Pedregosidad",report.pedregosidad],["Drenaje",report.drenaje],["Textura",report.textura],["pH",report.ph],["Aptitud",report.aptitud],["Capacidad de Uso",report.capacidadUso]].filter(([,v])=>v).map(([l,v],i)=><IRw key={i} label={l+":"} value={v}/>)}
 {report.usosCIREN&&(()=>{try{
                   const u=JSON.parse(report.usosCIREN);
                   const rows=Object.entries(u).map(([k,v])=>[k,String(v).replace(".",",")]);
@@ -1655,6 +1689,7 @@ export default function App(){
                   return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><p style={TXT}>{parrafoFrut}</p><GTbl boldLast={1} headers={["Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={filasP}/></>;})()}
                 {report.imagenSuelosMap&&<div style={{marginTop:16}}><ImgBox src={report.imagenSuelosMap} label="Plano de Capacidad de Uso de Suelo — CIREN sobre imagen satelital (referencial)" height={330}/></div>}
                 <Sub>Recursos Hidricos:</Sub>
+                {report.escasezTxt?<p style={{...TXT,fontWeight:700,border:"1.5px solid #b45309",background:"#fff7ed",borderRadius:6,padding:"10px 12px"}}>⚠ {report.escasezTxt}. Debe monitorearse la disponibilidad efectiva de caudales segun las condiciones pluviometricas anuales.</p>:null}
                 <p style={TXT}>{report.ia&&report.ia.hidrico}</p>
                 {(()=>{
                   let rh=[];try{rh=JSON.parse(report.recursosHidricos||"[]").filter(r=>String(r.nombre||"").trim());}catch(e){rh=[];}
@@ -1778,7 +1813,7 @@ export default function App(){
               {report.imagenes&&report.imagenes.length>0&&(
                 <PgFB title="Imagenes de la Propiedad">
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-                    {report.imagenes.map((img,i)=><img key={i} src={img.url} alt={"Foto "+(i+1)} style={{width:"100%",height:210,objectFit:"cover",borderRadius:6}}/>)}
+                    {report.imagenes.map((img,i)=><div key={i}><img src={img.url} alt={"Foto "+(i+1)} style={{width:"100%",height:210,objectFit:"cover",borderRadius:6}}/>{img.cap?<p style={{textAlign:"center",fontSize:11.5,fontStyle:"italic",color:"#666",margin:"4px 0 0"}}>{img.cap}</p>:null}</div>)}
                   </div>
                 </PgFB>
               )}
@@ -1786,6 +1821,7 @@ export default function App(){
               <PgFB title="">
                 <div style={{marginTop:40,fontSize:13,color:"#555",lineHeight:2.2}}>
                   <p>Informe elaborado por el Area de Estudios y Tasaciones de Farm Brokers Chile</p>
+                  {report.firmaImg?<img src={report.firmaImg} alt="Firma" style={{height:74,marginBottom:2}}/>:null}
                   <p><b>Preparado por:</b> {report.tasador}</p>
                   <p><b>Fecha:</b> {report.fecha}</p>
                   <p style={{color:G}}>www.farmbrokers.cl</p>
