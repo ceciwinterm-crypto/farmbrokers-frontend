@@ -96,7 +96,7 @@ function PgFB({title,children}){
   return <div style={{padding:"46px 64px 28px",borderTop:"1px solid #f2f2f2",minHeight:420,display:"flex",flexDirection:"column",fontFamily:FONT}}>
     {title?<h2 style={{fontFamily:FONT,fontWeight:700,fontSize:17,letterSpacing:0.4,color:"#1a1a1a",borderBottom:"2px solid "+G,paddingBottom:8,marginBottom:26,marginTop:0}}>{title}</h2>:null}
     <div style={{flex:1}}>{children}</div>
-    <div style={{marginTop:44}}>
+    <div data-footer="1" style={{marginTop:44}}>
       <div style={{height:1,background:"#d8d8d8"}}/>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",paddingTop:8}}>
         <span style={{fontSize:9,color:"#8a8a8a"}}><span style={{fontWeight:700,color:G}}>Farm Brokers Chile</span> · Tasaciones, Estudios y Venta de Campos</span>
@@ -163,6 +163,7 @@ export default function App(){
   const [form,setForm]=useState(EMPTY);
   const [showTas,setShowTas]=useState(false);
   const [idTasacionActual,setIdTasacionActual]=useState(null);
+  useEffect(()=>{if(window.__cargarReportePrueba){setReport(window.__cargarReportePrueba);setStep(3);}},[]);
   const [listaTas,setListaTas]=useState([]);
   const [avisoGuardado,setAvisoGuardado]=useState("");
   // Borrador automatico: todo cambio queda guardado en el navegador
@@ -684,11 +685,12 @@ export default function App(){
     if(!bbox||capaId===null||capaId===undefined)return;
     const [w,s,e,n]=bbox;
     const cLon=(w+e)/2, cLat=(s+n)/2;
-    // zoom que encuadre el predio en el lienzo
+    // Acercamiento maximo: el predio (recuadro rojo) llena el encuadre
     let z=15;
-    for(let zz=17;zz>=11;zz--){
+    for(let zz=18;zz>=11;zz--){
       const px=(e-w)/360*Math.pow(2,zz)*256;
-      if(px<=760){z=zz;break;}
+      const py=Math.abs(n-s)/170*Math.pow(2,zz)*256;
+      if(px<=880&&py<=620){z=zz;break;}
     }
     const nT=Math.pow(2,z);
     const xF=(cLon+180)/360*nT;
@@ -761,16 +763,23 @@ export default function App(){
     if(!el)return;
     // Limpieza para Word: se clona el informe y se adapta a documento carta editable
     const clon=el.cloneNode(true);
-    // 1) Quitar los pies de pagina repetidos de pantalla (Word no los necesita)
+    // 1) Quitar los pies de pantalla (marcados con data-footer)
+    clon.querySelectorAll("[data-footer]").forEach(d=>d.remove());
     clon.querySelectorAll("div").forEach(d=>{
       const t=(d.textContent||"").trim();
       if(t.includes("www.farmbrokers.cl")&&t.length<160)d.remove();
     });
-    // 2) Cada pagina de pantalla = una seccion con salto de pagina en Word
+    // 2) Saltos de pagina REALES entre secciones (Word ignora el salto por estilo en divs;
+    //    solo respeta el elemento <br> con page-break-before)
     Array.from(clon.children).forEach((pg,idx)=>{
       pg.style.minHeight="";pg.style.height="";pg.style.padding="0";pg.style.display="block";
-      pg.style.boxShadow="none";pg.style.margin="0";
-      if(idx>0)pg.style.pageBreakBefore="always";
+      pg.style.boxShadow="none";pg.style.margin="0";pg.style.pageBreakBefore="";
+      if(idx>0){
+        const salto=document.createElement("br");
+        salto.setAttribute("clear","all");
+        salto.setAttribute("style","page-break-before:always;mso-special-character:line-break");
+        pg.parentNode.insertBefore(salto,pg);
+      }
     });
     // 3) Filas etiqueta/valor (flex de pantalla) -> parrafos "Etiqueta: valor"
     clon.querySelectorAll("div").forEach(d=>{
@@ -785,7 +794,7 @@ export default function App(){
       }
     });
     // 4) Documento Word con hoja carta configurada
-    const html="<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Informe de Tasacion</title><!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]--><style>@page Seccion1{size:21.59cm 27.94cm;margin:2.2cm 2.2cm 2.0cm 2.2cm;mso-page-orientation:portrait;}div.Seccion1{page:Seccion1;}body{font-family:Georgia,'Times New Roman',serif;font-size:11pt;color:#1f1f1f;line-height:1.5;}h1,h2,h3{font-family:Georgia,serif;color:#1e5631;}p{margin:6pt 0;text-align:justify;}table{border-collapse:collapse;width:100%;margin:8pt 0;}td,th{border:1pt solid #8a8a8a;padding:4pt 7pt;font-size:10pt;text-align:left;}th{background:#eef3ee;color:#1e5631;}img{max-width:100%;}</style></head><body><div class=Seccion1>"+clon.innerHTML+"</div></body></html>";
+    const html="<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Informe de Tasacion</title><!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]--><style>@page Seccion1{size:21.59cm 27.94cm;margin:2.2cm 2.2cm 2.0cm 2.2cm;mso-page-orientation:portrait;}div.Seccion1{page:Seccion1;}body{font-family:Georgia,'Times New Roman',serif;font-size:11pt;color:#1f1f1f;line-height:1.5;}h1,h2,h3{font-family:Georgia,serif;color:#1e5631;}p{margin:6pt 0;text-align:justify;}table{border-collapse:collapse;width:100%;margin:8pt 0;page-break-inside:avoid;}tr{page-break-inside:avoid;}[data-sub]{page-break-after:avoid;}td,th{border:1pt solid #8a8a8a;padding:4pt 7pt;font-size:10pt;text-align:left;}th{background:#eef3ee;color:#1e5631;}img{max-width:100%;}</style></head><body><div class=Seccion1>"+clon.innerHTML+"</div></body></html>";
     const blob=new Blob(["\ufeff",html],{type:"application/msword"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
@@ -808,7 +817,7 @@ export default function App(){
 
   return(
     <div style={{minHeight:"100vh",background:GRIS2,fontFamily:SANS}}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @media print{header,.noprint,button,.stepsbar{display:none!important} main{max-width:100%!important;padding:0!important} #informe{border:none!important;border-radius:0!important} #informe>div{page-break-after:always;min-height:auto!important} #informe>div:last-child{page-break-after:auto} table,img,tr,thead{page-break-inside:avoid!important;break-inside:avoid!important} h2,h3,[data-sub]{page-break-after:avoid!important;break-after:avoid!important} [data-sub]+p,[data-sub]+table{page-break-before:avoid!important} p{orphans:3;widows:3} #informe td,#informe th{page-break-inside:avoid!important} body{background:white!important} @page{size:letter;margin:0} #informe>div{box-sizing:border-box;min-height:27.6cm;padding-left:1.9cm!important;padding-right:1.9cm!important;padding-top:1.5cm!important;padding-bottom:1.1cm!important}}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @media print{header,.noprint,button,.stepsbar{display:none!important} main{max-width:100%!important;padding:0!important} #informe{border:none!important;border-radius:0!important} #informe>div{page-break-after:always;min-height:auto!important} #informe>div:last-child{page-break-after:auto} table,img,tr,thead{page-break-inside:avoid!important;break-inside:avoid!important} h2,h3,[data-sub]{page-break-after:avoid!important;break-after:avoid!important} [data-sub]+p,[data-sub]+table{page-break-before:avoid!important} p{orphans:3;widows:3} #informe td,#informe th{page-break-inside:avoid!important} body{background:white!important} @page{size:letter;margin:1.4cm} #informe>div{min-height:auto!important;width:auto!important;box-shadow:none!important;margin:0!important;padding:0.4cm 0.6cm!important;page-break-after:always} #informe>div:last-child{page-break-after:auto}}`}</style>
 
       <header style={{background:G,color:"#fff",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:60,boxShadow:"0 2px 10px rgba(0,0,0,0.2)"}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -1203,6 +1212,9 @@ export default function App(){
                       <input value={r.derechos||""} onChange={e=>setRH(i,"derechos",e.target.value)} placeholder="Acciones / derechos" style={{...iS,width:130,margin:0,padding:"7px 10px",fontSize:12.5}}/>
                       <input value={r.caudal||""} onChange={e=>setRH(i,"caudal",e.target.value)} placeholder="Caudal l/s" style={{...iS,width:90,margin:0,padding:"7px 10px",fontSize:12.5}}/>
                       <input value={r.valor||""} onChange={e=>setRH(i,"valor",fmtMiles(e.target.value))} placeholder="Valor $" style={{...iS,width:120,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.fojas||""} onChange={e=>setRH(i,"fojas",e.target.value)} placeholder="Fojas CBR" style={{...iS,width:85,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.nroIns||""} onChange={e=>setRH(i,"nroIns",e.target.value)} placeholder="N°" style={{...iS,width:60,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.anioIns||""} onChange={e=>setRH(i,"anioIns",e.target.value)} placeholder="Año" style={{...iS,width:70,margin:0,padding:"7px 10px",fontSize:12.5}}/>
                       <button onClick={()=>guardarRH(rh.filter((_,j)=>j!==i))} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
                     </div>
                   ))}
@@ -1229,7 +1241,7 @@ export default function App(){
                     origen:(x.motivo||"DGA")+(x.resolucion?" (Res. "+x.resolucion+(x.fecha?" "+x.fecha:"")+")":""),
                     derechos:x.acciones||"",
                     caudal:(x.caudal?x.caudal+(x.unidad?" "+x.unidad:""):""),
-                    valor:""
+                    valor:"",fojas:x.fojas||"",nroIns:x.nroCBR||"",anioIns:x.anioCBR||""
                   }));
                   upd("recursosHidricos",JSON.stringify([...rhAct,...nuevos]));
                   setAvisoGuardado("✓ "+nuevos.length+" derecho(s) DGA agregados. Revisa y valoriza cada uno. Fuente referencial: validar con el CBR.");
@@ -1583,6 +1595,16 @@ export default function App(){
                     <IRw label="Poniente:" value={report.deslindeP}/>
                   </div>
                 ):null}
+                {(()=>{
+                  let rh=[];try{rh=JSON.parse(report.recursosHidricos||"[]").filter(r=>String(r.nombre||"").trim());}catch(e){rh=[];}
+                  if(!rh.length)return null;
+                  return <div style={{marginTop:14}}>
+                    <Sub>Inscripcion de Aguas (C.B. Raices)</Sub>
+                    <GTbl headers={["Tipo","Fuente / Nombre","Acciones/Derechos","Caudal","Fojas","N°","Año"]}
+                      rows={rh.map(r=>[r.tipo||"-",r.nombre||"-",r.derechos||"-",r.caudal?(String(r.caudal).match(/[a-z]/i)?r.caudal:r.caudal+" l/s"):"-",r.fojas||"-",r.nroIns||"-",r.anioIns||"-"])}/>
+                    {rh.some(r=>!r.fojas)&&<p style={{fontSize:11.5,color:"#888",fontStyle:"italic"}}>Las inscripciones sin fojas indicadas deben verificarse en el Registro de Propiedad de Aguas del Conservador competente.</p>}
+                  </div>;
+                })()}
                 <p style={{...TXT,marginTop:14}}>{report.ia&&report.ia.titulos}</p>
               </PgFB>
 
@@ -1776,7 +1798,7 @@ export default function App(){
               <button onClick={exportarWord} style={{...bP,background:ORO}}>📄 Descargar Word Editable</button>
               <button onClick={()=>{setReport(null);setStep(0);setForm({...EMPTY});setIdTasacionActual(null);dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form:{...EMPTY}}).catch(()=>{});setSatelitalStatus("idle");setUfStatus("idle");}} style={bS}>Nueva Tasacion</button>
             </div>
-            <p style={{textAlign:"center",fontSize:12,color:"#aaa",marginTop:10}}>Imprimir → Guardar como PDF. En el dialogo: Margenes = "Ninguno" (o "Predeterminado") y en "Mas opciones" desactiva "Encabezados y pies de pagina" para un PDF limpio.</p>
+            <p style={{textAlign:"center",fontSize:12,color:"#aaa",marginTop:10}}>Imprimir → Guardar como PDF. En "Mas opciones" del dialogo, desactiva "Encabezados y pies de pagina" para un PDF limpio.</p>
           </div>
         )}
       </main>
