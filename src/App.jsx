@@ -309,11 +309,29 @@ export default function App(){
           ctx.drawImage(img,dx*T,dy*T,T,T);
           cargadas++;
           if(cargadas===COLS*ROWS&&!fallo){
-            // marcador rojo en la posicion exacta del predio
-            const px=(xF-x0)*T, py=(yF-y0)*T;
-            ctx.strokeStyle="#e53935"; ctx.lineWidth=3;
-            ctx.beginPath(); ctx.arc(px,py,14,0,Math.PI*2); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(px-22,py); ctx.lineTo(px+22,py); ctx.moveTo(px,py-22); ctx.lineTo(px,py+22); ctx.stroke();
+            // Deslindes del predio sombreados (si Suelos Auto trajo la geometria); si no, marcador
+            let geos=[];try{geos=JSON.parse(form.prediosGeo||"[]");}catch(err){geos=[];}
+            const nT2=Math.pow(2,z);
+            const extW2=(x0)/nT2*360-180, extE2=(x0+COLS)/nT2*360-180;
+            const t2lat=(y)=>Math.atan(Math.sinh(Math.PI*(1-2*y/nT2)))*180/Math.PI;
+            const extN2=t2lat(y0), extS2=t2lat(y0+ROWS);
+            const aPx2=(LON,LAT)=>[(LON-extW2)/(extE2-extW2)*canvas.width,(extN2-LAT)/(extN2-extS2)*canvas.height];
+            const anillos2=(g)=>g.type==="Polygon"?[g.coordinates]:(g.type==="MultiPolygon"?g.coordinates:[]);
+            if(geos.length){
+              ctx.fillStyle="rgba(64,224,230,0.28)";ctx.strokeStyle="#19c9d6";ctx.lineWidth=3.5;
+              geos.forEach(g=>anillos2(g).forEach(poly=>poly.forEach((anillo,ai)=>{
+                ctx.beginPath();
+                anillo.forEach((pt,k)=>{const [X,Y]=aPx2(pt[0],pt[1]);if(k===0)ctx.moveTo(X,Y);else ctx.lineTo(X,Y);});
+                ctx.closePath();
+                if(ai===0)ctx.fill();
+                ctx.stroke();
+              })));
+            }else{
+              const px=(xF-x0)*T, py=(yF-y0)*T;
+              ctx.strokeStyle="#e53935"; ctx.lineWidth=3;
+              ctx.beginPath(); ctx.arc(px,py,14,0,Math.PI*2); ctx.stroke();
+              ctx.beginPath(); ctx.moveTo(px-22,py); ctx.lineTo(px+22,py); ctx.moveTo(px,py-22); ctx.lineTo(px,py+22); ctx.stroke();
+            }
             ctx.fillStyle="rgba(255,255,255,0.85)"; ctx.fillRect(canvas.width-260,canvas.height-20,260,20);
             ctx.fillStyle="#333"; ctx.font="10px Arial"; ctx.fillText("Imagen: Esri World Imagery",canvas.width-250,canvas.height-6);
             upd("imagenSatelital",canvas.toDataURL("image/jpeg",0.9));
@@ -669,66 +687,42 @@ export default function App(){
   };
 
   const generarPlanoCatastral=(bbox,capaPredioId,rotuloRoles)=>{
+    // PLANO DE UBICACION DEL SECTOR: mapa de calles/ciudades (OpenStreetMap) con el predio marcado. Sin roles.
     if(!bbox)return;
     const [w,s,e,n]=bbox;
     const cLon=(w+e)/2, cLat=(s+n)/2;
-    // acercamiento: el predio ocupa la mayor parte del encuadre
-    const z=15; // vista del sector con el predio al centro
+    const z=10; // vista comunal: ciudades y rutas cercanas
     const nT=Math.pow(2,z);
     const xF=(cLon+180)/360*nT;
     const latR=cLat*Math.PI/180;
     const yF=(1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*nT;
     const T=256,COLS=4,ROWS=3;
     const x0=Math.floor(xF)-Math.floor(COLS/2), y0=Math.floor(yF)-Math.floor(ROWS/2);
-    const tile2lon=x=>x/nT*360-180;
-    const tile2lat=y=>Math.atan(Math.sinh(Math.PI*(1-2*y/nT)))*180/Math.PI;
-    const extW=tile2lon(x0), extE=tile2lon(x0+COLS), extN=tile2lat(y0), extS=tile2lat(y0+ROWS);
     const canvas=document.createElement("canvas");
     canvas.width=COLS*T; canvas.height=ROWS*T;
     const ctx=canvas.getContext("2d");
     let cargadas=0;
     const cerrar=()=>{
-      const roles=new Image(); roles.crossOrigin="anonymous";
-      const marcar=()=>{
-        // Predio destacado con relleno celeste (estilo Visualizador de Caracterizacion Predial)
-        let geos=[];try{geos=JSON.parse(form.prediosGeo||"[]");}catch(err){geos=[];}
-        const aPx=(lon,lat)=>[(lon-extW)/(extE-extW)*canvas.width,(extN-lat)/(extN-extS)*canvas.height];
-        const anillos=(g)=>g.type==="Polygon"?[g.coordinates]:(g.type==="MultiPolygon"?g.coordinates:[]);
-        if(geos.length){
-          ctx.fillStyle="rgba(64,224,230,0.30)";ctx.strokeStyle="#19c9d6";ctx.lineWidth=3.5;
-          geos.forEach(g=>anillos(g).forEach(poly=>poly.forEach((anillo,ai)=>{
-            ctx.beginPath();
-            anillo.forEach((pt,k)=>{const [X,Y]=aPx(pt[0],pt[1]);if(k===0)ctx.moveTo(X,Y);else ctx.lineTo(X,Y);});
-            ctx.closePath();
-            if(ai===0)ctx.fill();
-            ctx.stroke();
-          })));
-        }else{
-          const px1=(w-extW)/(extE-extW)*canvas.width, px2=(e-extW)/(extE-extW)*canvas.width;
-          const py1=(extN-n)/(extN-extS)*canvas.height, py2=(extN-s)/(extN-extS)*canvas.height;
-          ctx.strokeStyle="#e53935"; ctx.lineWidth=4;
-          ctx.strokeRect(px1,py1,px2-px1,py2-py1);
-        }
-        if(rotuloRoles){
-          ctx.font="bold 15px Arial";
-          ctx.fillStyle="rgba(255,255,255,0.92)"; ctx.fillRect(8,8,ctx.measureText("Rol(es): "+rotuloRoles).width+22,28);
-          ctx.fillStyle="#1e5631"; ctx.fillText("Rol(es): "+rotuloRoles,17,27);
-        }
-        ctx.fillStyle="rgba(255,255,255,0.85)"; ctx.fillRect(canvas.width-360,canvas.height-20,360,20);
-        ctx.fillStyle="#333"; ctx.font="10px Arial";
-        ctx.fillText("Plano catastral referencial — Roles SII (CIREN) sobre Esri Imagery",canvas.width-352,canvas.height-6);
-        upd("imagenMapaSII",canvas.toDataURL("image/jpeg",0.9));
-      };
-      if(capaPredioId===null||capaPredioId===undefined){marcar();return;}
-      roles.onload=()=>{ctx.globalAlpha=0.95;ctx.drawImage(roles,0,0,canvas.width,canvas.height);ctx.globalAlpha=1;marcar();};
-      roles.onerror=marcar;
-      roles.src="https://esri.ciren.cl/server/rest/services/IDEMINAGRI/PROPIEDADES_RURALES/MapServer/export?bbox="+extW+","+extS+","+extE+","+extN+"&bboxSR=4326&imageSR=4326&size="+canvas.width+","+canvas.height+"&layers=show:"+capaPredioId+"&format=png32&transparent=true&f=image";
+      const px=(xF-x0)*T, py=(yF-y0)*T;
+      ctx.fillStyle="#e53935";
+      ctx.beginPath();ctx.arc(px,py,9,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle="#ffffff";ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(px,py,9,0,Math.PI*2);ctx.stroke();
+      ctx.strokeStyle="#e53935";ctx.lineWidth=2;ctx.beginPath();ctx.arc(px,py,16,0,Math.PI*2);ctx.stroke();
+      if(rotuloRoles){
+        ctx.font="bold 13px Arial";
+        ctx.fillStyle="rgba(255,255,255,0.92)";ctx.fillRect(px+20,py-24,ctx.measureText("Predio — Rol "+rotuloRoles).width+16,22);
+        ctx.fillStyle="#b71c1c";ctx.fillText("Predio — Rol "+rotuloRoles,px+28,py-8);
+      }
+      ctx.fillStyle="rgba(255,255,255,0.85)";ctx.fillRect(canvas.width-300,canvas.height-18,300,18);
+      ctx.fillStyle="#333";ctx.font="10px Arial";
+      ctx.fillText("Plano de ubicacion del sector — © OpenStreetMap",canvas.width-292,canvas.height-5);
+      upd("imagenMapaSII",canvas.toDataURL("image/jpeg",0.92));
     };
     for(let dx=0;dx<COLS;dx++)for(let dy=0;dy<ROWS;dy++){
       const img=new Image(); img.crossOrigin="anonymous";
       img.onload=()=>{ctx.drawImage(img,dx*T,dy*T,T,T);if(++cargadas===COLS*ROWS)cerrar();};
       img.onerror=()=>{if(++cargadas===COLS*ROWS)cerrar();};
-      img.src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"+z+"/"+(y0+dy)+"/"+(x0+dx);
+      img.src="https://tile.openstreetmap.org/"+z+"/"+(x0+dx)+"/"+(y0+dy)+".png";
     }
   };
   const generarPlanoSuelos=(bbox,capaId,capaPredioId,capaFrut,rotuloRoles)=>{
@@ -1124,6 +1118,8 @@ export default function App(){
                     <Fld warn label="Avaluo Fiscal ($)" value={r.datos.avaluoFiscal} onChange={v=>updRolDatos(i,"avaluoFiscal",fmtMiles(v))} placeholder="243.691.524"/>
                     <Fld label="Fecha Avaluo" value={r.datos.avaluoFecha} onChange={v=>updRolDatos(i,"avaluoFecha",v)} placeholder="29/09/2025"/>
                     <Fld label="Superficie SII (ha)" value={r.datos.superfSII} onChange={v=>updRolDatos(i,"superfSII",v)} placeholder="8,23"/>
+                    <Fld label="Superficie Titulos (ha)" value={r.datos.superfTit||""} onChange={v=>updRolDatos(i,"superfTit",v)} placeholder="8,20"/>
+                    <Fld label="Superficie Google Earth (ha)" value={r.datos.superfGE||""} onChange={v=>updRolDatos(i,"superfGE",v)} placeholder="8,30"/>
                     <Fld label="Destino / Uso" value={r.datos.destino} onChange={v=>updRolDatos(i,"destino",v)} placeholder="AGRICOLA"/>
                     <Fld label="Latitud (rol)" value={r.datos.lat||""} onChange={v=>setCoordRol(i,"lat",v)} placeholder="-38.463920"/>
                     <Fld label="Longitud (rol)" value={r.datos.lon||""} onChange={v=>setCoordRol(i,"lon",v)} placeholder="-72.768500"/>
@@ -1644,13 +1640,7 @@ export default function App(){
                   {report.provincia?<p style={{fontSize:14,color:"#555",marginBottom:3}}>Provincia de {capTxt(report.provincia)}</p>:null}
                   <p style={{fontSize:14,color:"#555"}}>Region de {capTxt(report.region)} — Chile</p>
                   <p style={{fontSize:13,color:"#777",marginTop:22}}>{report.fecha}</p>
-                  {(report.valorComercial||report.valorFacilVenta)?(
-                    <div style={{marginTop:34,display:"inline-block",textAlign:"left",border:"1px solid "+G,borderRadius:8,padding:"14px 24px"}}>
-                      <div style={{fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:G,fontWeight:700,marginBottom:8,textAlign:"center"}}>Resumen de Tasacion</div>
-                      {report.valorComercial?<div style={{fontSize:13.5,marginBottom:4}}><b>Valor Tasacion:</b>&nbsp; $ {fmtMiles(report.valorComercial)}{report.valorComercialUF?"  ·  UF "+fmtMiles(report.valorComercialUF):""}</div>:null}
-                      {report.valorFacilVenta?<div style={{fontSize:13.5}}><b>Valor Facil Venta:</b>&nbsp; $ {fmtMiles(report.valorFacilVenta)}{report.valorFacilVentaUF?"  ·  UF "+fmtMiles(report.valorFacilVentaUF):""}</div>:null}
-                    </div>
-                  ):null}
+                  
                 </div>
                 <div style={{background:G,margin:"0 -60px",padding:"14px 60px",display:"flex",justifyContent:"space-between",color:"#fff",fontSize:10,marginTop:36}}>
                   <span style={{fontStyle:"italic"}}>Tasaciones - Estudios - Ventas de Campos</span>
@@ -1722,7 +1712,36 @@ export default function App(){
 
               <PgFB title="5. Antecedentes Tecnicos">
                 <Sub>Superficie:</Sub>
-                <GTbl headers={["SUPERFICIE","HECTAREAS"]} rows={[["Titulos de la Propiedad",report.superfTitulos],["SII (suma de roles)",report.superfSIITotal>0?report.superfSIITotal.toFixed(2):""],["Google Earth",report.superfGoogleEarth]].filter(r=>String(r[1]||"").trim())}/>
+                {(()=>{
+                  const ha=v=>parseFloat(String(v||"0").replace(",","."))||0;
+                  const roles=(report.roles||[]).filter(r=>String(r.rol||"").trim());
+                  const conDetalle=roles.some(r=>{const d=r.datos||{};return String(d.superfTit||"").trim()||String(d.superfGE||"").trim();});
+                  if(!conDetalle){
+                    return <GTbl headers={["SUPERFICIE","HECTAREAS"]} rows={[["Titulos de la Propiedad",report.superfTitulos],["SII (suma de roles)",report.superfSIITotal>0?report.superfSIITotal.toFixed(2):""],["Google Earth",report.superfGoogleEarth]].filter(r=>String(r[1]||"").trim())}/>;
+                  }
+                  let tT=0,tS=0,tG=0;
+                  const filas=roles.map(r=>{
+                    const d=r.datos||{};
+                    tT+=ha(d.superfTit);tS+=ha(d.superfSII);tG+=ha(d.superfGE);
+                    return ["Rol "+r.rol+((d.nombrePano)?" — "+capTxt(d.nombrePano):""),d.superfTit||"-",d.superfSII||"-",d.superfGE||"-"];
+                  });
+                  filas.push(["Total Superficie",tT>0?tT.toFixed(2):"-",tS>0?tS.toFixed(2):"-",tG>0?tG.toFixed(2):"-"]);
+                  // Conclusion automatica de consistencia (solo con los datos ingresados)
+                  let conclu="";
+                  if(tS>0&&(tT>0||tG>0)){
+                    const difs=[];
+                    if(tT>0)difs.push({f:"titulos",p:Math.abs(tT-tS)/tS*100});
+                    if(tG>0)difs.push({f:"medicion satelital (Google Earth)",p:Math.abs(tG-tS)/tS*100});
+                    const maxD=Math.max(...difs.map(x=>x.p));
+                    if(maxD<=3)conclu="Las superficies informadas por las distintas fuentes son plenamente consistentes entre si (diferencias menores al 3%), lo que otorga certeza sobre la cabida del predio.";
+                    else if(maxD<=8)conclu="Las superficies informadas presentan diferencias menores (hasta "+maxD.toFixed(1)+"% respecto del registro SII), dentro de rangos razonables para predios rurales, atribuibles a criterios de medicion y antiguedad de los registros.";
+                    else conclu="Las superficies informadas presentan diferencias relevantes (hasta "+maxD.toFixed(1)+"% respecto del registro SII), situacion que se recomienda aclarar mediante estudio de titulos y/o levantamiento topografico antes de perfeccionar una transaccion.";
+                  }
+                  return <>
+                    <GTbl boldLast={1} headers={["ROL / PAÑO","TITULOS (HA)","SII (HA)","GOOGLE EARTH (HA)"]} rows={filas}/>
+                    {conclu?<p style={{...TXT,marginTop:8}}>{conclu}</p>:null}
+                  </>;
+                })()}
                 {report.ia&&report.ia.topografia?<p style={{...TXT,marginTop:10}}>{report.ia.topografia}</p>:null}
                 {report.imagenSatelital&&<><img src={report.imagenSatelital} alt="Plano" style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:6,border:"1px solid #ddd",margin:"12px 0 4px"}}/><p style={{fontStyle:"italic",fontSize:12,textAlign:"center",color:"#888"}}>Fuente: Google Earth</p></>}
                 <Sub>Suelos:</Sub>
@@ -1776,7 +1795,7 @@ export default function App(){
                   const numRH=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
                   const totalRH=rh.reduce((s,r)=>s+numRH(r.valor),0);
                   window.__rhValor=totalRH;
-                  const conValor=rh.some(r=>numRH(r.valor)>0);
+                  const conValor=false; // los valores van solo en la Valorizacion Comercial (seccion 6)
                   return <GTbl headers={conValor?["Tipo","Nombre","Origen","Acciones/Derechos","Caudal","Valor"]:["Tipo","Nombre","Origen","Acciones/Derechos","Caudal"]}
                     rows={[...rh.map(r=>{const base=[r.tipo||"-",r.nombre||"-",r.origen||"-",r.derechos||"-",r.caudal?r.caudal+" l/s":"-"];return conValor?[...base,numRH(r.valor)>0?"$ "+Math.round(numRH(r.valor)).toLocaleString("es-CL"):"-"]:base;}),
                       conValor?["","","","Total Derechos de Agua","","$ "+Math.round(totalRH).toLocaleString("es-CL")]:null]}/>;
@@ -1808,8 +1827,7 @@ export default function App(){
                       <b>{c.nombre}{c.m2?" – "+c.m2+" m²":""}:</b> {c.detalle}{c.anio?" Año "+c.anio+".":""}
                     </p>
                   ));
-                  const conValorC=cs.some(c=>nC(c.vm2)>0);
-                  const conValorI=ins.some(r=>nC(r.vg)>0||nC(r.vu)>0);
+                  const conValorC=false, conValorI=false; // los valores van solo en la Valorizacion Comercial (seccion 6)
                   return <>
                     <p style={TXT}>{intro}</p>
                     {fichas.length?<div style={{marginBottom:10}}>{fichas}</div>:null}
