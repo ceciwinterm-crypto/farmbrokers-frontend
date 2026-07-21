@@ -165,6 +165,7 @@ export default function App(){
   const [idTasacionActual,setIdTasacionActual]=useState(null);
   useEffect(()=>{if(window.__cargarReportePrueba){setReport(window.__cargarReportePrueba);setStep(3);}},[]);
   const [listaTas,setListaTas]=useState([]);
+  const [selUnir,setSelUnir]=useState([]);
   const [avisoGuardado,setAvisoGuardado]=useState("");
   // Borrador automatico: todo cambio queda guardado en el navegador
   useEffect(()=>{
@@ -288,7 +289,7 @@ export default function App(){
     // Zoom dinamico: se acerca lo mas posible manteniendo el predio completo en el encuadre
     let z=16;
     if(bb){
-      for(let zz=18;zz>=12;zz--){
+      for(let zz=16;zz>=12;zz--){ // tope z16: Esri no siempre tiene imagenes mas cercanas en zonas rurales
         const px=(bb[2]-bb[0])/360*Math.pow(2,zz)*256;
         const py=Math.abs(bb[3]-bb[1])/170*Math.pow(2,zz)*256;
         if(px<=820&&py<=560){z=zz;break;}
@@ -506,7 +507,8 @@ export default function App(){
       Object.keys(clases).forEach(k=>clases[k]=Math.round(clases[k]*100)/100);
       Object.keys(usos).forEach(k=>usos[k]=Math.round(usos[k]*100)/100);
       plants.sort((x,y)=>num(y.has)-num(x.has));
-      const data=oks[0].d; // caracteristicas y plano: del rol principal
+      const conCar=oks.find(x=>x.d.caracteristicas&&Object.keys(x.d.caracteristicas).length);
+      const data=(conCar||oks[0]).d; // caracteristicas: del primer rol que las tenga
       const multi=oks.length>1;
 
       const ROM=["I","II","III","IV","V","VI","VII","VIII"];
@@ -664,7 +666,7 @@ export default function App(){
     const cLon=(w+e)/2, cLat=(s+n)/2;
     // acercamiento: el predio ocupa la mayor parte del encuadre
     let z=16;
-    for(let zz=18;zz>=12;zz--){
+    for(let zz=16;zz>=12;zz--){
       const px=(e-w)/360*Math.pow(2,zz)*256;
       const py=Math.abs(n-s)/170*Math.pow(2,zz)*256;
       if(px<=820&&py<=560){z=zz;break;}
@@ -717,7 +719,7 @@ export default function App(){
     const cLon=(w+e)/2, cLat=(s+n)/2;
     // Acercamiento maximo: se elige el zoom mas alto donde el predio cabe en el mosaico
     let z=15;
-    for(let zz=18;zz>=11;zz--){
+    for(let zz=16;zz>=11;zz--){ // tope z16: mas alla Esri suele no tener imagen rural (sale gris)
       const px=(e-w)/360*Math.pow(2,zz)*256;
       const py=Math.abs(n-s)/170*Math.pow(2,zz)*256;
       if(px<=1000&&py<=700){z=zz;break;}
@@ -879,9 +881,54 @@ export default function App(){
                     </div>
                     <div style={{fontSize:12,color:"#777",marginBottom:12}}>Guardadas en este navegador. Usa "Exportar" para respaldar en archivo (y poder abrirlas en otro computador con "Importar").</div>
                     <label style={{display:"inline-block",border:"1px solid "+G,color:G,borderRadius:6,padding:"7px 12px",fontSize:12.5,cursor:"pointer",marginBottom:14}}>⬆ Importar desde archivo<input type="file" accept=".json" onChange={importarTasacion} style={{display:"none"}}/></label>
+                    {selUnir.length>=2&&<button onClick={()=>{
+                      const regs=listaTas.filter(r=>selUnir.includes(r.id));
+                      const num=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+                      const ha=v=>parseFloat(String(v||"0").replace(",","."))||0;
+                      const pj=(s,d)=>{try{return JSON.parse(s||d);}catch(e){return JSON.parse(d);}};
+                      const f0={...EMPTY};
+                      // Roles: todos los de todas las tasaciones
+                      f0.roles=regs.flatMap(r=>(r.form.roles||[]).filter(x=>String(x.rol||"").trim()));
+                      // Clases: suma
+                      for(let i=1;i<=8;i++){const s=regs.reduce((t,r)=>t+ha(r.form["c"+i]),0);f0["c"+i]=s>0?String(Math.round(s*100)/100).replace(".",","):"";f0["v"+i]=regs.map(r=>r.form["v"+i]).find(v=>String(v||"").trim())||"";}
+                      // Usos CONAF: suma por uso
+                      const us={};regs.forEach(r=>{const u=pj(r.form.usosCIREN,"{}");Object.entries(u).forEach(([k,v])=>{us[k]=Math.round(((us[k]||0)+ha(v))*100)/100;});});
+                      if(Object.keys(us).length)f0.usosCIREN=JSON.stringify(us);
+                      // Listas: concatenar
+                      ["plantacionesCIREN","recursosHidricos","construccionesLista","instalacionesLista"].forEach(k=>{
+                        const arr=regs.flatMap(r=>pj(r.form[k],"[]"));
+                        f0[k]=arr.length?JSON.stringify(arr):"";
+                      });
+                      f0.refs=regs.flatMap(r=>(r.form.refs||[]).filter(x=>String(x.oferta||"").trim()));
+                      if(!f0.refs.length)f0.refs=[...EMPTY.refs];
+                      f0.imagenes=regs.flatMap(r=>r.form.imagenes||[]);
+                      // Series y textos: union / primero no vacio
+                      f0.seriesSuelo=[...new Set(regs.map(r=>String(r.form.seriesSuelo||"").trim()).filter(Boolean).flatMap(s=>s.split(",").map(x=>x.trim())))].join(", ");
+                      ["textura","profundidad","drenaje","pendiente","erosion","pedregosidad","ph","aptitud","capacidadUso","pendienteMedida","climaTxt","acceso","altitud","distSantiago","distComuna","coordLat","coordLon","region","provincia","solicitante","tasador","metodologiaTxt","guiaConclusion","escasezTxt","firmaImg","construcciones"].forEach(k=>{
+                        f0[k]=regs.map(r=>r.form[k]).find(v=>v&&String(v).trim())||EMPTY[k]||"";
+                      });
+                      // Valores: suma
+                      ["valorComercial","valorFacilVenta"].forEach(k=>{const s=regs.reduce((t,r)=>t+num(r.form[k]),0);f0[k]=s>0?Math.round(s).toLocaleString("es-CL"):"";});
+                      const uf=num(f0.ufBase=regs.map(r=>r.form.ufBase).find(Boolean)||"");
+                      if(uf>0&&num(f0.valorComercial)>0)f0.valorComercialUF=Math.round(num(f0.valorComercial)/uf).toLocaleString("es-CL");
+                      if(uf>0&&num(f0.valorFacilVenta)>0)f0.valorFacilVentaUF=Math.round(num(f0.valorFacilVenta)/uf).toLocaleString("es-CL");
+                      f0.predioNombre=regs.map(r=>String(r.form.predioNombre||"").replace(" (copia)","").trim()).filter(Boolean).join(" + ");
+                      f0.superfTitulos=String(Math.round(regs.reduce((t,r)=>t+ha(r.form.superfTitulos),0)*100)/100||"");
+                      f0.superfGoogleEarth=String(Math.round(regs.reduce((t,r)=>t+ha(r.form.superfGoogleEarth),0)*100)/100||"");
+                      // Bbox conjunto (para planos y deslindes del total)
+                      const bbs=regs.map(r=>{try{return JSON.parse(r.form.bboxPredio||"null");}catch(e){return null;}}).filter(Boolean);
+                      if(bbs.length){f0.bboxPredio=JSON.stringify([Math.min(...bbs.map(b=>b[0])),Math.min(...bbs.map(b=>b[1])),Math.max(...bbs.map(b=>b[2])),Math.max(...bbs.map(b=>b[3]))]);f0.capaPredioId=regs.map(r=>r.form.capaPredioId).find(Boolean)||"";}
+                      // Los planos generados se limpian: se regeneran en conjunto con Suelos Auto
+                      f0.imagenSuelosMap=null;f0.imagenMapaSII=null;f0.imagenSatelital=null;
+                      f0.numTasacion="";f0.fecha="";
+                      setForm(f0);setIdTasacionActual(null);setSelUnir([]);setShowTas(false);
+                      setAvisoGuardado("✓ "+regs.length+" tasaciones unidas ("+f0.roles.length+" roles). Presiona Suelos Auto para regenerar los planos del conjunto, revisa el sumador y guarda.");
+                      setTimeout(()=>setAvisoGuardado(""),10000);
+                    }} style={{border:"1px solid "+G,background:ORO,color:"#fff",borderRadius:6,padding:"8px 14px",fontSize:12.5,cursor:"pointer",marginLeft:10,fontWeight:700}}>🔗 Unir {selUnir.length} tasaciones en una nueva</button>}
                     {listaTas.length===0?<div style={{color:"#999",fontSize:14,padding:"18px 0"}}>Aun no hay tasaciones guardadas. Usa 💾 Guardar.</div>:
                       listaTas.map(reg=>(
                         <div key={reg.id} style={{display:"flex",gap:10,alignItems:"center",borderTop:"1px solid #eee",padding:"10px 0"}}>
+                          <input type="checkbox" checked={selUnir.includes(reg.id)} onChange={e=>setSelUnir(e.target.checked?[...selUnir,reg.id]:selUnir.filter(x=>x!==reg.id))} style={{width:17,height:17,cursor:"pointer"}}/>
                           <div style={{flex:1}}>
                             <div style={{fontWeight:600,fontSize:14}}>{reg.nombre}</div>
                             <div style={{fontSize:11.5,color:"#999"}}>{new Date(reg.fecha).toLocaleString("es-CL")}</div>
