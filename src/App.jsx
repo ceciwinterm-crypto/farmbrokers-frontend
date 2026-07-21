@@ -289,7 +289,7 @@ export default function App(){
     // Zoom dinamico: se acerca lo mas posible manteniendo el predio completo en el encuadre
     let z=16;
     if(bb){
-      for(let zz=16;zz>=12;zz--){ // tope z16: Esri no siempre tiene imagenes mas cercanas en zonas rurales
+      for(let zz=15;zz>=12;zz--){ // tope z15: cobertura satelital garantizada en zonas rurales
         const px=(bb[2]-bb[0])/360*Math.pow(2,zz)*256;
         const py=Math.abs(bb[3]-bb[1])/170*Math.pow(2,zz)*256;
         if(px<=820&&py<=560){z=zz;break;}
@@ -476,9 +476,20 @@ export default function App(){
         const d=await resp.json();
         resultados.push({rol:r.rol,comuna:r.comuna,d});
       }
-      const oks=resultados.filter(x=>x.d&&x.d.ok);
+      const oks=resultados.filter(x=>x.d&&x.d.ok&&!x.d.noAgricola);
+      const noAgric=resultados.filter(x=>x.d&&x.d.ok&&x.d.noAgricola);
+      noAgric.forEach(x=>{
+        const ri=form.roles.findIndex(r=>r.rol===x.rol&&r.comuna===x.comuna);
+        if(ri>=0){
+          setForm(f=>({...f,roles:f.roles.map((r,j)=>j===ri?{...r,datos:{...r.datos,noAgricola:true,destino:(r.datos||{}).destino||"NO AGRICOLA"}}:r)}));
+        }
+      });
       const fallidos=resultados.filter(x=>!x.d||!x.d.ok);
       if(!oks.length){
+        if(noAgric.length){
+          setSuelosStatus({ok:true,msg:"Rol(es) NO AGRICOLA: "+noAgric.map(x=>x.rol).join(", ")+". Sin catastro rural que analizar; el informe incluira sus antecedentes (avaluo, superficie, inscripciones)."});
+          return;
+        }
         const p=resultados[0]&&resultados[0].d;
         setSuelosStatus({ok:false,msg:(p&&p.mensaje)||"No se pudo obtener.",debug:JSON.stringify((p&&p.debug)||[],null,2).substring(0,1200)});
         return;
@@ -591,7 +602,8 @@ export default function App(){
         if(!form.imagenSatelital)generarSatelital(bb);
       }
       const cab=multi?("Analisis de "+oks.length+" roles ("+oks.map(x=>x.rol).join(" + ")+"). Superficie CIREN total: "+(Math.round(supTotal*100)/100)+" ha. "):("Superficie CIREN del predio: "+(Math.round(supTotal*100)/100)+" ha. ");
-      const errTxt=fallidos.length?(" ⚠ No se pudo consultar: "+fallidos.map(x=>x.rol).join(", ")+"."):"";
+      const naTxt=noAgric.length?(" ℹ Rol(es) NO AGRICOLA (sin catastro rural, se informan con sus antecedentes): "+noAgric.map(x=>x.rol).join(", ")+"."):"";
+      const errTxt=(fallidos.length?(" ⚠ No se pudo consultar: "+fallidos.map(x=>x.rol).join(", ")+"."):"")+naTxt;
       setSuelosStatus({ok:true,msg:cab+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(serieTxt?" Serie: "+serieTxt:"")+carTxt+usosTxt+frutTxt+errTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(resultados.map(x=>({rol:x.rol,resultado:x.d})),null,2)});
     }catch(e){
       setSuelosStatus({ok:false,msg:"Error: "+e.message});
@@ -666,7 +678,7 @@ export default function App(){
     const cLon=(w+e)/2, cLat=(s+n)/2;
     // acercamiento: el predio ocupa la mayor parte del encuadre
     let z=16;
-    for(let zz=16;zz>=12;zz--){
+    for(let zz=15;zz>=12;zz--){
       const px=(e-w)/360*Math.pow(2,zz)*256;
       const py=Math.abs(n-s)/170*Math.pow(2,zz)*256;
       if(px<=820&&py<=560){z=zz;break;}
@@ -719,7 +731,7 @@ export default function App(){
     const cLon=(w+e)/2, cLat=(s+n)/2;
     // Acercamiento maximo: se elige el zoom mas alto donde el predio cabe en el mosaico
     let z=15;
-    for(let zz=16;zz>=11;zz--){ // tope z16: mas alla Esri suele no tener imagen rural (sale gris)
+    for(let zz=15;zz>=11;zz--){ // tope z15: cobertura garantizada
       const px=(e-w)/360*Math.pow(2,zz)*256;
       const py=Math.abs(n-s)/170*Math.pow(2,zz)*256;
       if(px<=1000&&py<=700){z=zz;break;}
