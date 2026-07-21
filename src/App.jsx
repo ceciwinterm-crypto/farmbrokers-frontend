@@ -458,8 +458,10 @@ export default function App(){
 
   const [suelosStatus,setSuelosStatus]=useState(null);
   const suelosAuto=async()=>{
-    const roles=(form.roles||[]).filter(r=>String(r.rol||"").trim()&&String(r.comuna||"").trim());
-    if(!roles.length){alert("Ingresa primero el rol y la comuna en el Paso 1.");return;}
+    const comunaBase=String(((form.roles||[])[0]||{}).comuna||"").trim();
+    const roles=(form.roles||[]).filter(r=>String(r.rol||"").trim())
+      .map(r=>({...r,comuna:String(r.comuna||"").trim()||comunaBase}));
+    if(!roles.length||!roles[0].comuna){alert("Ingresa primero el rol y la comuna en el Paso 1.");return;}
     if(!form.backendUrl){alert("Falta la URL del servidor.");return;}
     setSuelosStatus({loading:true,msg:roles.length>1?("Consultando "+roles.length+" roles...") : null});
     try{
