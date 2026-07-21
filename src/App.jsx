@@ -256,16 +256,17 @@ export default function App(){
   const abrirDGA=()=>window.open("https://dga.mop.gob.cl","_blank");
 
   const generarSatelital=(bboxOpt)=>{
+    // Vista amplia clasica centrada en el predio (como siempre fue)
+    let lat,lon;
     let bb=bboxOpt;
     if(!bb){try{bb=JSON.parse(form.bboxPredio||"null");}catch(e){bb=null;}}
-    let lat,lon;
-    if(bb){lat=(bb[1]+bb[3])/2;lon=(bb[0]+bb[2])/2;}
-    else{
-      if(!form.coordLat||!form.coordLon){ alert("Ingresa las coordenadas primero (o usa Buscar Auto)."); return; }
+    if(form.coordLat&&form.coordLon){
       lat=parseFloat(form.coordLat.trim().replace(",","."));
       const lonRaw=form.coordLon.trim().replace(",",".");
       lon=parseFloat(lonRaw.startsWith("-")?lonRaw:"-"+lonRaw);
-    }
+    }else if(bb){lat=(bb[1]+bb[3])/2;lon=(bb[0]+bb[2])/2;}
+    else{ alert("Ingresa las coordenadas primero (o usa Buscar Auto)."); return; }
+    bb=null; // vista amplia fija: sin encuadre al predio
     setSatelitalStatus("loading");
 
     // Opcion 1: Google Maps si el usuario puso su API key
@@ -287,14 +288,7 @@ export default function App(){
 
     // Opcion 2 (por defecto, GRATIS sin API key): Esri World Imagery armando mosaico de teselas
     // Zoom dinamico: se acerca lo mas posible manteniendo el predio completo en el encuadre
-    let z=16;
-    if(bb){
-      for(let zz=15;zz>=12;zz--){ // tope z15: cobertura satelital garantizada en zonas rurales
-        const px=(bb[2]-bb[0])/360*Math.pow(2,zz)*256;
-        const py=Math.abs(bb[3]-bb[1])/170*Math.pow(2,zz)*256;
-        if(px<=820&&py<=560){z=zz;break;}
-      }
-    }
+    const z=16;
     const n=Math.pow(2,z);
     const xF=(lon+180)/360*n;
     const latRad=lat*Math.PI/180;
@@ -677,12 +671,7 @@ export default function App(){
     const [w,s,e,n]=bbox;
     const cLon=(w+e)/2, cLat=(s+n)/2;
     // acercamiento: el predio ocupa la mayor parte del encuadre
-    let z=16;
-    for(let zz=15;zz>=12;zz--){
-      const px=(e-w)/360*Math.pow(2,zz)*256;
-      const py=Math.abs(n-s)/170*Math.pow(2,zz)*256;
-      if(px<=820&&py<=560){z=zz;break;}
-    }
+    const z=15; // vista del sector con el predio al centro
     const nT=Math.pow(2,z);
     const xF=(cLon+180)/360*nT;
     const latR=cLat*Math.PI/180;
