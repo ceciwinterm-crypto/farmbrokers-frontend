@@ -138,7 +138,7 @@ const EMPTY = {
   roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}],
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",
-  numTasacion:"",climaTxt:"",guiaConclusion:"",instalacionesLista:"",firmaImg:null,escasezTxt:"",pendienteMedida:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
+  numTasacion:"",climaTxt:"",guiaConclusion:"",instalacionesLista:"",firmaImg:null,escasezTxt:"",pendienteMedida:"",prediosGeo:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",plantacionesCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
@@ -590,6 +590,8 @@ export default function App(){
             setTimeout(()=>setAvisoGuardado(""),8000);
           }
         }catch(e){}})();
+        const geos=oks.map(x=>x.d.predioGeo).filter(Boolean);
+        if(geos.length)upd("prediosGeo",JSON.stringify(geos));
         const capaF=oks.map(x=>x.d.capaFruticola).find(Boolean);
         generarPlanoSuelos(bb,data.capaSueloId,data.capaPredioId,capaF,oks.map(x=>x.rol).join(" + "));
         if(!form.imagenMapaSII)generarPlanoCatastral(bb,data.capaPredioId,oks.map(x=>x.rol).join(" + "));
@@ -688,10 +690,25 @@ export default function App(){
     const cerrar=()=>{
       const roles=new Image(); roles.crossOrigin="anonymous";
       const marcar=()=>{
-        const px1=(w-extW)/(extE-extW)*canvas.width, px2=(e-extW)/(extE-extW)*canvas.width;
-        const py1=(extN-n)/(extN-extS)*canvas.height, py2=(extN-s)/(extN-extS)*canvas.height;
-        ctx.strokeStyle="#e53935"; ctx.lineWidth=4;
-        ctx.strokeRect(px1,py1,px2-px1,py2-py1);
+        // Predio destacado con relleno celeste (estilo Visualizador de Caracterizacion Predial)
+        let geos=[];try{geos=JSON.parse(form.prediosGeo||"[]");}catch(err){geos=[];}
+        const aPx=(lon,lat)=>[(lon-extW)/(extE-extW)*canvas.width,(extN-lat)/(extN-extS)*canvas.height];
+        const anillos=(g)=>g.type==="Polygon"?[g.coordinates]:(g.type==="MultiPolygon"?g.coordinates:[]);
+        if(geos.length){
+          ctx.fillStyle="rgba(64,224,230,0.30)";ctx.strokeStyle="#19c9d6";ctx.lineWidth=3.5;
+          geos.forEach(g=>anillos(g).forEach(poly=>poly.forEach((anillo,ai)=>{
+            ctx.beginPath();
+            anillo.forEach((pt,k)=>{const [X,Y]=aPx(pt[0],pt[1]);if(k===0)ctx.moveTo(X,Y);else ctx.lineTo(X,Y);});
+            ctx.closePath();
+            if(ai===0)ctx.fill();
+            ctx.stroke();
+          })));
+        }else{
+          const px1=(w-extW)/(extE-extW)*canvas.width, px2=(e-extW)/(extE-extW)*canvas.width;
+          const py1=(extN-n)/(extN-extS)*canvas.height, py2=(extN-s)/(extN-extS)*canvas.height;
+          ctx.strokeStyle="#e53935"; ctx.lineWidth=4;
+          ctx.strokeRect(px1,py1,px2-px1,py2-py1);
+        }
         if(rotuloRoles){
           ctx.font="bold 15px Arial";
           ctx.fillStyle="rgba(255,255,255,0.92)"; ctx.fillRect(8,8,ctx.measureText("Rol(es): "+rotuloRoles).width+22,28);
