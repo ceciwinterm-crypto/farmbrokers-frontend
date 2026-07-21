@@ -154,13 +154,17 @@ const EMPTY = {
   tasador:"Daniel Haeussler Bobillier",imagenes:[],
 };
 
+// API key de Google Maps recordada permanentemente en este navegador
+const leerGKey=()=>{try{return localStorage.getItem("fb_gmaps_key")||"";}catch(e){return "";}};
+const conGKey=(f)=>({...f,googleMapsKey:leerGKey()||f.googleMapsKey||""});
+
 export default function App(){
   const [step,setStep]=useState(0);
   const [loading,setLoading]=useState(false);
   const [report,setReport]=useState(null);
   const [genMsg,setGenMsg]=useState("");
   const [genError,setGenError]=useState("");
-  const [form,setForm]=useState(EMPTY);
+  const [form,setForm]=useState(()=>conGKey(EMPTY));
   const [showTas,setShowTas]=useState(false);
   const [idTasacionActual,setIdTasacionActual]=useState(null);
   useEffect(()=>{if(window.__cargarReportePrueba){setReport(window.__cargarReportePrueba);setStep(3);}},[]);
@@ -189,7 +193,7 @@ export default function App(){
   };
   const abrirMisTasaciones=async()=>{const regs=await dbListar();setListaTas(regs.sort((x,y)=>y.fecha.localeCompare(x.fecha)));setShowTas(true);};
   const exportarTasacion=(reg)=>{const blob=new Blob([JSON.stringify(reg,null,2)],{type:"application/json"});const u=URL.createObjectURL(blob);const el=document.createElement("a");el.href=u;el.download=("Tasacion_"+reg.nombre.replace(/[^\w\-]+/g,"_")+".json");el.click();URL.revokeObjectURL(u);};
-  const importarTasacion=(ev)=>{const file=ev.target.files&&ev.target.files[0];if(!file)return;const rd=new FileReader();rd.onload=()=>{try{const reg=JSON.parse(rd.result);if(reg&&reg.form){setForm({...EMPTY,...reg.form});setShowTas(false);setAvisoGuardado("✓ Tasacion importada desde archivo.");setTimeout(()=>setAvisoGuardado(""),4000);}else alert("El archivo no es una tasacion valida.");}catch(e){alert("Archivo invalido: "+e.message);}};rd.readAsText(file);ev.target.value="";};
+  const importarTasacion=(ev)=>{const file=ev.target.files&&ev.target.files[0];if(!file)return;const rd=new FileReader();rd.onload=()=>{try{const reg=JSON.parse(rd.result);if(reg&&reg.form){setForm(conGKey({...EMPTY,...reg.form}));setShowTas(false);setAvisoGuardado("✓ Tasacion importada desde archivo.");setTimeout(()=>setAvisoGuardado(""),4000);}else alert("El archivo no es una tasacion valida.");}catch(e){alert("Archivo invalido: "+e.message);}};rd.readAsText(file);ev.target.value="";};
   const [satelitalStatus,setSatelitalStatus]=useState("idle");
   const [ufStatus,setUfStatus]=useState("idle"); // idle|loading|ok|error
   const [buscandoRol,setBuscandoRol]=useState(-1);
@@ -198,7 +202,7 @@ export default function App(){
   const mapaSIIRef=useRef();
   const satelitalRef=useRef();
 
-  const upd=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const upd=(k,v)=>{if(k==="googleMapsKey"){try{localStorage.setItem("fb_gmaps_key",v||"");}catch(e){}}setForm(f=>({...f,[k]:v}));};
   const updRef=(i,k,v)=>setForm(f=>{const refs=[...f.refs];refs[i]={...refs[i],[k]:v};return{...f,refs};});
   const addRol=()=>setForm(f=>({...f,roles:[...f.roles,{rol:"",comuna:(f.roles[0]&&f.roles[0].comuna)||"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}]}));
   const setCoordRol=(i,campo,v)=>{setForm(f=>{const roles=f.roles.map((rr,j)=>j===i?{...rr,datos:{...rr.datos,[campo]:v}}:rr);const pts=roles.map(rr=>{const la=parseFloat(rr.datos&&rr.datos.lat),lo=parseFloat(rr.datos&&rr.datos.lon);return (la&&lo)?{la,lo}:null;}).filter(Boolean);const nf={...f,roles};if(pts.length){nf.coordLat=(pts.reduce((s,p)=>s+p.la,0)/pts.length).toFixed(6);nf.coordLon=(pts.reduce((s,p)=>s+p.lo,0)/pts.length).toFixed(6);}return nf;});};
@@ -526,6 +530,8 @@ export default function App(){
         const ri=form.roles.findIndex(r=>r.rol===x.rol&&r.comuna===x.comuna);
         const val=(x.d.superficieSII&&x.d.superficieSII>0)?String(x.d.superficieSII):x.d.superficieHa;
         if(ri>=0&&!String((form.roles[ri].datos||{}).superfSII||"").trim())updRolDatos(ri,"superfSII",val);
+        // Clases de suelo del rol (para la tabla por rol del informe): siempre se sobreescriben
+        if(ri>=0)updRolDatos(ri,"clasesCIREN",JSON.stringify(x.d.clases||{}));
       });
       Object.keys(clases).forEach(k=>clases[k]=Math.round(clases[k]*100)/100);
       Object.keys(usos).forEach(k=>usos[k]=Math.round(usos[k]*100)/100);
@@ -933,7 +939,7 @@ export default function App(){
                       // Los planos generados se limpian: se regeneran en conjunto con Suelos Auto
                       f0.imagenSuelosMap=null;f0.imagenMapaSII=null;f0.imagenSatelital=null;
                       f0.numTasacion="";f0.fecha="";
-                      setForm(f0);setIdTasacionActual(null);setSelUnir([]);setShowTas(false);
+                      setForm(conGKey(f0));setIdTasacionActual(null);setSelUnir([]);setShowTas(false);
                       setAvisoGuardado("✓ "+regs.length+" tasaciones unidas ("+f0.roles.length+" roles). Presiona Suelos Auto para regenerar los planos del conjunto, revisa el sumador y guarda.");
                       setTimeout(()=>setAvisoGuardado(""),10000);
                     }} style={{border:"1px solid "+G,background:ORO,color:"#fff",borderRadius:6,padding:"8px 14px",fontSize:12.5,cursor:"pointer",marginLeft:10,fontWeight:700}}>🔗 Unir {selUnir.length} tasaciones en una nueva</button>}
@@ -945,8 +951,8 @@ export default function App(){
                             <div style={{fontWeight:600,fontSize:14}}>{reg.nombre}</div>
                             <div style={{fontSize:11.5,color:"#999"}}>{new Date(reg.fecha).toLocaleString("es-CL")}</div>
                           </div>
-                          <button onClick={()=>{setForm({...EMPTY,...reg.form});setIdTasacionActual(reg.id);setShowTas(false);setAvisoGuardado("✓ Abierta para editar: "+reg.nombre);setTimeout(()=>setAvisoGuardado(""),4000);}} style={{border:"1px solid "+G,background:G,color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>Editar</button>
-                          <button onClick={()=>{const f2={...EMPTY,...reg.form,numTasacion:"",predioNombre:(reg.form.predioNombre||"")+" (copia)",fecha:""};setForm(f2);setIdTasacionActual(null);setShowTas(false);setAvisoGuardado("✓ Duplicada como nueva tasacion. Ajusta lo que cambie y guarda.");setTimeout(()=>setAvisoGuardado(""),6000);}} style={{border:"1px solid #999",background:"#fff",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>Duplicar</button>
+                          <button onClick={()=>{setForm(conGKey({...EMPTY,...reg.form}));setIdTasacionActual(reg.id);setShowTas(false);setAvisoGuardado("✓ Abierta para editar: "+reg.nombre);setTimeout(()=>setAvisoGuardado(""),4000);}} style={{border:"1px solid "+G,background:G,color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>Editar</button>
+                          <button onClick={()=>{const f2=conGKey({...EMPTY,...reg.form,numTasacion:"",predioNombre:(reg.form.predioNombre||"")+" (copia)",fecha:""});setForm(f2);setIdTasacionActual(null);setShowTas(false);setAvisoGuardado("✓ Duplicada como nueva tasacion. Ajusta lo que cambie y guarda.");setTimeout(()=>setAvisoGuardado(""),6000);}} style={{border:"1px solid #999",background:"#fff",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>Duplicar</button>
                           <button onClick={()=>exportarTasacion(reg)} style={{border:"1px solid #999",background:"#fff",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>Exportar</button>
                           <button onClick={async()=>{if(confirm("¿Eliminar \""+reg.nombre+"\"?")){await dbBorrar(reg.id);abrirMisTasaciones();}}} style={{border:"1px solid #c66",background:"#fff",color:"#c66",borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>✕</button>
                         </div>
@@ -986,7 +992,7 @@ export default function App(){
               <div style={{fontSize:10,letterSpacing:3,textTransform:"uppercase",color:ORO,marginBottom:10}}>Sistema Profesional</div>
               <h1 style={{fontFamily:FONT,fontSize:30,margin:"0 0 10px",lineHeight:1.2}}>Informe de Tasacion de Campos Agricolas</h1>
               <p style={{opacity:0.75,fontSize:14,margin:"0 0 28px",maxWidth:500,lineHeight:1.6}}>Multiples roles SII, comarca enlazada con region, UF del dia automatica, plano SII y satelital integrados.</p>
-              <button onClick={()=>{setForm({...EMPTY});setIdTasacionActual(null);setReport(null);dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form:{...EMPTY}}).catch(()=>{});setStep(1);}} style={{...bP,background:ORO}}>Nueva Tasacion →</button>
+              <button onClick={()=>{setForm(conGKey({...EMPTY}));setIdTasacionActual(null);setReport(null);dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form:{...EMPTY}}).catch(()=>{});setStep(1);}} style={{...bP,background:ORO}}>Nueva Tasacion →</button>
               <button onClick={abrirMisTasaciones} style={{...bS,marginLeft:10}}>📂 Continuar una guardada</button>
               {ufStatus==="ok"&&<div style={{position:"absolute",top:20,right:30,background:"rgba(255,255,255,0.1)",borderRadius:10,padding:"12px 20px",textAlign:"center"}}>
                 <div style={{fontSize:11,opacity:0.7}}>UF hoy {form.ufFecha}</div>
@@ -1163,7 +1169,7 @@ export default function App(){
                   <div style={{fontWeight:700,color:G,fontSize:13,marginBottom:8}}>Satelital Google Maps</div>
                   <div style={{marginBottom:8}}>
                     <Lbl c="Google Maps API Key"/>
-                    <input value={form.googleMapsKey} onChange={e=>upd("googleMapsKey",e.target.value)} placeholder="Opcional - dejar vacio para imagen gratis (Esri)" style={{...iS,fontSize:12}}/>
+                    <input value={form.googleMapsKey} onChange={e=>upd("googleMapsKey",e.target.value)} placeholder="Opcional - dejar vacio para imagen gratis (Esri). Se recuerda en este navegador" style={{...iS,fontSize:12}}/>
                   </div>
                   <div style={{display:"flex",gap:8,marginBottom:10}}>
                     <button onClick={generarSatelital} disabled={satelitalStatus==="loading"} style={{...bP,fontSize:12,padding:"8px 14px"}}>
@@ -1306,6 +1312,10 @@ export default function App(){
                 return <div>
                   {rh.map((r,i)=>(
                     <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center",flexWrap:"wrap"}}>
+                      <select value={r.rol||""} onChange={e=>setRH(i,"rol",e.target.value)} style={{...iS,width:110,margin:0,padding:"7px 8px",fontSize:12.5}}>
+                        <option value="">Rol...</option>
+                        {(form.roles||[]).filter(rr=>String(rr.rol||"").trim()).map((rr,k)=><option key={k} value={rr.rol}>{rr.rol}</option>)}
+                      </select>
                       <select value={r.tipo||"Canal"} onChange={e=>setRH(i,"tipo",e.target.value)} style={{...iS,width:110,margin:0,padding:"7px 8px",fontSize:12.5}}>
                         <option>Canal</option><option>Pozo</option><option>Embalse</option><option>Dren</option><option>Rio/Estero</option><option>Otro</option>
                       </select>
@@ -1700,10 +1710,11 @@ export default function App(){
                 {(()=>{
                   let rh=[];try{rh=JSON.parse(report.recursosHidricos||"[]").filter(r=>String(r.nombre||"").trim());}catch(e){rh=[];}
                   if(!rh.length)return null;
+                  const conRol=rh.some(r=>String(r.rol||"").trim());
                   return <div style={{marginTop:14}}>
                     <Sub>Inscripcion de Aguas (C.B. Raices)</Sub>
-                    <GTbl headers={["Tipo","Fuente / Nombre","Acciones/Derechos","Caudal","Fojas","N°","Año"]}
-                      rows={rh.map(r=>[r.tipo||"-",r.nombre||"-",r.derechos||"-",r.caudal?(String(r.caudal).match(/[a-z]/i)?r.caudal:r.caudal+" l/s"):"-",r.fojas||"-",r.nroIns||"-",r.anioIns||"-"])}/>
+                    <GTbl headers={[...(conRol?["Rol"]:[]),"Tipo","Fuente / Nombre","Acciones/Derechos","Caudal","Fojas","N°","Año"]}
+                      rows={rh.map(r=>[...(conRol?[r.rol||"-"]:[]),r.tipo||"-",r.nombre||"-",r.derechos||"-",r.caudal?(String(r.caudal).match(/[a-z]/i)?r.caudal:r.caudal+" l/s"):"-",r.fojas||"-",r.nroIns||"-",r.anioIns||"-"])}/>
                     {rh.some(r=>!r.fojas)&&<p style={{fontSize:11.5,color:"#888",fontStyle:"italic"}}>Las inscripciones sin fojas indicadas deben verificarse en el Registro de Propiedad de Aguas del Conservador competente.</p>}
                   </div>;
                 })()}
@@ -1717,6 +1728,15 @@ export default function App(){
                   const roles=(report.roles||[]).filter(r=>String(r.rol||"").trim());
                   const conDetalle=roles.some(r=>{const d=r.datos||{};return String(d.superfTit||"").trim()||String(d.superfGE||"").trim();});
                   if(!conDetalle){
+                    // Sin detalle de titulos/GE: desglosar la superficie SII rol por rol y luego el total
+                    const conSII=roles.filter(r=>ha((r.datos||{}).superfSII)>0);
+                    if(conSII.length>=1){
+                      let tS=0;
+                      const filas=conSII.map(r=>{const d=r.datos||{};tS+=ha(d.superfSII);return ["Rol "+r.rol+(d.nombrePano?" — "+capTxt(d.nombrePano):""),ha(d.superfSII).toFixed(2)];});
+                      if(conSII.length>1)filas.push(["SII (suma de roles)",tS.toFixed(2)]);
+                      const extra=[["Titulos de la Propiedad",report.superfTitulos],["Google Earth",report.superfGoogleEarth]].filter(r=>String(r[1]||"").trim());
+                      return <GTbl boldLast={conSII.length>1?1:0} headers={["SUPERFICIE","HECTAREAS"]} rows={[...filas,...extra]}/>;
+                    }
                     return <GTbl headers={["SUPERFICIE","HECTAREAS"]} rows={[["Titulos de la Propiedad",report.superfTitulos],["SII (suma de roles)",report.superfSIITotal>0?report.superfSIITotal.toFixed(2):""],["Google Earth",report.superfGoogleEarth]].filter(r=>String(r[1]||"").trim())}/>;
                   }
                   let tT=0,tS=0,tG=0;
@@ -1747,8 +1767,32 @@ export default function App(){
                 <Sub>Suelos:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.suelos}</p>
                 {(()=>{
+                  const ROM=["I","II","III","IV","V","VI","VII","VIII"];
+                  const nH=v=>parseFloat(String(v||"0").replace(/\./g,x=>x).replace(",","."))||0;
+                  const roles=(report.roles||[]).filter(r=>String(r.rol||"").trim());
+                  // Clases por rol (guardadas por Suelos Auto en datos.clasesCIREN)
+                  const rolesConClases=roles.map(r=>{let c={};try{c=JSON.parse((r.datos||{}).clasesCIREN||"{}");}catch(e){c={};}return {r,c};}).filter(x=>Object.values(x.c).some(v=>nH(v)>0));
+                  if(rolesConClases.length>=1){
+                    const filas=[];let linea=0;const totClase={};
+                    rolesConClases.forEach(({r,c})=>{
+                      const d=r.datos||{};
+                      const clavesRol=ROM.filter(cl=>nH(c[cl])>0);
+                      let subt=0;
+                      clavesRol.forEach(cl=>{linea++;subt+=nH(c[cl]);totClase[cl]=(totClase[cl]||0)+nH(c[cl]);filas.push([String(linea),"Rol "+r.rol+(d.nombrePano?" — "+capTxt(d.nombrePano):""),"CLASE "+cl,nH(c[cl]).toFixed(2).replace(".",",")]);});
+                      filas.push(["","Subtotal Rol "+r.rol,"",subt.toFixed(2).replace(".",",")]);
+                    });
+                    const totGeneral=Object.values(totClase).reduce((s,v)=>s+v,0);
+                    // Fila total por clase (si hay mas de un rol y comparten clases) + total general
+                    const clasesTot=ROM.filter(cl=>totClase[cl]>0);
+                    if(rolesConClases.length>1&&clasesTot.length){
+                      clasesTot.forEach(cl=>filas.push(["","Total CLASE "+cl,"",totClase[cl].toFixed(2).replace(".",",")]));
+                    }
+                    filas.push(["","Total Superficie","",totGeneral.toFixed(2).replace(".",",")]);
+                    return <GTbl boldLast={1} headers={["Linea","Rol / Paño","Clase de Suelo","Superficie (Ha)"]} rows={filas}/>;
+                  }
+                  // Fallback: sin desglose por rol (tasaciones antiguas o edicion manual)
                   const activos=[1,2,3,4,5,6,7,8].filter(n=>parseFloat((report["c"+n]||"0").replace(",","."))>0);
-                  const filas=activos.map((n,i)=>[String(i+1),"CLASE "+["I","II","III","IV","V","VI","VII","VIII"][n-1],report["c"+n]]);
+                  const filas=activos.map((n,i)=>[String(i+1),"CLASE "+ROM[n-1],report["c"+n]]);
                   const tot=activos.reduce((s,n)=>s+parseFloat((report["c"+n]||"0").replace(",",".")),0);
                   if(filas.length)filas.push(["","Total Superficie",tot.toFixed(2).replace(".",",")]);
                   return <GTbl boldLast={1} headers={["Linea","Clase de Suelo","Superficie (Ha)"]} rows={filas}/>;
@@ -1784,7 +1828,7 @@ export default function App(){
                   }).join("; ");
                   const parrafoFrut="El predio cuenta con "+totHa.toFixed(2)+" ha de huertos frutales"+(totArb?" y un total de "+Math.round(totArb).toLocaleString("es-CL")+" arboles":"")+", correspondientes a: "+resumen+".";
                   return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><p style={TXT}>{parrafoFrut}</p><GTbl boldLast={1} headers={["Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={filasP}/></>;})()}
-                {report.imagenSuelosMap&&<div style={{marginTop:16}}><ImgBox src={report.imagenSuelosMap} label="Plano de Capacidad de Uso de Suelo — CIREN sobre imagen satelital (referencial)" height={330}/></div>}
+                {report.imagenSuelosMap&&<div style={{marginTop:16}}><ImgBox src={report.imagenSuelosMap} label="Plano de Clases y Capacidad de Uso de Suelo — CIREN sobre imagen satelital (referencial)" height={330}/></div>}
                 <Sub>Recursos Hidricos:</Sub>
                 {report.escasezTxt?<p style={{...TXT,fontWeight:700,border:"1.5px solid #b45309",background:"#fff7ed",borderRadius:6,padding:"10px 12px"}}>⚠ {report.escasezTxt}. Debe monitorearse la disponibilidad efectiva de caudales segun las condiciones pluviometricas anuales.</p>:null}
                 <p style={TXT}>{report.ia&&report.ia.hidrico}</p>
@@ -1795,10 +1839,9 @@ export default function App(){
                   const numRH=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
                   const totalRH=rh.reduce((s,r)=>s+numRH(r.valor),0);
                   window.__rhValor=totalRH;
-                  const conValor=false; // los valores van solo en la Valorizacion Comercial (seccion 6)
-                  return <GTbl headers={conValor?["Tipo","Nombre","Origen","Acciones/Derechos","Caudal","Valor"]:["Tipo","Nombre","Origen","Acciones/Derechos","Caudal"]}
-                    rows={[...rh.map(r=>{const base=[r.tipo||"-",r.nombre||"-",r.origen||"-",r.derechos||"-",r.caudal?r.caudal+" l/s":"-"];return conValor?[...base,numRH(r.valor)>0?"$ "+Math.round(numRH(r.valor)).toLocaleString("es-CL"):"-"]:base;}),
-                      conValor?["","","","Total Derechos de Agua","","$ "+Math.round(totalRH).toLocaleString("es-CL")]:null]}/>;
+                  const conRol=rh.some(r=>String(r.rol||"").trim()); // el valor va solo en la Valorizacion Comercial (seccion 6)
+                  return <GTbl headers={[...(conRol?["Rol"]:[]),"Tipo","Nombre","Origen","Acciones/Derechos","Caudal"]}
+                    rows={rh.map(r=>[...(conRol?[r.rol||"-"]:[]),r.tipo||"-",r.nombre||"-",r.origen||"-",r.derechos||"-",r.caudal?r.caudal+" l/s":"-"])}/>;
                 })()}
                 <Sub>Clima:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.clima}</p>
@@ -1928,7 +1971,7 @@ export default function App(){
             <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:20}}>
               <button onClick={()=>window.print()} style={bP}>🖨️ Imprimir / Guardar PDF</button>
               <button onClick={exportarWord} style={{...bP,background:ORO}}>📄 Descargar Word Editable</button>
-              <button onClick={()=>{setReport(null);setStep(0);setForm({...EMPTY});setIdTasacionActual(null);dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form:{...EMPTY}}).catch(()=>{});setSatelitalStatus("idle");setUfStatus("idle");}} style={bS}>Nueva Tasacion</button>
+              <button onClick={()=>{setReport(null);setStep(0);setForm(conGKey({...EMPTY}));setIdTasacionActual(null);dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form:{...EMPTY}}).catch(()=>{});setSatelitalStatus("idle");setUfStatus("idle");}} style={bS}>Nueva Tasacion</button>
             </div>
             <p style={{textAlign:"center",fontSize:12,color:"#aaa",marginTop:10}}>Imprimir → Guardar como PDF. En "Mas opciones" del dialogo, desactiva "Encabezados y pies de pagina" para un PDF limpio.</p>
           </div>
