@@ -355,11 +355,105 @@ export default function App(){
     r.readAsDataURL(f);
   };
 
+  // ── Realce fotografico natural (revelado suave): luz, contraste, color y nitidez ──
+  // No inventa contenido: solo ajusta tono como lo haria un revelado basico. Guarda tambien el original.
+  const realzarFoto=(dataUrl)=>new Promise((res)=>{
+    const im=new Image();
+    im.onload=()=>{
+      try{
+        const MAX=1600;
+        let w=im.naturalWidth||im.width,h=im.naturalHeight||im.height;
+        if(Math.max(w,h)>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
+        const cv=document.createElement("canvas");cv.width=w;cv.height=h;
+        const ctx=cv.getContext("2d");
+        ctx.drawImage(im,0,0,w,h);
+        const id=ctx.getImageData(0,0,w,h),d=id.data,N=d.length;
+        // 1) Auto-niveles MUY suaves: percentiles 0.5% / 99.5% de luminancia, aplicados al 60% (no estira de golpe)
+        const hist=new Uint32Array(256);
+        for(let i=0;i<N;i+=4){const y=(d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114)|0;hist[y]++;}
+        const tot=(N/4)|0;const cut=tot*0.005;
+        let lo=0,hi=255,acc=0;
+        for(let v=0;v<256;v++){acc+=hist[v];if(acc>cut){lo=v;break;}}
+        acc=0;for(let v=255;v>=0;v--){acc+=hist[v];if(acc>cut){hi=v;break;}}
+        if(hi-lo<40){lo=0;hi=255;} // imagen ya con buen rango: no forzar
+        const AL=0.6; // fuerza del auto-niveles (0=nada, 1=estira completo). Suave para no quemar.
+        const loA=lo*AL, hiA=255-(255-hi)*AL; // limites atenuados
+        const range=Math.max(1,hiA-loA);
+        // Parametros suaves (realce natural, no efecto artificial)
+        const SAT=1.08;      // saturacion +8%
+        const CON=1.06;      // contraste en S +6%
+        const BRI=3;         // brillo +3 (sobre 255)
+        const WARM=1.5;      // calidez muy leve (R+, B-)
+        const sCurve=(x)=>{  // curva S centrada en 128 (contraste percibido natural)
+          const n=x/255-0.5;
+          const y=0.5+ n*CON + (-n*n*n*0.28); // realce medios, comprime extremos
+          return y*255;
+        };
+        for(let i=0;i<N;i+=4){
+          for(let c=0;c<3;c++){
+            let v=d[i+c];
+            // auto-niveles atenuado
+            v=(v-loA)/range*255;
+            // brillo + calidez
+            v+=BRI + (c===0?WARM:(c===2?-WARM:0));
+            // contraste en S
+            v=sCurve(v);
+            d[i+c]=v<0?0:v>255?255:v;
+          }
+          // saturacion (mezcla hacia luminancia)
+          const r=d[i],g=d[i+1],b=d[i+2];
+          const y=r*0.299+g*0.587+b*0.114;
+          d[i]  =Math.min(255,Math.max(0,y+(r-y)*SAT));
+          d[i+1]=Math.min(255,Math.max(0,y+(g-y)*SAT));
+          d[i+2]=Math.min(255,Math.max(0,y+(b-y)*SAT));
+        }
+        ctx.putImageData(id,0,0);
+        // 2) Enfoque suave (unsharp mask): capa desenfocada restada levemente
+        const AMT=0.28;
+        const blur=document.createElement("canvas");blur.width=w;blur.height=h;
+        const bx=blur.getContext("2d");
+        bx.filter="blur(1.1px)";bx.drawImage(cv,0,0);bx.filter="none";
+        const base=ctx.getImageData(0,0,w,h),bd=base.data;
+        const soft=bx.getImageData(0,0,w,h),sd=soft.data;
+        for(let i=0;i<N;i+=4){
+          for(let c=0;c<3;c++){
+            const v=bd[i+c]+(bd[i+c]-sd[i+c])*AMT;
+            bd[i+c]=v<0?0:v>255?255:v;
+          }
+        }
+        ctx.putImageData(base,0,0);
+        res(cv.toDataURL("image/jpeg",0.92));
+      }catch(e){res(dataUrl);} // ante cualquier fallo, conserva la foto original
+    };
+    im.onerror=()=>res(dataUrl);
+    im.src=dataUrl;
+  });
+
+  // Version liviana del original (redimensionada + JPEG) para el toggle "Original" sin inflar el guardado
+  const comprimirOriginal=(dataUrl)=>new Promise((res)=>{
+    const im=new Image();
+    im.onload=()=>{
+      try{
+        const MAX=1600;let w=im.naturalWidth||im.width,h=im.naturalHeight||im.height;
+        if(Math.max(w,h)>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
+        const cv=document.createElement("canvas");cv.width=w;cv.height=h;
+        cv.getContext("2d").drawImage(im,0,0,w,h);
+        res(cv.toDataURL("image/jpeg",0.9));
+      }catch(e){res(dataUrl);}
+    };
+    im.onerror=()=>res(dataUrl);
+    im.src=dataUrl;
+  });
+
   const handleImages=(e)=>{
     const files=Array.from(e.target.files);
     Promise.all(files.map(f=>new Promise(res=>{
       const r=new FileReader();
-      r.onload=ev=>res({name:f.name,url:ev.target.result});
+      r.onload=async(ev)=>{
+        const crudo=ev.target.result;
+        const [mejorada,orig]=await Promise.all([realzarFoto(crudo),comprimirOriginal(crudo)]);
+        res({name:f.name,url:mejorada,orig,mejorada,realce:true});
+      };
       r.readAsDataURL(f);
     }))).then(imgs=>upd("imagenes",[...form.imagenes,...imgs]));
   };
@@ -1478,8 +1572,9 @@ export default function App(){
               <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:12}}>
                 {form.imagenes.map((img,i)=>(
                   <div key={i} style={{position:"relative"}}>
-                    <img src={img.url} alt={img.name} style={{width:110,height:85,objectFit:"cover",borderRadius:6,border:"2px solid "+G}}/>
+                    <img src={img.url} alt={img.name} style={{width:110,height:85,objectFit:"contain",background:"#f4f4f2",borderRadius:6,border:"2px solid "+G}}/>
                     <input value={img.cap||""} onChange={e=>upd("imagenes",form.imagenes.map((im,j)=>j===i?{...im,cap:e.target.value}:im))} placeholder="Leyenda (ej. Acceso al predio)" style={{...iS,width:110,margin:"4px 0 0",padding:"4px 6px",fontSize:10.5}}/>
+                    {img.orig&&<button onClick={()=>upd("imagenes",form.imagenes.map((im,j)=>j===i?{...im,url:im.realce?im.orig:(im.mejorada||im.url),realce:!im.realce}:im))} title={img.realce?"Mostrando foto realzada — clic para ver original":"Mostrando foto original — clic para realzar"} style={{width:110,margin:"3px 0 0",padding:"3px 4px",fontSize:9.5,borderRadius:5,border:"1px solid "+G,background:img.realce?GH:"#fff",color:G,cursor:"pointer"}}>{img.realce?"✨ Realzada":"○ Original"}</button>}
                     <button onClick={()=>upd("imagenes",form.imagenes.filter((_,j)=>j!==i))} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#e53e3e",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>x</button>
                   </div>
                 ))}
@@ -1952,7 +2047,7 @@ export default function App(){
               {report.imagenes&&report.imagenes.length>0&&(
                 <PgFB title="Imagenes de la Propiedad">
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-                    {report.imagenes.map((img,i)=><div key={i}><img src={img.url} alt={"Foto "+(i+1)} style={{width:"100%",height:210,objectFit:"cover",borderRadius:6}}/>{img.cap?<p style={{textAlign:"center",fontSize:11.5,fontStyle:"italic",color:"#666",margin:"4px 0 0"}}>{img.cap}</p>:null}</div>)}
+                    {report.imagenes.map((img,i)=><div key={i}><div style={{width:"100%",height:240,background:"#f4f4f2",border:"1px solid #e5e5e5",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}><img src={img.url} alt={"Foto "+(i+1)} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}}/></div>{img.cap?<p style={{textAlign:"center",fontSize:11.5,fontStyle:"italic",color:"#666",margin:"4px 0 0"}}>{img.cap}</p>:null}</div>)}
                   </div>
                 </PgFB>
               )}
