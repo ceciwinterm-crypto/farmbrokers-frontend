@@ -513,18 +513,19 @@ export default function App(){
         if(clases[cl]>0){upd("c"+(idx+1),String(clases[cl]).replace(".",","));rellenadas.push("Clase "+cl+": "+clases[cl]+" ha");}
       });
       const serieTxt=seriesSet.join(", ");
-      if(serieTxt&&!form.seriesSuelo)upd("seriesSuelo",serieTxt);
+      if(serieTxt)upd("seriesSuelo",serieTxt);
       const car=data.caracteristicas||{};
-      const llenarSi=(campo,valor)=>{if(valor&&!String(form[campo]||"").trim())upd(campo,valor);};
-      llenarSi("textura",car.textura);
-      llenarSi("profundidad",car.profundidad);
-      llenarSi("drenaje",car.drenaje);
-      llenarSi("pendiente",car.pendiente);
-      llenarSi("erosion",car.erosion);
-      llenarSi("pedregosidad",car.pedregosidad);
-      llenarSi("ph",car.ph);
-      llenarSi("aptitud",car.aptitud);
-      llenarSi("capacidadUso",Object.keys(clases).sort((x,y)=>ROM.indexOf(x)-ROM.indexOf(y)).join("-"));
+      // Datos de catastro: se actualizan SIEMPRE al presionar Suelos Auto (puedes editarlos despues)
+      const llenar=(campo,valor)=>{if(valor)upd(campo,valor);};
+      llenar("textura",car.textura);
+      llenar("profundidad",car.profundidad);
+      llenar("drenaje",car.drenaje);
+      llenar("pendiente",car.pendiente);
+      llenar("erosion",car.erosion);
+      llenar("pedregosidad",car.pedregosidad);
+      llenar("ph",car.ph);
+      llenar("aptitud",car.aptitud);
+      llenar("capacidadUso",Object.keys(clases).sort((x,y)=>ROM.indexOf(x)-ROM.indexOf(y)).join("-"));
       const NOMBRES={textura:"Textura",profundidad:"Profundidad",drenaje:"Drenaje",pendiente:"Pendiente",erosion:"Erosion",pedregosidad:"Pedregosidad",ph:"pH",aptitud:"Aptitud"};
       const faltantes=Object.keys(NOMBRES).filter(k=>!car[k]||!String(car[k]).trim());
       let carTxt="";
