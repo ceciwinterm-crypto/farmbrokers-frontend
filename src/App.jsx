@@ -234,6 +234,7 @@ export default function App(){
   const exportarTasacion=(reg)=>{const blob=new Blob([JSON.stringify(reg,null,2)],{type:"application/json"});const u=URL.createObjectURL(blob);const el=document.createElement("a");el.href=u;el.download=("Tasacion_"+reg.nombre.replace(/[^\w\-]+/g,"_")+".json");el.click();URL.revokeObjectURL(u);};
   const importarTasacion=(ev)=>{const file=ev.target.files&&ev.target.files[0];if(!file)return;const rd=new FileReader();rd.onload=()=>{try{const reg=JSON.parse(rd.result);if(reg&&reg.form){setForm(conGKey({...EMPTY,...reg.form}));setShowTas(false);setAvisoGuardado("✓ Tasacion importada desde archivo.");setTimeout(()=>setAvisoGuardado(""),4000);}else alert("El archivo no es una tasacion valida.");}catch(e){alert("Archivo invalido: "+e.message);}};rd.readAsText(file);ev.target.value="";};
   const [satelitalStatus,setSatelitalStatus]=useState("idle");
+  const [vistasStatus,setVistasStatus]=useState("idle");
   const [ufStatus,setUfStatus]=useState("idle"); // idle|loading|ok|error
   const [buscandoRol,setBuscandoRol]=useState(-1);
   const [debugSII,setDebugSII]=useState(null);
@@ -483,6 +484,98 @@ export default function App(){
     im.onerror=()=>res(dataUrl);
     im.src=dataUrl;
   });
+
+  // ── Vistas aereas REALES del predio (ortofoto Esri) para el registro grafico ──
+  // No se generan imagenes ficticias: son fotografias satelitales del predio con sus deslindes reales.
+  const tejerVista=(lat,lon,z,COLS,ROWS,conPoligono)=>new Promise((res,rej)=>{
+    const T=256,n=Math.pow(2,z);
+    const xF=(lon+180)/360*n;
+    const latRad=lat*Math.PI/180;
+    const yF=(1-Math.log(Math.tan(latRad)+1/Math.cos(latRad))/Math.PI)/2*n;
+    const x0=Math.floor(xF)-Math.floor(COLS/2), y0=Math.floor(yF)-Math.floor(ROWS/2);
+    const canvas=document.createElement("canvas");
+    canvas.width=COLS*T;canvas.height=ROWS*T;
+    const ctx=canvas.getContext("2d");
+    let cargadas=0,fallo=false;
+    for(let dx=0;dx<COLS;dx++)for(let dy=0;dy<ROWS;dy++){
+      const img=new Image();img.crossOrigin="anonymous";
+      const tx=x0+dx,ty=y0+dy;
+      img.onload=()=>{
+        try{ctx.drawImage(img,dx*T,dy*T,T,T);}catch(e){}
+        cargadas++;
+        if(cargadas===COLS*ROWS&&!fallo){
+          try{
+            if(conPoligono){
+              let geos=[];try{geos=JSON.parse(form.prediosGeo||"[]");}catch(e){geos=[];}
+              const extW=(x0)/n*360-180, extE=(x0+COLS)/n*360-180;
+              const t2lat=(y)=>Math.atan(Math.sinh(Math.PI*(1-2*y/n)))*180/Math.PI;
+              const extN=t2lat(y0), extS=t2lat(y0+ROWS);
+              const aPx=(LO,LA)=>[(LO-extW)/(extE-extW)*canvas.width,(extN-LA)/(extN-extS)*canvas.height];
+              const anillos=(g)=>g.type==="Polygon"?[g.coordinates]:(g.type==="MultiPolygon"?g.coordinates:[]);
+              if(geos.length){
+                ctx.strokeStyle="#ffd400";ctx.lineWidth=4;ctx.fillStyle="rgba(255,212,0,0.10)";
+                geos.forEach(g=>anillos(g).forEach(poly=>poly.forEach((an,ai)=>{
+                  ctx.beginPath();
+                  an.forEach((pt,k)=>{const [X,Y]=aPx(pt[0],pt[1]);if(k===0)ctx.moveTo(X,Y);else ctx.lineTo(X,Y);});
+                  ctx.closePath();if(ai===0)ctx.fill();ctx.stroke();
+                })));
+              }
+            }
+            ctx.fillStyle="rgba(255,255,255,0.85)";ctx.fillRect(canvas.width-268,canvas.height-20,268,20);
+            ctx.fillStyle="#333";ctx.font="10px Arial";
+            ctx.fillText("Imagen satelital: Esri World Imagery",canvas.width-258,canvas.height-6);
+          }catch(e){}
+          res(canvas.toDataURL("image/jpeg",0.9));
+        }
+      };
+      img.onerror=()=>{if(!fallo){fallo=true;rej(new Error("No se pudo cargar la imagen satelital."));}};
+      img.src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"+z+"/"+ty+"/"+tx;
+    }
+  });
+
+  // Elige el zoom mas cercano que mantenga el predio completo dentro del encuadre
+  const zoomParaBbox=(bb,COLS,ROWS)=>{
+    for(let z=18;z>=10;z--){
+      const n=Math.pow(2,z);
+      const x1=(bb[0]+180)/360*n, x2=(bb[2]+180)/360*n;
+      const la1=bb[3]*Math.PI/180, la2=bb[1]*Math.PI/180;
+      const y1=(1-Math.log(Math.tan(la1)+1/Math.cos(la1))/Math.PI)/2*n;
+      const y2=(1-Math.log(Math.tan(la2)+1/Math.cos(la2))/Math.PI)/2*n;
+      if(Math.abs(x2-x1)<=COLS*0.72&&Math.abs(y2-y1)<=ROWS*0.72)return z;
+    }
+    return 15;
+  };
+
+  const generarVistasPredio=async()=>{
+    let bb=null;try{bb=JSON.parse(form.bboxPredio||"null");}catch(e){bb=null;}
+    let lat,lon;
+    if(form.coordLat&&form.coordLon){
+      lat=parseFloat(String(form.coordLat).trim().replace(",","."));
+      const lonRaw=String(form.coordLon).trim().replace(",",".");
+      lon=parseFloat(lonRaw.startsWith("-")?lonRaw:"-"+lonRaw);
+    }else if(bb){lat=(bb[1]+bb[3])/2;lon=(bb[0]+bb[2])/2;}
+    if(!isFinite(lat)||!isFinite(lon)){alert("Primero ubica el predio: usa \"Suelos Auto\" o ingresa las coordenadas.");return;}
+    setVistasStatus("loading");
+    const COLS=4,ROWS=3;
+    const zDet=bb?zoomParaBbox(bb,COLS,ROWS):17;
+    const plan=[
+      {z:Math.min(18,zDet), cap:"Vista aérea de detalle del predio, con deslindes segun catastro"},
+      {z:Math.max(11,zDet-2), cap:"Vista aérea del predio y su entorno inmediato"},
+      {z:Math.max(9,zDet-4), cap:"Vista de contexto — insercion del predio en el sector"}
+    ];
+    const nuevas=[];
+    for(const p of plan){
+      try{
+        const url=await tejerVista(lat,lon,p.z,COLS,ROWS,true);
+        nuevas.push({name:"vista-aerea-z"+p.z+".jpg",url,cap:p.cap,esSatelital:true});
+      }catch(e){}
+    }
+    if(!nuevas.length){setVistasStatus("error");return;}
+    // Reemplaza vistas generadas antes; conserva las fotos que subiste
+    upd("imagenes",[...(form.imagenes||[]).filter(im=>!im.esSatelital),...nuevas]);
+    setVistasStatus("ok");
+    setTimeout(()=>setVistasStatus("idle"),4000);
+  };
 
   const handleImages=(e)=>{
     const files=Array.from(e.target.files);
@@ -980,19 +1073,51 @@ export default function App(){
   const exportarWord=()=>{
     const el=document.getElementById("informe");
     if(!el)return;
-    // Limpieza para Word: se clona el informe y se adapta a documento carta editable
     const clon=el.cloneNode(true);
-    // 1) Quitar los pies de pantalla (marcados con data-footer)
+
+    // 1) Fuera los pies de pantalla (el .doc lleva pie propio de Word, repetido en cada hoja)
     clon.querySelectorAll("[data-footer]").forEach(d=>d.remove());
-    clon.querySelectorAll("div").forEach(d=>{
-      const t=(d.textContent||"").trim();
-      if(t.includes("www.farmbrokers.cl")&&t.length<160)d.remove();
+
+    // 2) Word no entiende flex, grid, radios ni px: se traduce todo a estilos que si soporta
+    clon.querySelectorAll("*").forEach(elm=>{
+      let st=elm.getAttribute("style")||"";
+      if(!st)return;
+      st=st.replace(/display\s*:\s*(flex|inline-flex|grid)[^;]*;?/gi,"display:block;")
+           .replace(/(flex|grid)[a-z-]*\s*:[^;]*;?/gi,"")
+           .replace(/(gap|border-radius|box-shadow|object-fit|min-height|max-height|overflow|position|align-items|justify-content|letter-spacing)\s*:[^;]*;?/gi,"");
+      if(elm.tagName==="DIV")st=st.replace(/height\s*:[^;]*;?/gi,"");
+      st=st.replace(/font-size\s*:\s*([\d.]+)px/gi,(m,n)=>"font-size:"+(parseFloat(n)*0.75).toFixed(1)+"pt");
+      elm.setAttribute("style",st);
     });
-    // 2) Saltos de pagina REALES entre secciones (Word ignora el salto por estilo en divs;
-    //    solo respeta el elemento <br> con page-break-before)
+
+    // 3) Filas etiqueta/valor (eran flex) -> parrafo "Etiqueta: valor"
+    clon.querySelectorAll("div").forEach(d=>{
+      if(d.children.length===2&&d.children[0].tagName==="SPAN"&&d.children[1].tagName==="SPAN"&&!d.querySelector("table,img")){
+        const p=document.createElement("p");
+        p.setAttribute("style","margin:2pt 0;font-size:11pt;");
+        p.innerHTML="<b>"+d.children[0].innerHTML+"</b> "+d.children[1].innerHTML;
+        d.replaceWith(p);
+      }
+    });
+
+    // 4) Imagenes: ancho de pagina (el logo mas chico), sin alto forzado
+    clon.querySelectorAll("img").forEach(im=>{
+      im.removeAttribute("width");im.removeAttribute("height");
+      const alt=(im.getAttribute("alt")||"").toLowerCase();
+      im.setAttribute("style",alt.includes("farm brokers")?"width:4.2cm;height:auto;":"width:15.5cm;height:auto;margin:6pt 0;");
+    });
+
+    // 5) Tablas con bordes reales y encabezado repetido en cada hoja
+    clon.querySelectorAll("table").forEach(t=>{
+      t.setAttribute("border","1");t.setAttribute("cellspacing","0");t.setAttribute("cellpadding","4");
+      t.setAttribute("style","border-collapse:collapse;width:100%;margin:8pt 0;mso-table-lspace:0pt;mso-table-rspace:0pt;");
+      const th=t.querySelector("thead tr");
+      if(th)th.setAttribute("style","mso-yfti-irow:-1;mso-row-margin-left:0;");
+    });
+
+    // 6) Saltos de pagina reales entre secciones (Word solo respeta el <br> con page-break)
     Array.from(clon.children).forEach((pg,idx)=>{
-      pg.style.minHeight="";pg.style.height="";pg.style.padding="0";pg.style.display="block";
-      pg.style.boxShadow="none";pg.style.margin="0";pg.style.pageBreakBefore="";
+      pg.setAttribute("style","display:block;margin:0;padding:0;");
       if(idx>0){
         const salto=document.createElement("br");
         salto.setAttribute("clear","all");
@@ -1000,26 +1125,35 @@ export default function App(){
         pg.parentNode.insertBefore(salto,pg);
       }
     });
-    // 3) Filas etiqueta/valor (flex de pantalla) -> parrafos "Etiqueta: valor"
-    clon.querySelectorAll("div").forEach(d=>{
-      const st=(d.getAttribute("style")||"");
-      if(/display:\s*flex/i.test(st)&&d.children.length===2&&d.children[0].tagName==="SPAN"&&d.children[1].tagName==="SPAN"){
-        const p=document.createElement("p");
-        p.setAttribute("style","margin:3pt 0;font-size:11pt;");
-        p.innerHTML="<b>"+d.children[0].innerHTML+"</b> "+d.children[1].innerHTML;
-        d.replaceWith(p);
-      }else if(/display:\s*flex/i.test(st)){
-        d.style.display="block";
-      }
-    });
-    // 4) Documento Word con hoja carta configurada
-    const html="<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Informe de Tasacion</title><!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]--><style>@page Seccion1{size:21.59cm 27.94cm;margin:2.2cm 2.2cm 2.0cm 2.2cm;mso-page-orientation:portrait;}div.Seccion1{page:Seccion1;}body{font-family:Georgia,'Times New Roman',serif;font-size:11pt;color:#1f1f1f;line-height:1.5;}h1,h2,h3{font-family:Georgia,serif;color:#1e5631;}p{margin:6pt 0;text-align:justify;}table{border-collapse:collapse;width:100%;margin:8pt 0;page-break-inside:avoid;}tr{page-break-inside:avoid;}[data-sub]{page-break-after:avoid;}td,th{border:1pt solid #8a8a8a;padding:4pt 7pt;font-size:10pt;text-align:left;}th{background:#eef3ee;color:#1e5631;}img{max-width:100%;}</style></head><body><div class=Seccion1>"+clon.innerHTML+"</div></body></html>";
+
+    // 7) Documento Word: hoja A4, margenes reales y pie con numeracion automatica
+    const pieTxt="Farm Brokers Chile · Tasaciones, Estudios y Venta de Campos"+((report&&report.numTasacion)?("  ·  Informe N° "+report.numTasacion):"");
+    const estilos="@page Seccion1{size:21.0cm 29.7cm;margin:2.0cm 1.8cm 2.2cm 1.8cm;mso-page-orientation:portrait;mso-footer:f1;mso-footer-margin:1.2cm;}"+
+      "div.Seccion1{page:Seccion1;}"+
+      "body{font-family:Georgia,'Times New Roman',serif;font-size:11pt;color:#1f1f1f;line-height:1.45;}"+
+      "h1{font-family:Georgia,serif;color:#1a1a1a;font-size:21pt;text-align:center;margin:10pt 0;}"+
+      "h2{font-family:Georgia,serif;color:#1e5631;font-size:13.5pt;border-bottom:1.5pt solid #1e5631;padding-bottom:3pt;margin:0 0 12pt;page-break-after:avoid;}"+
+      "p{margin:5pt 0;text-align:justify;}"+
+      "table{border-collapse:collapse;width:100%;margin:8pt 0;}"+
+      "tr{page-break-inside:avoid;}"+
+      "td,th{border:0.75pt solid #9aa89f;padding:3.5pt 6pt;font-size:9.5pt;vertical-align:top;}"+
+      "th{background:#1e5631;color:#ffffff;font-weight:bold;text-align:center;}"+
+      "img{max-width:100%;}"+
+      "p.MsoFooter{font-family:Georgia,serif;font-size:8.5pt;color:#8a8a8a;border-top:0.5pt solid #d8d8d8;padding-top:3pt;margin:0;}";
+    const pie="<div style='mso-element:footer' id=f1><p class=MsoFooter>"+pieTxt+
+      "<span style='mso-tab-count:1'></span>www.farmbrokers.cl<span style='mso-tab-count:1'></span>"+
+      "Pag. <span style='mso-field-code:PAGE'></span> de <span style='mso-field-code:NUMPAGES'></span></p></div>";
+    const html="<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>"+
+      "<head><meta charset='utf-8'><title>Informe de Tasacion</title>"+
+      "<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->"+
+      "<style>"+estilos+"</style></head><body><div class=Seccion1>"+clon.innerHTML+pie+"</div></body></html>";
     const blob=new Blob(["\ufeff",html],{type:"application/msword"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
     a.href=url;
-    const rolName=(report&&report.roles&&report.roles[0]&&report.roles[0].rol)?report.roles[0].rol.replace(/[^0-9a-zA-Z-]/g,""):"predio";
-    a.download="Informe_Tasacion_"+rolName+".doc";
+    const limpio=(t)=>String(t||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^0-9a-zA-Z]+/g,"-").replace(/^-|-$/g,"");
+    const nom=[limpio(report&&report.numTasacion),limpio(report&&report.predioNombre)||"Predio"].filter(Boolean).join("_");
+    a.download="Informe_Tasacion_"+nom+".doc";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1036,7 +1170,29 @@ export default function App(){
 
   return(
     <div style={{minHeight:"100vh",background:GRIS2,fontFamily:SANS}}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @media print{header,.noprint,button,.stepsbar{display:none!important} main{max-width:100%!important;padding:0!important} #informe{border:none!important;border-radius:0!important} #informe>div{page-break-after:always;min-height:auto!important} #informe>div:last-child{page-break-after:auto} table,img,tr,thead{page-break-inside:avoid!important;break-inside:avoid!important} h2,h3,[data-sub]{page-break-after:avoid!important;break-after:avoid!important} [data-sub]+p,[data-sub]+table{page-break-before:avoid!important} p{orphans:3;widows:3} #informe td,#informe th{page-break-inside:avoid!important} body{background:white!important} @page{size:letter;margin:1.4cm} #informe>div{min-height:auto!important;width:auto!important;box-shadow:none!important;margin:0!important;padding:0.4cm 0.6cm!important;page-break-after:always} #informe>div:last-child{page-break-after:auto}}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}
+@media print{
+  header,.noprint,button,.stepsbar{display:none!important}
+  main{max-width:100%!important;padding:0!important;margin:0!important}
+  body{background:#fff!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #informe{border:none!important;border-radius:0!important;box-shadow:none!important;margin:0!important;padding:0!important;width:auto!important;max-width:none!important}
+  /* Cada seccion del informe arranca en hoja nueva (sin hoja en blanco al final) */
+  #informe>div{page-break-before:always;break-before:page;min-height:0!important;height:auto!important;padding:0!important;margin:0!important;box-shadow:none!important;border-top:none!important;display:block!important}
+  #informe>div:first-child{page-break-before:auto;break-before:auto}
+  #informe>div.pg-portada{display:flex!important;flex-direction:column!important;min-height:250mm!important}
+  /* El pie por seccion se oculta: el pie real se repite en TODAS las hojas */
+  [data-footer]{display:none!important}
+  .print-footer{display:block!important;position:fixed;left:0;right:0;bottom:-13mm;height:11mm;padding-top:2mm;border-top:1px solid #d8d8d8;font-family:Georgia,'Times New Roman',serif;font-size:8.5pt;color:#8a8a8a}
+  .print-footer .pf-in{display:flex;justify-content:space-between;align-items:baseline}
+  /* Nada se parte por la mitad */
+  table,tr,td,th,img{page-break-inside:avoid!important;break-inside:avoid!important}
+  thead{display:table-header-group}
+  tfoot{display:table-footer-group}
+  h1,h2,h3,[data-sub]{page-break-after:avoid!important;break-after:avoid!important}
+  [data-sub]+p,[data-sub]+table,h2+p,h2+table{page-break-before:avoid!important;break-before:avoid!important}
+  p{orphans:3;widows:3}
+  @page{size:A4;margin:16mm 15mm 22mm}
+}`}</style>
 
       <header style={{background:G,color:"#fff",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:60,boxShadow:"0 2px 10px rgba(0,0,0,0.2)"}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -1641,7 +1797,15 @@ export default function App(){
             <SecT icon="📸" title="Fotografias del Predio"/>
             <Card>
               <input ref={fileRef} type="file" multiple accept="image/*" style={{display:"none"}} onChange={handleImages}/>
-              <button onClick={()=>fileRef.current.click()} style={bS}>+ Agregar Fotos</button>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                <button onClick={()=>fileRef.current.click()} style={bS}>+ Agregar Fotos</button>
+                <button onClick={generarVistasPredio} disabled={vistasStatus==="loading"} style={{...bS,opacity:vistasStatus==="loading"?0.6:1}}>
+                  {vistasStatus==="loading"?"Generando vistas…":"🛰️ Generar vistas aéreas del predio"}
+                </button>
+                {vistasStatus==="ok"&&<span style={{fontSize:12,color:G,fontWeight:600}}>✓ Vistas aéreas agregadas</span>}
+                {vistasStatus==="error"&&<span style={{fontSize:12,color:"#c53030"}}>No se pudieron cargar las imágenes satelitales.</span>}
+              </div>
+              <div style={{fontSize:11.5,color:"#888",marginTop:6}}>Si no tienes fotografías de terreno, las vistas aéreas son imágenes satelitales reales del predio (Esri) con sus deslindes, a tres escalas: detalle, entorno y contexto.</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:12}}>
                 {form.imagenes.map((img,i)=>(
                   <div key={i} style={{position:"relative"}}>
@@ -1803,10 +1967,17 @@ export default function App(){
               </div>
             </div>
 
+            {/* Pie repetido en TODAS las hojas del PDF (solo impresion) */}
+            <div className="print-footer" style={{display:"none"}}>
+              <div className="pf-in">
+                <span><b style={{color:G}}>Farm Brokers Chile</b> · Tasaciones, Estudios y Venta de Campos{report.numTasacion?" · Informe N° "+report.numTasacion:""}</span>
+                <span>www.farmbrokers.cl</span>
+              </div>
+            </div>
             <div id="informe" style={{background:"#fff",border:"1px solid #ddd",borderRadius:8,overflow:"hidden",fontFamily:FONT}}>
 
               {/* PORTADA */}
-              <div style={{minHeight:640,display:"flex",flexDirection:"column",padding:"0"}}>
+              <div className="pg-portada" style={{minHeight:640,display:"flex",flexDirection:"column",padding:"0"}}>
                 {/* Franja superior de marca */}
                 <div style={{height:8,background:G}}/>
                 {/* Logo grande centrado */}
@@ -2181,11 +2352,25 @@ export default function App(){
                 <p style={{...TXT,whiteSpace:"pre-line"}}>{report.ia&&report.ia.conclusiones}</p>
               </PgFB>
 
-              {report.imagenes&&report.imagenes.length>0&&(
-                <PgFB title="Imágenes de la Propiedad">
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-                    {report.imagenes.map((img,i)=><div key={i}><div style={{width:"100%",height:240,background:"#f4f4f2",border:"1px solid #e5e5e5",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}><img src={img.url} alt={"Foto "+(i+1)} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}}/></div>{img.cap?<p style={{textAlign:"center",fontSize:11.5,fontStyle:"italic",color:"#666",margin:"4px 0 0"}}>{img.cap}</p>:null}</div>)}
-                  </div>
+              {report.imagenes&&report.imagenes.length>0&&(()=>{
+                const imgs=report.imagenes;
+                const soloAereas=imgs.every(im=>im.esSatelital);
+                const hayFotos=imgs.some(im=>!im.esSatelital);
+                const titulo=soloAereas?"Vistas Aéreas del Predio":(imgs.some(im=>im.esSatelital)?"Registro Gráfico de la Propiedad":"Imágenes de la Propiedad");
+                // Las vistas aereas se muestran a ancho completo (se aprecia mejor el deslinde)
+                const aereas=imgs.filter(im=>im.esSatelital), fotos=imgs.filter(im=>!im.esSatelital);
+                const Cuadro=({img,i,alto})=><div key={i}><div style={{width:"100%",height:alto,background:"#f4f4f2",border:"1px solid #e5e5e5",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}><img src={img.url} alt={"Imagen "+(i+1)} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}}/></div>{img.cap?<p style={{textAlign:"center",fontSize:11.5,fontStyle:"italic",color:"#666",margin:"4px 0 10px"}}>{img.cap}</p>:null}</div>;
+                return <PgFB title={titulo}>
+                  {soloAereas?<p style={{...TXT,marginBottom:12}}>A la fecha del presente informe no se dispone de registro fotográfico de terreno. Se incorporan vistas aéreas del predio obtenidas de imagen satelital, en las que se identifican sus deslindes segun el catastro vigente.</p>:null}
+                  {aereas.map((img,i)=><Cuadro key={"a"+i} img={img} i={i} alto={300}/>)}
+                  {fotos.length?<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginTop:aereas.length?12:0}}>
+                    {fotos.map((img,i)=><Cuadro key={"f"+i} img={img} i={i} alto={240}/>)}
+                  </div>:null}
+                </PgFB>;
+              })()}
+              {(!report.imagenes||!report.imagenes.length)&&(
+                <PgFB title="Registro Gráfico">
+                  <p style={TXT}>A la fecha de emisión del presente informe no se dispone de registro fotográfico del predio. La tasación se sustenta en los antecedentes catastrales, cartográficos y de imagen satelital descritos en los capítulos precedentes. Se recomienda complementar con visita a terreno y registro fotográfico para efectos de una verificación en detalle del estado de conservación de plantaciones, construcciones e instalaciones.</p>
                 </PgFB>
               )}
 
