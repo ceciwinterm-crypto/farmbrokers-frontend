@@ -139,6 +139,16 @@ function areaHaGeo(g){
   return m2>0?m2/10000:0;
 }
 
+// Superficie plantada: CIREN entrega el poligono COMPLETO de cada huerto que toca el
+// predio (incluida la parte del vecino). Si el tasador verifica la superficie real,
+// se usa esa y las especies se prorratean segun su participacion.
+function factorPlant(form){
+  const nd=v=>parseFloat(String(v||"0").replace(",","."))||0;
+  const verif=nd(form.supPlantadaVerif);
+  if(verif<=0)return 1;
+  let tot=0;try{JSON.parse(form.plantacionesCIREN||"[]").forEach(p=>{tot+=nd(p.has);});}catch(e){}
+  return tot>0?verif/tot:1;
+}
 function capTxt(s){return String(s||"").trim().toLowerCase().replace(/(^|[\s.\-("])([a-zaeiounü\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1])/g,(m,p,l)=>p+l.toUpperCase());}
 // Normaliza el nombre de la region a su grafia oficial (acentos y apostrofes)
 function regionTxt(s){
@@ -231,7 +241,7 @@ function GTbl({headers,rows,boldLast,boldRows}){
 const EMPTY = {
   roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}],
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
-  predioNombre:"",localidad:"",provincia:"",region:"",tipografia:"inter",
+  predioNombre:"",localidad:"",provincia:"",region:"",tipografia:"inter",supPlantadaVerif:"",
   numTasacion:"",climaTxt:"",guiaConclusion:"",instalacionesLista:"",firmaImg:null,escasezTxt:"",pendienteMedida:"",prediosGeo:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",plantacionesCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
@@ -1256,9 +1266,12 @@ export default function App(){
     let pls=[];try{pls=JSON.parse(report.plantacionesCIREN||"[]");}catch(e){}
     const porEsp={};let haPl=0,arb=0;
     pls.forEach(p=>{if(!String(p.especie||"").trim())return;const k=capTxt(p.especie);porEsp[k]=(porEsp[k]||0)+nd(p.has);haPl+=nd(p.has);arb+=nd(p.arboles);});
+    const verifP=nd(report.supPlantadaVerif);
+    const fP=(verifP>0&&haPl>0)?verifP/haPl:1;
+    if(fP!==1){Object.keys(porEsp).forEach(k=>{porEsp[k]=porEsp[k]*fP;});haPl=verifP;arb=Math.round(arb*fP);}
     const espTxt=Object.entries(porEsp).sort((a,b)=>b[1]-a[1]).map(([k,v])=>k+" "+dec(v)+" ha").join(", ");
     const plCorta=haPl>0?dec(haPl)+" ha":"";
-    const sobrePasa=haPl>0&&sup>0&&haPl>sup*1.05;
+    const sobrePasa=haPl>0&&sup>0&&haPl>sup*1.05&&verifP<=0;
     // Infraestructura
     let cons=[],inst=[];try{cons=JSON.parse(report.construccionesLista||"[]");}catch(e){}
     try{inst=JSON.parse(report.instalacionesLista||"[]");}catch(e){}
@@ -1947,6 +1960,27 @@ export default function App(){
                       <button onClick={()=>guardarP(pls.filter((_,j)=>j!==i))} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
                     </div>
                   ))}
+                  {(()=>{
+                    const nd=v=>parseFloat(String(v||"0").replace(",","."))||0;
+                    const totC=pls.reduce((a,p)=>a+nd(p.has),0);
+                    const supP=form.superfSIITotal>0?form.superfSIITotal:(form.roles||[]).reduce((a,r)=>a+nd((r.datos||{}).superfSII),0);
+                    if(!(totC>0&&supP>0&&totC>supP*1.05))return null;
+                    const verif=nd(form.supPlantadaVerif);
+                    return <div style={{background:"#F8F1F0",borderLeft:"3px solid #9B4B43",padding:"11px 14px",margin:"10px 0"}}>
+                      <div style={{fontSize:9,letterSpacing:1.2,textTransform:"uppercase",fontWeight:700,color:"#9B4B43",marginBottom:6}}>Superficie plantada inconsistente</div>
+                      <div style={{fontSize:12,lineHeight:1.65,color:"#222724"}}>
+                        El catastro CIREN informa <b>{totC.toFixed(2).replace(".",",")} ha</b> plantadas, pero el predio tiene <b>{supP.toFixed(2).replace(".",",")} ha</b>.
+                        CIREN entrega el polígono completo de cada huerto que toca el predio, incluida la parte del vecino.
+                        <b> Mientras no corrijas esto, la valorización de las plantaciones queda sobreestimada.</b>
+                      </div>
+                      <div style={{display:"flex",gap:8,alignItems:"center",marginTop:9,flexWrap:"wrap"}}>
+                        <span style={{fontSize:11.5,color:"#6C746F"}}>Superficie plantada verificada (ha):</span>
+                        <input value={form.supPlantadaVerif||""} onChange={e=>upd("supPlantadaVerif",e.target.value)} placeholder="ej. 28,02" style={{...iS,width:110,margin:0,padding:"6px 9px",fontSize:12.5}}/>
+                        {verif>0?<span style={{fontSize:11.5,color:"#33463B",fontWeight:600}}>✓ Se usará {verif.toFixed(2).replace(".",",")} ha (las especies se prorratean)</span>
+                          :<span style={{fontSize:11,color:"#9B4B43"}}>Sin este dato se usan las {totC.toFixed(2).replace(".",",")} ha de CIREN</span>}
+                      </div>
+                    </div>;
+                  })()}
                   <button onClick={()=>guardarP([...pls,{rol:((form.roles||[]).filter(rr=>String(rr.rol||"").trim()).length===1?form.roles.find(rr=>String(rr.rol||"").trim()).rol:""),especie:"",variedad:"",anio:"",arboles:"",has:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar plantacion</button>
                 </div>;
               })()}
@@ -2075,7 +2109,8 @@ export default function App(){
                   const num=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
                   const ha=v=>parseFloat(String(v||"0").replace(",","."))||0;
                   const suelos=[1,2,3,4,5,6,7,8].reduce((s,n)=>s+ha(form["c"+n])*num(form["v"+n]),0);
-                  let pls=0;try{pls=JSON.parse(form.plantacionesCIREN||"[]").reduce((s,p)=>s+ha(p.has)*num(p.vha),0);}catch(e){}
+                  const fP=factorPlant(form);
+                  let pls=0;try{pls=JSON.parse(form.plantacionesCIREN||"[]").reduce((s,p)=>s+ha(p.has)*fP*num(p.vha),0);}catch(e){}
                   const legacy=ha(form.plantacionHas)*num(form.plantacionValorHa);
                   let agua=0;try{agua=JSON.parse(form.recursosHidricos||"[]").reduce((s,r)=>s+num(r.valor),0);}catch(e){}
                   let cons=0;try{cons=JSON.parse(form.construccionesLista||"[]").reduce((s,c2)=>s+ha(c2.m2)*num(c2.vm2),0);}catch(e){}
@@ -2418,6 +2453,14 @@ export default function App(){
                   if(!conDatos.length)return null;
                   const nP=v=>parseFloat(String(v||"0").replace(",","."))||0;
                   const rolesRep=(report.roles||[]).filter(r=>String(r.rol||"").trim());
+                  // Advertencia cuando el catastro supera la superficie del predio
+                  const totCat=conDatos.reduce((a,p)=>a+nP(p.has),0);
+                  const supPred=report.superfSIITotal>0?report.superfSIITotal:0;
+                  const verifPl=nP(report.supPlantadaVerif);
+                  const avisoPl=(totCat>0&&supPred>0&&totCat>supPred*1.05)?
+                    <Nota tipo="critica" titulo="Superficie del catastro por validar">
+                      El Catastro Frutícola CIREN informa {totCat.toFixed(2).replace(".",",")} ha plantadas, cifra superior a la superficie del predio ({supPred.toFixed(2).replace(".",",")} ha). Ello se explica porque el catastro registra la unidad productiva completa, que puede extenderse a predios colindantes. {verifPl>0?("Para efectos de la presente tasación se considera una superficie plantada verificada en terreno de "+verifPl.toFixed(2).replace(".",",")+" ha."):"Las superficies del cuadro siguiente son referenciales y deben validarse en terreno antes de asignarles valor comercial."}
+                    </Nota>:null;
                   const nomRol=(rl)=>{const rr=rolesRep.find(r=>String(r.rol)===String(rl));const np=rr&&(rr.datos||{}).nombrePano;return "Rol "+rl+(np?" — "+capTxt(np):"");};
                   // ¿Las plantaciones traen rol? (Suelos Auto las etiqueta) y ¿hay mas de un rol con frutales?
                   const rolesConFrut=[...new Set(conDatos.map(p=>String(p.rol||"").trim()).filter(Boolean))];
@@ -2453,7 +2496,7 @@ export default function App(){
                       return nomRol(rl)+": "+h.toFixed(2)+" ha"+(a?" y "+Math.round(a).toLocaleString("es-CL")+" arboles":"")+(esp.length?" ("+esp.join(", ")+")":"");
                     }).join("; ");
                     const parrafo="El conjunto cuenta con "+totHa.toFixed(2)+" ha de huertos frutales"+(totArb?" y un total de "+Math.round(totArb).toLocaleString("es-CL")+" arboles":"")+", distribuidos por rol de la siguiente forma: "+resumenRoles+".";
-                    return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><p style={TXT}>{parrafo}</p>
+                    return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub>{avisoPl}<p style={TXT}>{parrafo}</p>
                       <GTbl boldLast={1} boldRows={boldIdx} headers={["Rol / Paño","Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={filasP}/></>;
                   }
 
@@ -2473,7 +2516,7 @@ export default function App(){
                     return ha.toFixed(2)+" ha de "+esp+(vars.length?" (variedad"+(vars.length>1?"es ":" ")+vars.join(", ")+")":"")+(anios.length?", plantaciones "+(anios.length>1?(anios[0]+" a "+anios[anios.length-1]):anios[0]):"")+(arb?", "+Math.round(arb).toLocaleString("es-CL")+" arboles":"");
                   }).join("; ");
                   const parrafoFrut="El predio cuenta con "+totHa.toFixed(2)+" ha de huertos frutales"+(totArb?" y un total de "+Math.round(totArb).toLocaleString("es-CL")+" arboles":"")+", correspondientes a: "+resumen+".";
-                  return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><p style={TXT}>{parrafoFrut}</p><GTbl boldLast={1} boldRows={boldIdx} headers={["Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={filasP}/></>;})()}
+                  return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub>{avisoPl}<p style={TXT}>{parrafoFrut}</p><GTbl boldLast={1} boldRows={boldIdx} headers={["Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={filasP}/></>;})()}
                 {report.imagenSuelosMap&&<div style={{marginTop:16}}><ImgBox src={report.imagenSuelosMap} label="Plano de Clases y Capacidad de Uso de Suelo — CIREN sobre imagen satelital (referencial)" height={330}/></div>}
                 <Sub>Recursos Hidricos:</Sub>
                 {report.escasezTxt?<p style={{...TXT,fontWeight:700,border:"1.5px solid #b45309",background:"#fff7ed",borderRadius:6,padding:"10px 12px"}}>⚠ {report.escasezTxt}. Debe monitorearse la disponibilidad efectiva de caudales segun las condiciones pluviometricas anuales.</p>:null}
