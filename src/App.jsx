@@ -92,6 +92,20 @@ function SecT({icon,title}){
   </div>;
 }
 function capTxt(s){return String(s||"").trim().toLowerCase().replace(/(^|[\s.\-("])([a-zaeiounü\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1])/g,(m,p,l)=>p+l.toUpperCase());}
+// Normaliza el nombre de la region a su grafia oficial (acentos y apostrofes)
+function regionTxt(s){
+  const t=String(s||"").trim().toLowerCase().replace(/['`´’]/g,"").replace(/\s+/g," ");
+  const M={
+    "arica y parinacota":"Arica y Parinacota","tarapaca":"Tarapacá","antofagasta":"Antofagasta",
+    "atacama":"Atacama","coquimbo":"Coquimbo","valparaiso":"Valparaíso",
+    "metropolitana":"Metropolitana de Santiago","region metropolitana":"Metropolitana de Santiago","rm":"Metropolitana de Santiago",
+    "ohiggins":"O’Higgins","o higgins":"O’Higgins","libertador":"Libertador General Bernardo O’Higgins","del libertador general bernardo ohiggins":"Libertador General Bernardo O’Higgins",
+    "maule":"Maule","nuble":"Ñuble","biobio":"Biobío","bio bio":"Biobío",
+    "araucania":"La Araucanía","la araucania":"La Araucanía","los rios":"Los Ríos","los lagos":"Los Lagos",
+    "aysen":"Aysén","aisen":"Aysén","magallanes":"Magallanes y de la Antártica Chilena"
+  };
+  return M[t]||capTxt(s);
+}
 function PgFB({title,children}){
   return <div style={{padding:"46px 64px 28px",borderTop:"1px solid #f2f2f2",minHeight:420,display:"flex",flexDirection:"column",fontFamily:FONT}}>
     {title?<h2 style={{fontFamily:FONT,fontWeight:700,fontSize:17,letterSpacing:0.4,color:"#1a1a1a",borderBottom:"2px solid "+G,paddingBottom:8,marginBottom:26,marginTop:0}}>{title}</h2>:null}
@@ -1721,7 +1735,7 @@ export default function App(){
         {/* ══ PASO 3: INFORME ══ */}
         {step===3&&report&&(
           <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+            <div className="noprint" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
               <h2 style={{margin:0,color:G,fontFamily:FONT,fontSize:20}}>Vista Previa del Informe</h2>
               <div style={{display:"flex",gap:10}}>
                 <button onClick={()=>setStep(2)} style={bS}>← Editar</button>
@@ -1733,23 +1747,29 @@ export default function App(){
             <div id="informe" style={{background:"#fff",border:"1px solid #ddd",borderRadius:8,overflow:"hidden",fontFamily:FONT}}>
 
               {/* PORTADA */}
-              <div style={{minHeight:560,display:"flex",flexDirection:"column",justifyContent:"space-between",padding:"40px 60px 0"}}>
-                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:40}}>
-                  <img src={LOGO} alt="Farm Brokers" style={{height:70,width:"auto",objectFit:"contain"}}/>
+              <div style={{minHeight:640,display:"flex",flexDirection:"column",padding:"0"}}>
+                {/* Franja superior de marca */}
+                <div style={{height:8,background:G}}/>
+                {/* Logo grande centrado */}
+                <div style={{textAlign:"center",paddingTop:64}}>
+                  <img src={LOGO} alt="Farm Brokers" style={{height:118,width:"auto",objectFit:"contain"}}/>
                 </div>
-                <div style={{textAlign:"center",flex:1,display:"flex",flexDirection:"column",justifyContent:"center"}}>
-                  <h1 style={{fontFamily:FONT,fontSize:34,fontWeight:700,color:"#1a1a1a",marginBottom:report.numTasacion?8:28}}>Informe Tasacion</h1>
-                  {report.numTasacion?<p style={{fontSize:13,letterSpacing:2,color:"#8a8a8a",marginBottom:24}}>N° {report.numTasacion}</p>:null}
-                  <p style={{fontSize:20,color:"#333",marginBottom:10}}>{capTxt(report.predioNombre)}</p>
-                  {report.roles.map((r,i)=><p key={i} style={{fontSize:16,color:"#444",marginBottom:4}}>Rol N° {r.rol} — {capTxt(r.comuna)}</p>)}
-                  {report.provincia?<p style={{fontSize:14,color:"#555",marginBottom:3}}>Provincia de {capTxt(report.provincia)}</p>:null}
-                  <p style={{fontSize:14,color:"#555"}}>Region de {capTxt(report.region)} — Chile</p>
-                  <p style={{fontSize:13,color:"#777",marginTop:22}}>{report.fecha}</p>
-                  
+                {/* Bloque central */}
+                <div style={{textAlign:"center",flex:1,display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 60px"}}>
+                  <div style={{width:60,height:3,background:ORO,margin:"0 auto 26px"}}/>
+                  <h1 style={{fontFamily:FONT,fontSize:38,fontWeight:700,color:"#1a1a1a",letterSpacing:0.5,marginBottom:report.numTasacion?6:22}}>Informe de Tasación</h1>
+                  {report.numTasacion?<p style={{fontSize:13,letterSpacing:3,color:"#8a8a8a",marginBottom:26}}>N° {report.numTasacion}</p>:null}
+                  <p style={{fontFamily:FONT,fontSize:23,color:"#2a2a2a",fontWeight:600,marginBottom:12}}>{capTxt(report.predioNombre)}</p>
+                  {report.roles.map((r,i)=><p key={i} style={{fontSize:15,color:"#555",marginBottom:3}}>Rol N° {r.rol} — {capTxt(r.comuna)}</p>)}
+                  {report.provincia?<p style={{fontSize:14,color:"#666",marginTop:8,marginBottom:2}}>Provincia de {capTxt(report.provincia)}</p>:null}
+                  <p style={{fontSize:14,color:"#666"}}>Región de {regionTxt(report.region)}, Chile</p>
+                  {report.solicitante?<p style={{fontSize:13.5,color:"#777",marginTop:22}}>Preparado para: <b style={{color:"#555"}}>{capTxt(report.solicitante)}</b></p>:null}
+                  <p style={{fontSize:13,color:"#888",marginTop:report.solicitante?6:22}}>{report.fecha}</p>
                 </div>
-                <div style={{background:G,margin:"0 -60px",padding:"14px 60px",display:"flex",justifyContent:"space-between",color:"#fff",fontSize:10,marginTop:36}}>
-                  <span style={{fontStyle:"italic"}}>Tasaciones - Estudios - Ventas de Campos</span>
-                  <img src={LOGO_WHITE} alt="Farm Brokers" style={{height:24,width:"auto",objectFit:"contain"}}/>
+                {/* Franja inferior de marca */}
+                <div style={{background:G,margin:"0",padding:"16px 60px",display:"flex",justifyContent:"space-between",alignItems:"center",color:"#fff",fontSize:10.5,marginTop:36}}>
+                  <span style={{fontStyle:"italic",letterSpacing:0.3}}>Tasaciones · Estudios · Venta de Campos</span>
+                  <img src={LOGO_WHITE} alt="Farm Brokers" style={{height:26,width:"auto",objectFit:"contain"}}/>
                 </div>
               </div>
 
@@ -1761,10 +1781,10 @@ export default function App(){
                 {report.roles.map((r,i)=><IRw key={i} label={"Rol SII "+(i+1)+":"} value={r.rol+" — "+capTxt(r.comuna)}/>)}
                 <IRw label="Localidad:" value={report.localidad}/>
                 <IRw label="Provincia:" value={report.provincia}/>
-                <IRw label="Region:" value={capTxt(report.region)}/>
-                {report.roles.map((r,i)=><IRw key={i} label={"Avaluo Fiscal Rol "+r.rol+":"} value={"$ "+fmtMiles(r.datos.avaluoFiscal)+"   "+r.datos.avaluoFecha}/>)}
-                {report.avaluoTotal>0&&<IRw label="Avaluo Fiscal Total:" value={"$ "+report.avaluoTotal.toLocaleString("es-CL")}/>}
-                <IRw label="Fecha Tasacion:" value={report.fecha}/>
+                <IRw label="Región:" value={regionTxt(report.region)}/>
+                {report.roles.map((r,i)=><IRw key={i} label={"Avalúo Fiscal Rol "+r.rol+":"} value={"$ "+fmtMiles(r.datos.avaluoFiscal)+"   "+r.datos.avaluoFecha}/>)}
+                {report.avaluoTotal>0&&<IRw label="Avalúo Fiscal Total:" value={"$ "+report.avaluoTotal.toLocaleString("es-CL")}/>}
+                <IRw label="Fecha Tasación:" value={report.fecha}/>
                 <IRw label="UF Base:" value={"$ "+report.ufBase+" (al "+report.ufFecha+")"}/>
               </PgFB>
 
@@ -1772,7 +1792,7 @@ export default function App(){
                 <p style={TXT}>{report.ia&&report.ia.resumen}</p>
               </PgFB>
 
-              <PgFB title="3. Ubicacion de la Propiedad">
+              <PgFB title="3. Ubicación de la Propiedad">
                 <p style={TXT}>{report.ia&&report.ia.ubicacion}</p>
                 <Sub>Plano y ubicacion de la propiedad</Sub>
                 {report.imagenMapaSII
@@ -1816,7 +1836,7 @@ export default function App(){
                 <p style={{...TXT,marginTop:14}}>{report.ia&&report.ia.titulos}</p>
               </PgFB>
 
-              <PgFB title="5. Antecedentes Tecnicos">
+              <PgFB title="5. Antecedentes Técnicos">
                 <Sub>Superficie:</Sub>
                 {(()=>{
                   const ha=v=>parseFloat(String(v||"0").replace(",","."))||0;
@@ -1981,7 +2001,7 @@ export default function App(){
                 {report.plantacionDesc&&<><Sub>Plantaciones:</Sub><p style={TXT}>{report.plantacionDesc}</p></>}
               </PgFB>
 
-              <PgFB title="6. Tasacion">
+              <PgFB title="6. Tasación">
                 <Sub>Metodologia de Valorizacion</Sub>
                 <p style={TXT}>{report.metodologiaTxt||"El valor de tasacion corresponde a una estimacion del valor comercial de cada activo, entendido como el precio mas probable que el bien podria alcanzar en un mercado abierto y competitivo, en un plazo prudente de comercializacion. Los terrenos se valorizan segun sus caracteristicas tecnicas y comerciales, considerando referencias de compraventas y ofertas de bienes comparables del periodo, ponderadas por clase de capacidad de uso de los suelos. Las plantaciones frutales se estiman segun juicio tecnico de su valor comercial, considerando el valor de inversion ajustado por antigüedad, estado sanitario y productivo, vida util remanente y condiciones de mercado de cada especie y variedad. Los derechos de aguas se valorizan segun sus caracteristicas legales y tecnicas y las transacciones observadas en la zona. Las construcciones e instalaciones se valorizan a valor de reposicion depreciado por antigüedad, funcionalidad y calidad de materiales."}</p>
                 <Sub>Criterios de Tasacion</Sub>
@@ -2045,7 +2065,7 @@ export default function App(){
               </PgFB>
 
               {report.imagenes&&report.imagenes.length>0&&(
-                <PgFB title="Imagenes de la Propiedad">
+                <PgFB title="Imágenes de la Propiedad">
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
                     {report.imagenes.map((img,i)=><div key={i}><div style={{width:"100%",height:240,background:"#f4f4f2",border:"1px solid #e5e5e5",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}><img src={img.url} alt={"Foto "+(i+1)} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}}/></div>{img.cap?<p style={{textAlign:"center",fontSize:11.5,fontStyle:"italic",color:"#666",margin:"4px 0 0"}}>{img.cap}</p>:null}</div>)}
                   </div>
@@ -2063,12 +2083,12 @@ export default function App(){
               </PgFB>
             </div>
 
-            <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:20}}>
+            <div className="noprint" style={{display:"flex",gap:12,justifyContent:"center",marginTop:20}}>
               <button onClick={()=>window.print()} style={bP}>🖨️ Imprimir / Guardar PDF</button>
               <button onClick={exportarWord} style={{...bP,background:ORO}}>📄 Descargar Word Editable</button>
-              <button onClick={()=>{setReport(null);setStep(0);setForm(conGKey({...EMPTY}));setIdTasacionActual(null);dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form:{...EMPTY}}).catch(()=>{});setSatelitalStatus("idle");setUfStatus("idle");}} style={bS}>Nueva Tasacion</button>
+              <button onClick={()=>{setReport(null);setStep(0);setForm(conGKey({...EMPTY}));setIdTasacionActual(null);dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form:{...EMPTY}}).catch(()=>{});setSatelitalStatus("idle");setUfStatus("idle");}} style={bS}>Nueva Tasación</button>
             </div>
-            <p style={{textAlign:"center",fontSize:12,color:"#aaa",marginTop:10}}>Imprimir → Guardar como PDF. En "Mas opciones" del dialogo, desactiva "Encabezados y pies de pagina" para un PDF limpio.</p>
+            <p className="noprint" style={{textAlign:"center",fontSize:12,color:"#aaa",marginTop:10}}>Consejo: al imprimir, en "Más opciones" del diálogo desactiva "Encabezados y pies de página" para un PDF más limpio.</p>
           </div>
         )}
       </main>
