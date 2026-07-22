@@ -91,6 +91,30 @@ function SecT({icon,title}){
     <h2 style={{margin:0,color:G,fontSize:16,fontFamily:FONT,fontWeight:700}}>{title}</h2>
   </div>;
 }
+// ── Superficie real de un poligono geografico (formula geodesica sobre esfera WGS84) ──
+// Es la misma medicion que entrega Google Earth al medir el perimetro del predio.
+const R_TIERRA=6378137;
+function areaAnilloM2(anillo){
+  if(!anillo||anillo.length<3)return 0;
+  const rad=Math.PI/180;let s=0;
+  for(let i=0,n=anillo.length;i<n;i++){
+    const p1=anillo[i],p2=anillo[(i+1)%n];
+    if(!p1||!p2)continue;
+    s+=(p2[0]-p1[0])*rad*(2+Math.sin(p1[1]*rad)+Math.sin(p2[1]*rad));
+  }
+  return Math.abs(s*R_TIERRA*R_TIERRA/2);
+}
+function areaHaGeo(g){
+  if(!g)return 0;
+  const polys=g.type==="Polygon"?[g.coordinates]:(g.type==="MultiPolygon"?g.coordinates:[]);
+  let m2=0;
+  polys.forEach(poly=>{(poly||[]).forEach((anillo,ai)=>{
+    const a=areaAnilloM2(anillo);
+    m2+=(ai===0?a:-a); // el primer anillo es el contorno; los siguientes son huecos
+  });});
+  return m2>0?m2/10000:0;
+}
+
 function capTxt(s){return String(s||"").trim().toLowerCase().replace(/(^|[\s.\-("])([a-zaeiounü\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1])/g,(m,p,l)=>p+l.toUpperCase());}
 // Normaliza el nombre de la region a su grafia oficial (acentos y apostrofes)
 function regionTxt(s){
@@ -559,7 +583,14 @@ export default function App(){
         if(d.periodo){updRolDatos(i,"avaluoFecha",String(d.periodo));ok.push("periodo avaluo");}
         if(num(d.superficie)>0){updRolDatos(i,"superfSII",String(d.superficie));ok.push("superficie");}else falta.push("superficie (el mapa SII no la publica para este predio - copiala del certificado)");
         if(d.destino){updRolDatos(i,"destino",String(d.destino).toUpperCase());ok.push("destino");}
-        if(d.direccion&&String(d.direccion).trim()){if(!form.localidad)upd("localidad",String(d.direccion).trim());ok.push("direccion");}
+        // En predios rurales la "direccion" del SII es en realidad el NOMBRE DEL PREDIO (ej. MAHUIDANCHE),
+        // no una localidad: se usa como nombre del paño de este rol y como nombre general si aun no hay uno.
+        if(d.direccion&&String(d.direccion).trim()){
+          const nom=capTxt(String(d.direccion).trim());
+          updRolDatos(i,"nombrePano",nom);
+          if(!String(form.predioNombre||"").trim())upd("predioNombre",nom);
+          ok.push("nombre del predio");
+        }
         if(d.lat&&d.lon){
           updRolDatos(i,"lat",String(d.lat));updRolDatos(i,"lon",String(d.lon));
           const pts=form.roles.map((rr,j)=>j===i?{la:parseFloat(d.lat),lo:parseFloat(d.lon)}:((rr.datos&&rr.datos.lat&&rr.datos.lon)?{la:parseFloat(rr.datos.lat),lo:parseFloat(rr.datos.lon)}:null)).filter(Boolean);
@@ -690,6 +721,8 @@ export default function App(){
         upd("plantacionesCIREN",JSON.stringify(plants));
         frutTxt=" Catastro fruticola: "+plants.map(p=>p.especie+(p.variedad?" "+p.variedad:"")+(p.anio?" ("+p.anio+")":"")+" "+p.has+" ha").join(" | ")+".";
       }
+      // Superficie medida sobre el poligono real (se calcula dentro del bloque de geometria)
+      let totGE=0;const detGE=[];
       // Union de los bbox de todos los roles (plano y coordenadas del conjunto)
       const bbs=oks.map(x=>x.d.bbox).filter(Boolean);
       if(bbs.length){
@@ -727,8 +760,20 @@ export default function App(){
             setTimeout(()=>setAvisoGuardado(""),8000);
           }
         }catch(e){}})();
-        const geos=oks.map(x=>x.d.predioGeo).filter(Boolean);
+        const geosRol=oks.map(x=>({rol:x.rol,comuna:x.comuna,g:x.d.predioGeo})).filter(x=>x.g);
+        const geos=geosRol.map(x=>x.g);
         if(geos.length)upd("prediosGeo",JSON.stringify(geos));
+        // ── Superficie medida sobre el poligono real del predio (equivale a medirlo en Google Earth) ──
+        geosRol.forEach(x=>{
+          const haGE=areaHaGeo(x.g);
+          if(haGE>0){
+            totGE+=haGE;
+            detGE.push("Rol "+x.rol+": "+haGE.toFixed(2)+" ha");
+            const ri=form.roles.findIndex(r=>r.rol===x.rol&&r.comuna===x.comuna);
+            if(ri>=0)updRolDatos(ri,"superfGE",haGE.toFixed(2).replace(".",","));
+          }
+        });
+        if(totGE>0)upd("superfGoogleEarth",totGE.toFixed(2).replace(".",","));
         const capaF=oks.map(x=>x.d.capaFruticola).find(Boolean);
         generarPlanoSuelos(bb,data.capaSueloId,data.capaPredioId,capaF,oks.map(x=>x.rol).join(" + "));
         if(!form.imagenMapaSII)generarPlanoCatastral(bb,data.capaPredioId,oks.map(x=>x.rol).join(" + "));
@@ -737,7 +782,8 @@ export default function App(){
       const cab=multi?("Analisis de "+oks.length+" roles ("+oks.map(x=>x.rol).join(" + ")+"). Superficie CIREN total: "+(Math.round(supTotal*100)/100)+" ha. "):("Superficie CIREN del predio: "+(Math.round(supTotal*100)/100)+" ha. ");
       const naTxt=noAgric.length?(" ℹ Rol(es) NO AGRICOLA (sin catastro rural, se informan con sus antecedentes): "+noAgric.map(x=>x.rol).join(", ")+"."):"";
       const errTxt=(fallidos.length?(" ⚠ No se pudo consultar: "+fallidos.map(x=>x.rol).join(", ")+"."):"")+naTxt;
-      setSuelosStatus({ok:true,msg:cab+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(serieTxt?" Serie: "+serieTxt:"")+carTxt+usosTxt+frutTxt+errTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(resultados.map(x=>({rol:x.rol,resultado:x.d})),null,2)});
+      const geTxt=totGE>0?(" Superficie medida sobre el poligono (equivalente a Google Earth): "+totGE.toFixed(2)+" ha"+(detGE.length>1?(" → "+detGE.join(" | ")):"")+"."):"";
+      setSuelosStatus({ok:true,msg:cab+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(serieTxt?" Serie: "+serieTxt:"")+carTxt+geTxt+usosTxt+frutTxt+errTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(resultados.map(x=>({rol:x.rol,resultado:x.d})),null,2)});
     }catch(e){
       setSuelosStatus({ok:false,msg:"Error: "+e.message});
     }
@@ -1310,7 +1356,7 @@ export default function App(){
                 <Fld label="Solicitante" value={form.solicitante} onChange={v=>upd("solicitante",v)}/>
                 <Fld label="Email" value={form.email} onChange={v=>upd("email",v)} type="email"/>
                 <Fld req label="Nombre del Predio" value={form.predioNombre} onChange={v=>upd("predioNombre",v)}/>
-                <Fld label="Localidad" value={form.localidad} onChange={v=>upd("localidad",v)}/>
+                <Fld label="Localidad / Sector (opcional)" value={form.localidad} onChange={v=>upd("localidad",v)} placeholder="Ej. Sector Champa"/>
                 <div>
                   <Lbl c="Provincia (auto / editable)"/>
                   <input value={form.provincia} onChange={e=>upd("provincia",e.target.value)} placeholder="Se completa con la comuna" style={{...iS,background:form.provincia?GH:iS.background,color:form.provincia?G:GRIS}}/>
@@ -1357,7 +1403,7 @@ export default function App(){
               <G3>
                 <Fld label="Titulos (ha)" value={form.superfTitulos} onChange={v=>upd("superfTitulos",v)} placeholder="8"/>
                 <div><Lbl c="SII Total (automatico)"/><div style={{...iS,background:GH,color:G,fontWeight:700,padding:"10px 12px",borderRadius:6,textAlign:"center"}}>{superfSIITotal>0?superfSIITotal.toFixed(2):"suma de roles"}</div></div>
-                <Fld label="Google Earth (ha)" value={form.superfGoogleEarth} onChange={v=>upd("superfGoogleEarth",v)} placeholder="7,49"/>
+                <Fld label="Google Earth (ha) — se calcula solo con Suelos Auto" value={form.superfGoogleEarth} onChange={v=>upd("superfGoogleEarth",v)} placeholder="7,49"/>
               </G3>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"14px 0 8px"}}>
                 <div style={{fontWeight:600,color:G,fontSize:13}}>Clasificacion de Suelos (ha)</div>
