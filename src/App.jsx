@@ -72,8 +72,22 @@ const PROVINCIAS = {
 };
 
 function getRegion(comuna){
-  const key=comuna.toUpperCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-  return COMUNAS[key]||"";
+  const norm=(x)=>String(x||"").toUpperCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  let key=norm(comuna);
+  if(!key)return "";
+  // Coincidencia exacta
+  if(COMUNAS[key])return COMUNAS[key];
+  // Alias y sufijos de como se escriben en la web/menus
+  const ALIAS={"SAN VICENTE TT":"SAN VICENTE","SAN VICENTE DE TAGUA TAGUA":"SAN VICENTE",
+    "LLAILLAY":"LLAY-LLAY","LLAY LLAY":"LLAY-LLAY","PAIHUANO":"PAIGUANO","AISEN":"AYSEN",
+    "TIL TIL":"TILTIL","CABO DE HORNOS (EX-NAVARINO)":"CABO DE HORNOS","COYHAIQUE":"COYHAIQUE",
+    "MARCHIHUE":"MARCHIGUE","TREHUACO":"TREHUACO","OLLAGUE":"OLLAGUE","TREGUACO":"TREHUACO"};
+  if(ALIAS[key]&&COMUNAS[ALIAS[key]])return COMUNAS[ALIAS[key]];
+  // Quitar sufijos frecuentes: " TT", " (…)", " DE TAGUA TAGUA"
+  const limpio=key.replace(/\s*\(.*?\)\s*/g,"").replace(/\s+TT$/,"").replace(/\s+DE TAGUA TAGUA$/,"").trim();
+  if(COMUNAS[limpio])return COMUNAS[limpio];
+  if(ALIAS[limpio]&&COMUNAS[ALIAS[limpio]])return COMUNAS[ALIAS[limpio]];
+  return "";
 }
 
 function getProvincia(comuna,region){
@@ -272,6 +286,18 @@ export default function App(){
   const [showTas,setShowTas]=useState(false);
   const [idTasacionActual,setIdTasacionActual]=useState(null);
   useEffect(()=>{if(window.__cargarReportePrueba){setReport(window.__cargarReportePrueba);setStep(3);}},[]);
+
+  // Si hay comuna en el rol 0 pero falta la región (tasación cargada, duplicada o comuna
+  // escrita antes), se completa sola desde la comuna. Evita el error "region vacia" en Suelos Auto.
+  useEffect(()=>{
+    const com=String(((form.roles||[])[0]||{}).comuna||"").trim();
+    if(!com)return;
+    const reg=getRegion(com);
+    if(reg&&!String(form.region||"").trim()){
+      const prov=getProvincia(com,reg);
+      setForm(f=>({...f,region:reg,provincia:String(f.provincia||"").trim()||prov||""}));
+    }
+  },[form.roles]);
   const [listaTas,setListaTas]=useState([]);
   const [selUnir,setSelUnir]=useState([]);
   const [avisoGuardado,setAvisoGuardado]=useState("");
@@ -778,6 +804,13 @@ export default function App(){
       .map(r=>({...r,comuna:String(r.comuna||"").trim()||comunaBase}));
     if(!roles.length||!roles[0].comuna){alert("Ingresa primero el rol y la comuna en el Paso 1.");return;}
     if(!form.backendUrl){alert("Falta la URL del servidor.");return;}
+    // Region: la del formulario o, si esta vacia, la que corresponde a la comuna del rol
+    let regionEnvio=String(form.region||"").trim();
+    if(!regionEnvio){
+      regionEnvio=getRegion(roles[0].comuna);
+      if(regionEnvio&&!String(form.region||"").trim())upd("region",regionEnvio); // la completa en el formulario
+    }
+    if(!regionEnvio){alert("No pude deducir la región desde la comuna \""+roles[0].comuna+"\". Complétala en el Paso 1.");return;}
     setSuelosStatus({loading:true,msg:roles.length>1?("Consultando "+roles.length+" roles...") : null});
     try{
       // Consulta cada rol y acumula los resultados de todos los paños
@@ -785,7 +818,7 @@ export default function App(){
       for(const r of roles){
         const resp=await fetch(form.backendUrl.replace(/\/$/,"")+"/suelos-rol",{
           method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({rol:r.rol,comuna:r.comuna,region:form.region})
+          body:JSON.stringify({rol:r.rol,comuna:r.comuna,region:regionEnvio})
         });
         const d=await resp.json();
         resultados.push({rol:r.rol,comuna:r.comuna,d});
