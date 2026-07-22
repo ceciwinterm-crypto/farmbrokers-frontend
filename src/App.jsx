@@ -132,16 +132,17 @@ function Sub({children}){
     <div style={{width:44,height:2,background:ORO,marginTop:4}}/>
   </div>;
 }
-function GTbl({headers,rows,boldLast}){
+function GTbl({headers,rows,boldLast,boldRows}){
   const bl=boldLast||0;
   const fRows=(rows||[]).filter(Boolean);
+  const bSet=new Set(boldRows||[]);
   return <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,margin:"10px 0"}}>
     <thead><tr style={{background:G,color:"#fff"}}>
       {headers.map((h,i)=><th key={i} style={{padding:"9px 12px",textAlign:"center",fontWeight:700,fontSize:11.5,letterSpacing:0.8,textTransform:"uppercase",fontFamily:FONT,border:"1px solid "+G}}>{h}</th>)}
     </tr></thead>
     <tbody>{fRows.map((row,i)=>{
-      const bold=bl>0&&i>=fRows.length-bl;
-      return <tr key={i} style={{background:i%2===0?"#fff":GH}}>
+      const bold=(bl>0&&i>=fRows.length-bl)||bSet.has(i);
+      return <tr key={i} style={{background:bold?GH:(i%2===0?"#fff":GH)}}>
         {row.map((cell,j)=><td key={j} style={{padding:"8px 12px",textAlign:j===0?"left":"center",fontWeight:bold?700:400,color:bold?G:"#2b2b2b",border:"1px solid #d5e2da",fontSize:12.5,fontFamily:FONT,lineHeight:1.6}}>{cell}</td>)}
       </tr>;
     })}</tbody>
@@ -621,15 +622,16 @@ export default function App(){
       // ── Sumar clases, usos, superficie y frutales de TODOS los roles ──
       const num=v=>parseFloat(String(v||"0").replace(",","."))||0;
       const clases={},usos={},seriesSet=[];let supTotal=0;const plants=[];
-      oks.forEach(({d})=>{
+      oks.forEach(({d,rol})=>{
         supTotal+=num(d.superficieHa);
         Object.entries(d.clases||{}).forEach(([k,v])=>{clases[k]=(clases[k]||0)+num(v);});
         Object.entries(d.usos||{}).forEach(([k,v])=>{usos[k]=(usos[k]||0)+num(v);});
         (d.serie||"").split(",").map(s=>s.trim()).filter(Boolean).forEach(s=>{if(!seriesSet.includes(s))seriesSet.push(s);});
         (d.plantaciones||[]).forEach(p=>{
-          const ex=plants.find(q=>q.especie===p.especie&&q.variedad===p.variedad&&q.anio===p.anio);
+          // Se fusiona solo dentro del MISMO rol: cada paño conserva su detalle
+          const ex=plants.find(q=>q.rol===rol&&q.especie===p.especie&&q.variedad===p.variedad&&q.anio===p.anio);
           if(ex){ex.has=Math.round((num(ex.has)+num(p.has))*100)/100;ex.arboles=Math.round(num(ex.arboles)+num(p.arboles));}
-          else plants.push({...p});
+          else plants.push({...p,rol});
         });
       });
       // Superficie SII de cada rol: primero la registrada en el catastro (oficial);
@@ -640,6 +642,9 @@ export default function App(){
         if(ri>=0&&!String((form.roles[ri].datos||{}).superfSII||"").trim())updRolDatos(ri,"superfSII",val);
         // Clases de suelo del rol (para la tabla por rol del informe): siempre se sobreescriben
         if(ri>=0)updRolDatos(ri,"clasesCIREN",JSON.stringify(x.d.clases||{}));
+        // Uso actual CONAF y serie de suelo del rol (para agrupar el informe por paño)
+        if(ri>=0)updRolDatos(ri,"usosRol",JSON.stringify(x.d.usos||{}));
+        if(ri>=0&&x.d.serie)updRolDatos(ri,"serieRol",x.d.serie);
       });
       Object.keys(clases).forEach(k=>clases[k]=Math.round(clases[k]*100)/100);
       Object.keys(usos).forEach(k=>usos[k]=Math.round(usos[k]*100)/100);
@@ -1020,9 +1025,13 @@ export default function App(){
                       // Usos CONAF: suma por uso
                       const us={};regs.forEach(r=>{const u=pj(r.form.usosCIREN,"{}");Object.entries(u).forEach(([k,v])=>{us[k]=Math.round(((us[k]||0)+ha(v))*100)/100;});});
                       if(Object.keys(us).length)f0.usosCIREN=JSON.stringify(us);
-                      // Listas: concatenar
+                      // Listas: concatenar etiquetando el rol de origen (para agrupar el informe por paño)
                       ["plantacionesCIREN","recursosHidricos","construccionesLista","instalacionesLista"].forEach(k=>{
-                        const arr=regs.flatMap(r=>pj(r.form[k],"[]"));
+                        const arr=regs.flatMap(r=>{
+                          const rolesR=(r.form.roles||[]).filter(x=>String(x.rol||"").trim());
+                          const rolUnico=rolesR.length===1?rolesR[0].rol:"";
+                          return pj(r.form[k],"[]").map(it=>(it&&typeof it==="object"&&!String(it.rol||"").trim()&&rolUnico)?{...it,rol:rolUnico}:it);
+                        });
                         f0[k]=arr.length?JSON.stringify(arr):"";
                       });
                       f0.refs=regs.flatMap(r=>(r.form.refs||[]).filter(x=>String(x.oferta||"").trim()));
@@ -1438,7 +1447,7 @@ export default function App(){
                       <button onClick={()=>guardarRH(rh.filter((_,j)=>j!==i))} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
                     </div>
                   ))}
-                  <button onClick={()=>guardarRH([...rh,{tipo:"Canal",nombre:"",origen:"",derechos:"",caudal:"",valor:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar recurso hidrico</button>
+                  <button onClick={()=>guardarRH([...rh,{rol:((form.roles||[]).filter(rr=>String(rr.rol||"").trim()).length===1?form.roles.find(rr=>String(rr.rol||"").trim()).rol:""),tipo:"Canal",nombre:"",origen:"",derechos:"",caudal:"",valor:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar recurso hidrico</button>
                 </div>;
               })()}
               <button onClick={async()=>{
@@ -1514,8 +1523,12 @@ export default function App(){
                 const setP=(i,cmp,v)=>guardarP(pls.map((p,j)=>j===i?{...p,[cmp]:v}:p));
                 return <div>
                   {pls.map((p,i)=>(
-                    <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
-                      <input value={p.especie||""} onChange={e=>setP(i,"especie",e.target.value)} placeholder="Especie" style={{...iS,flex:2,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                    <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center",flexWrap:"wrap"}}>
+                      <select value={p.rol||""} onChange={e=>setP(i,"rol",e.target.value)} style={{...iS,width:105,margin:0,padding:"7px 8px",fontSize:12.5}}>
+                        <option value="">Rol...</option>
+                        {(form.roles||[]).filter(rr=>String(rr.rol||"").trim()).map((rr,k)=><option key={k} value={rr.rol}>{rr.rol}</option>)}
+                      </select>
+                      <input value={p.especie||""} onChange={e=>setP(i,"especie",e.target.value)} placeholder="Especie" style={{...iS,flex:2,minWidth:120,margin:0,padding:"7px 10px",fontSize:12.5}}/>
                       <input value={p.variedad||""} onChange={e=>setP(i,"variedad",e.target.value)} placeholder="Variedad" style={{...iS,flex:2,margin:0,padding:"7px 10px",fontSize:12.5}}/>
                       <input value={p.anio||""} onChange={e=>setP(i,"anio",e.target.value)} placeholder="Año" style={{...iS,width:70,margin:0,padding:"7px 10px",fontSize:12.5}}/>
                       <input value={p.arboles||""} onChange={e=>setP(i,"arboles",e.target.value)} placeholder="N° arb." style={{...iS,width:85,margin:0,padding:"7px 10px",fontSize:12.5}}/>
@@ -1524,7 +1537,7 @@ export default function App(){
                       <button onClick={()=>guardarP(pls.filter((_,j)=>j!==i))} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
                     </div>
                   ))}
-                  <button onClick={()=>guardarP([...pls,{especie:"",variedad:"",anio:"",arboles:"",has:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar plantacion</button>
+                  <button onClick={()=>guardarP([...pls,{rol:((form.roles||[]).filter(rr=>String(rr.rol||"").trim()).length===1?form.roles.find(rr=>String(rr.rol||"").trim()).rol:""),especie:"",variedad:"",anio:"",arboles:"",has:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar plantacion</button>
                 </div>;
               })()}
             </Card>
@@ -1915,34 +1928,92 @@ export default function App(){
                                 <Sub>Caracteristicas CIREN:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.ciren}</p>
                 {[["Pendiente",report.pendiente],["Pendiente medida (DEM)",report.pendienteMedida],["Profundidad",report.profundidad],["Erosion",report.erosion],["Pedregosidad",report.pedregosidad],["Drenaje",report.drenaje],["Textura",report.textura],["pH",report.ph],["Aptitud",report.aptitud],["Capacidad de Uso",report.capacidadUso]].filter(([,v])=>v).map(([l,v],i)=><IRw key={i} label={l+":"} value={v}/>)}
-{report.usosCIREN&&(()=>{try{
-                  const u=JSON.parse(report.usosCIREN);
-                  const rows=Object.entries(u).map(([k,v])=>[k,String(v).replace(".",",")]);
-                  return rows.length?<><Sub>Uso Actual del Suelo y Vegetacion (Catastro CONAF - referencial)</Sub>{report.ia&&report.ia.usoActual?<p style={TXT}>{report.ia.usoActual}</p>:null}<GTbl headers={["Uso","Superficie (ha)"]} rows={rows}/></>:null;
-                }catch(e){return null;}})()}
+{(()=>{
+                  const nU=v=>parseFloat(String(v||"0").replace(",","."))||0;
+                  const rolesRep=(report.roles||[]).filter(r=>String(r.rol||"").trim());
+                  const nomRol=(r)=>{const np=(r.datos||{}).nombrePano;return "Rol "+r.rol+(np?" — "+capTxt(np):"");};
+                  const conUsos=rolesRep.map(r=>{let u={};try{u=JSON.parse((r.datos||{}).usosRol||"{}");}catch(e){u={};}return {r,u};}).filter(x=>Object.values(x.u).some(v=>nU(v)>0));
+                  // Agrupado por rol cuando hay mas de un paño con datos CONAF
+                  if(conUsos.length>1){
+                    const filas=[];const boldIdx=[];let tot=0;
+                    conUsos.forEach(({r,u})=>{
+                      let sub=0;
+                      Object.entries(u).filter(([,v])=>nU(v)>0).sort((a,b)=>nU(b[1])-nU(a[1])).forEach(([k,v])=>{sub+=nU(v);filas.push([nomRol(r),k,String(v).replace(".",",")]);});
+                      tot+=sub;boldIdx.push(filas.length);
+                      filas.push(["Subtotal "+nomRol(r),"",sub.toFixed(2).replace(".",",")]);
+                    });
+                    filas.push(["Total","",tot.toFixed(2).replace(".",",")]);
+                    return <><Sub>Uso Actual del Suelo y Vegetacion (Catastro CONAF - referencial)</Sub>{report.ia&&report.ia.usoActual?<p style={TXT}>{report.ia.usoActual}</p>:null}<GTbl boldLast={1} boldRows={boldIdx} headers={["Rol / Paño","Uso","Superficie (ha)"]} rows={filas}/></>;
+                  }
+                  // Un solo rol (o tasaciones antiguas): tabla simple global
+                  if(!report.usosCIREN)return null;
+                  try{
+                    const u=JSON.parse(report.usosCIREN);
+                    const rows=Object.entries(u).map(([k,v])=>[k,String(v).replace(".",",")]);
+                    return rows.length?<><Sub>Uso Actual del Suelo y Vegetacion (Catastro CONAF - referencial)</Sub>{report.ia&&report.ia.usoActual?<p style={TXT}>{report.ia.usoActual}</p>:null}<GTbl headers={["Uso","Superficie (ha)"]} rows={rows}/></>:null;
+                  }catch(e){return null;}
+                })()}
                 {(()=>{let pls=[];try{pls=JSON.parse(report.plantacionesCIREN||"[]");}catch(e){pls=[];}
                   const conDatos=pls.filter(p=>String(p.especie||"").trim());
                   if(!conDatos.length)return null;
-                  const grupos={};
-                  conDatos.forEach(p=>{const k=capTxt(p.especie);(grupos[k]=grupos[k]||[]).push(p);});
                   const nP=v=>parseFloat(String(v||"0").replace(",","."))||0;
-                  const filasP=[];let totHa=0,totArb=0;
-                  Object.keys(grupos).sort((x,y)=>grupos[y].reduce((s,p)=>s+nP(p.has),0)-grupos[x].reduce((s,p)=>s+nP(p.has),0)).forEach(esp=>{
-                    grupos[esp].forEach(p=>filasP.push([esp,p.variedad||"-",p.anio||"-",p.arboles?String(p.arboles):"-",p.has?String(p.has):"-"]));
-                    const sh=grupos[esp].reduce((s,p)=>s+nP(p.has),0),sa=grupos[esp].reduce((s,p)=>s+nP(p.arboles),0);
+                  const rolesRep=(report.roles||[]).filter(r=>String(r.rol||"").trim());
+                  const nomRol=(rl)=>{const rr=rolesRep.find(r=>String(r.rol)===String(rl));const np=rr&&(rr.datos||{}).nombrePano;return "Rol "+rl+(np?" — "+capTxt(np):"");};
+                  // ¿Las plantaciones traen rol? (Suelos Auto las etiqueta) y ¿hay mas de un rol con frutales?
+                  const rolesConFrut=[...new Set(conDatos.map(p=>String(p.rol||"").trim()).filter(Boolean))];
+                  const agrupaPorRol=rolesConFrut.length>1;
+                  const filasP=[];const boldIdx=[];let totHa=0,totArb=0;
+                  const ordenEspecie=(arr)=>{const g={};arr.forEach(p=>{const k=capTxt(p.especie);(g[k]=g[k]||[]).push(p);});
+                    return Object.keys(g).sort((x,y)=>g[y].reduce((s,p)=>s+nP(p.has),0)-g[x].reduce((s,p)=>s+nP(p.has),0)).map(k=>[k,g[k]]);};
+
+                  if(agrupaPorRol){
+                    // ── Agrupado por ROL: cada paño con su detalle y subtotal ──
+                    const ordenRoles=[...rolesConFrut].sort((a,b)=>{
+                      const ia=rolesRep.findIndex(r=>String(r.rol)===String(a)), ib=rolesRep.findIndex(r=>String(r.rol)===String(b));
+                      return (ia<0?99:ia)-(ib<0?99:ib);
+                    });
+                    ordenRoles.forEach(rl=>{
+                      const delRol=conDatos.filter(p=>String(p.rol||"")===String(rl));
+                      let hR=0,aR=0;
+                      ordenEspecie(delRol).forEach(([esp,arr])=>{
+                        arr.forEach(p=>filasP.push([nomRol(rl),esp,p.variedad||"-",p.anio||"-",p.arboles?String(p.arboles):"-",p.has?String(p.has):"-"]));
+                        const sh=arr.reduce((s,p)=>s+nP(p.has),0),sa=arr.reduce((s,p)=>s+nP(p.arboles),0);
+                        hR+=sh;aR+=sa;
+                        filasP.push(["","Subtotal "+esp,"","",sa?String(Math.round(sa)):"-",sh.toFixed(2)]);
+                      });
+                      totHa+=hR;totArb+=aR;
+                      boldIdx.push(filasP.length);
+                      filasP.push(["Subtotal "+nomRol(rl),"","","",aR?String(Math.round(aR)):"-",hR.toFixed(2)]);
+                    });
+                    filasP.push(["Total Plantaciones","","","",totArb?String(Math.round(totArb)):"-",totHa.toFixed(2)]);
+                    const resumenRoles=ordenRoles.map(rl=>{
+                      const delRol=conDatos.filter(p=>String(p.rol||"")===String(rl));
+                      const h=delRol.reduce((s,p)=>s+nP(p.has),0), a=delRol.reduce((s,p)=>s+nP(p.arboles),0);
+                      const esp=[...new Set(delRol.map(p=>capTxt(p.especie)))];
+                      return nomRol(rl)+": "+h.toFixed(2)+" ha"+(a?" y "+Math.round(a).toLocaleString("es-CL")+" arboles":"")+(esp.length?" ("+esp.join(", ")+")":"");
+                    }).join("; ");
+                    const parrafo="El conjunto cuenta con "+totHa.toFixed(2)+" ha de huertos frutales"+(totArb?" y un total de "+Math.round(totArb).toLocaleString("es-CL")+" arboles":"")+", distribuidos por rol de la siguiente forma: "+resumenRoles+".";
+                    return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><p style={TXT}>{parrafo}</p>
+                      <GTbl boldLast={1} boldRows={boldIdx} headers={["Rol / Paño","Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={filasP}/></>;
+                  }
+
+                  // ── Un solo rol (o sin etiqueta de rol): formato simple por especie ──
+                  ordenEspecie(conDatos).forEach(([esp,arr])=>{
+                    arr.forEach(p=>filasP.push([esp,p.variedad||"-",p.anio||"-",p.arboles?String(p.arboles):"-",p.has?String(p.has):"-"]));
+                    const sh=arr.reduce((s,p)=>s+nP(p.has),0),sa=arr.reduce((s,p)=>s+nP(p.arboles),0);
                     totHa+=sh;totArb+=sa;
+                    boldIdx.push(filasP.length);
                     filasP.push(["Subtotal "+esp,"","",sa?String(Math.round(sa)):"-",sh.toFixed(2)]);
                   });
                   filasP.push(["Total Plantaciones","","",totArb?String(Math.round(totArb)):"-",totHa.toFixed(2)]);
-                  const resumen=Object.keys(grupos).map(esp=>{
-                    const arr=grupos[esp];
+                  const resumen=ordenEspecie(conDatos).map(([esp,arr])=>{
                     const ha=arr.reduce((s,p)=>s+nP(p.has),0), arb=arr.reduce((s,p)=>s+nP(p.arboles),0);
                     const vars=[...new Set(arr.map(p=>String(p.variedad||"").trim()).filter(Boolean))];
                     const anios=[...new Set(arr.map(p=>String(p.anio||"").trim()).filter(Boolean))].sort();
                     return ha.toFixed(2)+" ha de "+esp+(vars.length?" (variedad"+(vars.length>1?"es ":" ")+vars.join(", ")+")":"")+(anios.length?", plantaciones "+(anios.length>1?(anios[0]+" a "+anios[anios.length-1]):anios[0]):"")+(arb?", "+Math.round(arb).toLocaleString("es-CL")+" arboles":"");
                   }).join("; ");
                   const parrafoFrut="El predio cuenta con "+totHa.toFixed(2)+" ha de huertos frutales"+(totArb?" y un total de "+Math.round(totArb).toLocaleString("es-CL")+" arboles":"")+", correspondientes a: "+resumen+".";
-                  return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><p style={TXT}>{parrafoFrut}</p><GTbl boldLast={1} headers={["Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={filasP}/></>;})()}
+                  return <><Sub>Plantaciones — Catastro Fruticola (CIREN, referencial)</Sub><p style={TXT}>{parrafoFrut}</p><GTbl boldLast={1} boldRows={boldIdx} headers={["Especie","Variedad","Año plantacion","N° arboles","Sup (ha)"]} rows={filasP}/></>;})()}
                 {report.imagenSuelosMap&&<div style={{marginTop:16}}><ImgBox src={report.imagenSuelosMap} label="Plano de Clases y Capacidad de Uso de Suelo — CIREN sobre imagen satelital (referencial)" height={330}/></div>}
                 <Sub>Recursos Hidricos:</Sub>
                 {report.escasezTxt?<p style={{...TXT,fontWeight:700,border:"1.5px solid #b45309",background:"#fff7ed",borderRadius:6,padding:"10px 12px"}}>⚠ {report.escasezTxt}. Debe monitorearse la disponibilidad efectiva de caudales segun las condiciones pluviometricas anuales.</p>:null}
