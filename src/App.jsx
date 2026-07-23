@@ -405,7 +405,7 @@ export default function App(){
         body:JSON.stringify({comuna,region:form.region,superficieObjetivo:form.superfSIITotal||""})
       });
       const data=await resp.json();
-      if(!data.ok){setCompStatus("error");alert(data.mensaje||"No se pudo completar la busqueda.");return;}
+      if(!data.ok){setCompStatus("error");alert((data.mensaje||"No se pudo completar la busqueda.")+(data.detail?"\n\nDetalle tecnico (copialo si le escribes a Claude):\n"+data.detail:""));return;}
       if(!data.encontrado){setCompStatus("notfound");return;}
       setCompCandidatos(data.ofertas.map(o=>({...o,fechaConsulta:data.fechaConsulta})));
       setCompStatus("idle");
@@ -448,7 +448,7 @@ export default function App(){
         body:JSON.stringify({cultivo,comuna,region:form.region,contexto})
       });
       const data=await resp.json();
-      if(!data.ok){setIniaStatus("error");alert(data.mensaje||"No se pudo completar la consulta.");return;}
+      if(!data.ok){setIniaStatus("error");alert((data.mensaje||"No se pudo completar la consulta.")+(data.detail?"\n\nDetalle tecnico (copialo si le escribes a Claude):\n"+data.detail:""));return;}
       if(!data.encontrado){setIniaStatus("notfound");return;}
       let lista=[];try{lista=JSON.parse(form.consultasINIA||"[]");}catch(e){lista=[];}
       lista=lista.filter(x=>String(x.cultivo||"").toLowerCase()!==cultivo.toLowerCase()); // reemplaza consulta previa del mismo cultivo
@@ -475,7 +475,7 @@ export default function App(){
         body:JSON.stringify({rol:r.rol,comuna:r.comuna,region:form.region})
       });
       const data=await resp.json();
-      if(!data.ok){setPropStatus(s=>({...s,[i]:"error"}));alert(data.mensaje||"No se pudo completar la busqueda.");return;}
+      if(!data.ok){setPropStatus(s=>({...s,[i]:"error"}));alert((data.mensaje||"No se pudo completar la busqueda.")+(data.detail?"\n\nDetalle tecnico (copialo si le escribes a Claude):\n"+data.detail:""));return;}
       if(!data.encontrado){setPropStatus(s=>({...s,[i]:"notfound"}));return;}
       updRolDatos(i,"propietario",String(data.propietario||"").toUpperCase());
       updRolDatos(i,"propietarioFuenteUrl",data.fuenteUrl||"");
