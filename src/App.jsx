@@ -352,6 +352,11 @@ export default function App(){
       updRolDatos(i,"propietarioFechaDoc",data.fechaDocumento||"");
       updRolDatos(i,"propietarioNota",data.notaIncertidumbre||"");
       updRolDatos(i,"propietarioVerificado",""); // pendiente: recien llegado de busqueda automatica
+      if(data.rut&&String(data.rut).trim()){
+        updRolDatos(i,"rut",String(data.rut).trim());
+        updRolDatos(i,"rutFuenteUrl",data.rutFuenteUrl||"");
+        updRolDatos(i,"rutFuenteNombre",data.rutFuenteNombre||"");
+      }
       if(data.nombrePredio&&!String((r.datos||{}).nombrePano||"").trim())updRolDatos(i,"nombrePano",capTxt(data.nombrePredio));
       setPropStatus(s=>({...s,[i]:"ok"}));
     }catch(e){
@@ -1729,7 +1734,7 @@ export default function App(){
                       </button>
                       {propStatus[i]==="notfound"&&<div style={{fontSize:11,color:"#9B4B43",marginTop:4}}>No se encontró un documento oficial con este rol exacto en {r.comuna||"esta comuna"}. Complétalo a mano.</div>}
                     </div>
-                    <Fld warn label="RUT" value={r.datos.rut} onChange={v=>updRolDatos(i,"rut",v)} placeholder="16.661.046-K"/>
+                    <Fld warn label="RUT" value={r.datos.rut} onChange={v=>{updRolDatos(i,"rut",v);updRolDatos(i,"rutFuenteUrl","");}} placeholder="16.661.046-K"/>
                     <Fld warn label="Avaluo Fiscal ($)" value={r.datos.avaluoFiscal} onChange={v=>updRolDatos(i,"avaluoFiscal",fmtMiles(v))} placeholder="243.691.524"/>
                     <Fld label="Fecha Avaluo" value={r.datos.avaluoFecha} onChange={v=>updRolDatos(i,"avaluoFecha",v)} placeholder="29/09/2025"/>
                     <Fld label="Superficie SII (ha)" value={r.datos.superfSII} onChange={v=>updRolDatos(i,"superfSII",v)} placeholder="8,23"/>
@@ -1746,17 +1751,19 @@ export default function App(){
                   </G2>
                   {r.datos.propietario&&r.datos.propietarioFuenteUrl&&r.datos.propietarioVerificado!=="si"&&(
                     <div style={{background:"#FDF3E3",border:"1px solid "+ORO,borderLeft:"4px solid "+ORO,borderRadius:6,padding:"10px 14px",marginTop:10}}>
-                      <div style={{fontSize:11,fontWeight:700,color:"#8a6414",letterSpacing:0.4}}>⚠ DATO OBTENIDO POR BÚSQUEDA AUTOMÁTICA — REVISAR MANUALMENTE</div>
+                      <div style={{fontSize:11,fontWeight:700,color:"#8a6414",letterSpacing:0.4}}>⚠ {r.datos.rut&&r.datos.rutFuenteUrl?"PROPIETARIO Y RUT":"PROPIETARIO"} OBTENIDO(S) POR BÚSQUEDA AUTOMÁTICA — REVISAR MANUALMENTE</div>
                       <div style={{fontSize:12,color:"#5c4a1f",marginTop:4,lineHeight:1.5}}>
-                        Fuente: {r.datos.propietarioFuenteNombre||"documento oficial"}{r.datos.propietarioFechaDoc?" ("+r.datos.propietarioFechaDoc+")":""}.
+                        Propietario — Fuente: {r.datos.propietarioFuenteNombre||"documento oficial"}{r.datos.propietarioFechaDoc?" ("+r.datos.propietarioFechaDoc+")":""}.
                         {r.datos.propietarioFuenteUrl?<> <a href={r.datos.propietarioFuenteUrl} target="_blank" rel="noreferrer" style={{color:"#8a6414"}}>Ver documento fuente</a>.</>:null}
+                        {r.datos.rut&&r.datos.rutFuenteUrl?<div style={{marginTop:4}}>RUT — Fuente: {r.datos.rutFuenteNombre||"directorio de empresas"}. <a href={r.datos.rutFuenteUrl} target="_blank" rel="noreferrer" style={{color:"#8a6414"}}>Ver fuente del RUT</a>.</div>:null}
+                        {r.datos.rut&&!r.datos.rutFuenteUrl?<div style={{marginTop:4}}>El RUT no se buscó automáticamente (persona natural, o sin coincidencia exacta): complétalo tú.</div>:null}
                         {r.datos.propietarioNota?<div style={{marginTop:4,fontStyle:"italic"}}>Nota: {r.datos.propietarioNota}</div>:null}
                       </div>
                       <button onClick={()=>updRolDatos(i,"propietarioVerificado","si")} style={{...bS,fontSize:11,padding:"5px 10px",marginTop:8,background:"#fff"}}>✓ Ya lo verifiqué manualmente</button>
                     </div>
                   )}
                   {r.datos.propietarioVerificado==="si"&&(
-                    <div style={{fontSize:11,color:G,fontWeight:600,marginTop:8}}>✓ Propietario verificado manualmente por el tasador.</div>
+                    <div style={{fontSize:11,color:G,fontWeight:600,marginTop:8}}>✓ Propietario{r.datos.rut&&r.datos.rutFuenteUrl?" y RUT":""} verificado(s) manualmente por el tasador.</div>
                   )}
                 </div>
               </Card>
@@ -2355,7 +2362,7 @@ export default function App(){
                 <IRw label="Email:" value={report.email}/>
                 {report.roles.map((r,i)=><div key={i}>
                   <IRw label={"Propietario (Rol "+r.rol+"):"} value={r.datos.propietario?(r.datos.propietario+(r.datos.propietarioFuenteUrl&&r.datos.propietarioVerificado!=="si"?"  ⚠ VERIFICAR MANUALMENTE (dato de búsqueda automática, sin confirmar)":"")):""}/>
-                  <IRw label="RUT:" value={r.datos.rut}/>
+                  <IRw label="RUT:" value={r.datos.rut?(r.datos.rut+(r.datos.rutFuenteUrl&&r.datos.propietarioVerificado!=="si"?"  ⚠ VERIFICAR MANUALMENTE (dato de búsqueda automática, sin confirmar)":"")):""}/>
                 </div>)}
                 <IRw label="Predio Tasado:" value={capTxt(report.predioNombre)}/>
                 {report.roles.map((r,i)=><IRw key={i} label={"Rol SII "+(i+1)+":"} value={r.rol+" — "+capTxt(r.comuna)}/>)}
