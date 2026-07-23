@@ -178,6 +178,64 @@ function regionTxt(s){
   };
   return M[t]||capTxt(s);
 }
+
+// ══════════════ APTITUD PRODUCTIVA (suelo + clima YA recopilados del predio) ══════════════
+// Cruza la clase de capacidad de uso (CIREN, I-VIII) y el clima real medido en el punto
+// del predio (Open-Meteo) contra requerimientos agronomicos generales de los principales
+// grupos de cultivo en Chile. Es una evaluacion ORIENTATIVA basada en conocimiento
+// agronomico general documentado -no en una consulta en vivo a INIA-, y siempre se presenta
+// como referencial: la decision de plantacion requiere evaluacion agronomica en terreno.
+const CULTIVOS_APTITUD=[
+  {grupo:"Frutales de hoja caduca de clima frío (cerezo, manzano, peral, ciruelo, duraznero)",
+   claseMax:3, tminJulioMax:8, heladaAlerta:15, precipMin:0,
+   nota:"Requieren acumulación de frío invernal (dormancia) y son sensibles a heladas tardías en floración (Sept-Oct)."},
+  {grupo:"Vides (uva de mesa y vinífera)",
+   claseMax:4, tminJulioMax:12, heladaAlerta:20, precipMin:0,
+   nota:"Más tolerantes a suelos de menor calidad que otros frutales; sensibles a heladas de brotación."},
+  {grupo:"Nogales",
+   claseMax:3, tminJulioMax:10, heladaAlerta:15, precipMin:0,
+   nota:"Exigen muy buen drenaje (sensibles a asfixia radicular); requerimiento de frío moderado."},
+  {grupo:"Paltos (aguacate)",
+   claseMax:3, tminJulioMax:14, heladaAlerta:5, precipMin:0,
+   nota:"Muy sensibles a heladas (daño bajo -2 a -4°C) y de alta demanda hídrica; clima mediterráneo cálido sin heladas fuertes."},
+  {grupo:"Olivos",
+   claseMax:5, tminJulioMax:14, heladaAlerta:10, precipMin:0,
+   nota:"Alta tolerancia a sequía y a suelos pobres o pedregosos; requiere clima mediterráneo seco."},
+  {grupo:"Cultivos anuales / hortalizas bajo riego",
+   claseMax:3, tminJulioMax:99, heladaAlerta:99, precipMin:0,
+   nota:"Dependen de riego, no de precipitación; requieren suelos de buena aptitud agrícola (Clase I-III)."},
+  {grupo:"Cereales de secano (trigo, avena, cebada)",
+   claseMax:4, tminJulioMax:99, heladaAlerta:99, precipMin:400,
+   nota:"Pueden desarrollarse sin riego si la precipitación anual es suficiente (>400 mm aprox.)."},
+  {grupo:"Praderas / ganadería",
+   claseMax:6, tminJulioMax:99, heladaAlerta:99, precipMin:0,
+   nota:"Tolera suelos y pendientes menos favorables que los cultivos intensivos."},
+  {grupo:"Uso forestal / silvícola",
+   claseMax:8, tminJulioMax:99, heladaAlerta:99, precipMin:0,
+   nota:"Clases de suelo VI a VIII: limitadas o no aptas para cultivo; aptitud forestal o de protección."}
+];
+function calcularAptitudProductiva(form){
+  const nd=v=>parseFloat(String(v||"0").replace(",","."))||0;
+  const clases=[1,2,3,4,5,6,7,8].filter(n=>nd(form["c"+n])>0);
+  if(!clases.length)return null;
+  const claseMasLimitante=Math.max(...clases); // la clase mas alta = la mas restrictiva presente
+  const claseMasFavorable=Math.min(...clases);
+  const precip=nd(form.climaPrecipMm), tminJulio=form.climaTminJulio!==undefined&&form.climaTminJulio!==""?nd(form.climaTminJulio):null, heladas=nd(form.climaDiasHelada);
+  const tieneClima=precip>0||tminJulio!==null;
+  const evaluados=CULTIVOS_APTITUD.map(c=>{
+    const okSuelo=claseMasFavorable<=c.claseMax;
+    const okHelada=!tieneClima||heladas<=c.heladaAlerta;
+    const okPrecip=!tieneClima||precip>=c.precipMin;
+    let aptitud;
+    if(!okSuelo)aptitud="No apta (limitación de suelo)";
+    else if(!okHelada||!okPrecip)aptitud="Marginal — riesgo climático";
+    else aptitud="Apta";
+    return {...c,aptitud};
+  });
+  const orden={"Apta":0,"Marginal — riesgo climático":1,"No apta (limitación de suelo)":2};
+  evaluados.sort((a,b)=>orden[a.aptitud]-orden[b.aptitud]);
+  return {clases,claseMasLimitante,claseMasFavorable,precip,tminJulio,heladas,tieneClima,evaluados};
+}
 function PgFB({title,children,num,sub}){
   return <div style={{padding:"0",display:"flex",flexDirection:"column",fontFamily:FONT,background:"#fff"}}>
     {title?<Banda n={num} titulo={title} sub={sub}/>:null}
@@ -330,6 +388,43 @@ export default function App(){
   const [buscandoRol,setBuscandoRol]=useState(-1);
   const [debugSII,setDebugSII]=useState(null);
   const [propStatus,setPropStatus]=useState({}); // {[indiceRol]: "loading"|"ok"|"notfound"|"error"}
+  const [iniaCultivo,setIniaCultivo]=useState("");
+  const [iniaStatus,setIniaStatus]=useState("idle"); // idle|loading|notfound|error
+
+  // Consulta puntual a INIA para UN cultivo (a pedido, nunca automatica).
+  // Siempre exige fuente inia.cl citable; el resultado se agrega a una lista visible
+  // en el informe, cada uno con su propia fuente, para que el tasador la revise.
+  const consultarINIA=async()=>{
+    const cultivo=iniaCultivo.trim();
+    if(!cultivo){alert("Escribe el nombre del cultivo a consultar (ej. cerezo, palto, nogal).");return;}
+    const comuna=(form.roles[0]||{}).comuna||"";
+    setIniaStatus("loading");
+    try{
+      const contexto=[
+        form.seriesSuelo?"Serie de suelo: "+form.seriesSuelo:"",
+        [1,2,3,4,5,6,7,8].filter(n=>parseFloat(form["c"+n]||"0")>0).map(n=>"Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1]).join(", "),
+        form.climaPrecipMm?"Precipitación anual "+form.climaPrecipMm+" mm":"",
+        form.climaTminJulio?"Tmín julio "+form.climaTminJulio+"°C":"",
+        form.climaDiasHelada?form.climaDiasHelada+" días de helada/año":""
+      ].filter(Boolean).join("; ");
+      const resp=await fetch(form.backendUrl+"/consultar-inia",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({cultivo,comuna,region:form.region,contexto})
+      });
+      const data=await resp.json();
+      if(!data.ok){setIniaStatus("error");alert(data.mensaje||"No se pudo completar la consulta.");return;}
+      if(!data.encontrado){setIniaStatus("notfound");return;}
+      let lista=[];try{lista=JSON.parse(form.consultasINIA||"[]");}catch(e){lista=[];}
+      lista=lista.filter(x=>String(x.cultivo||"").toLowerCase()!==cultivo.toLowerCase()); // reemplaza consulta previa del mismo cultivo
+      lista.push({cultivo,resumen:data.resumen,variedadesRecomendadas:data.variedadesRecomendadas,requerimientos:data.requerimientos,fuenteUrl:data.fuenteUrl,fuenteNombre:data.fuenteNombre,fechaPublicacion:data.fechaPublicacion});
+      upd("consultasINIA",JSON.stringify(lista));
+      setIniaCultivo("");
+      setIniaStatus("idle");
+    }catch(e){
+      setIniaStatus("error");
+      alert("Error de conexion con el servidor: "+e.message);
+    }
+  };
 
   // Busca el propietario del rol en documentos oficiales publicos (municipalidad/SII).
   // SIEMPRE marca el resultado como pendiente de verificacion manual: nunca se da por
@@ -1044,6 +1139,11 @@ export default function App(){
           (nMax?(sumMax/nMax).toFixed(1):"?")+"°C; minima media de julio: "+(nMin?(sumMin/nMin).toFixed(1):"?")+
           "°C. Promedio de "+Math.round(heladas/anios)+" dias de helada al año. (Open-Meteo, periodo "+(fin-4)+"-"+fin+", punto del predio)";
         if(!form.climaTxt)upd("climaTxt",txt);
+        // Valores numericos propios (ademas del texto) para poder calcular aptitud productiva
+        upd("climaPrecipMm",Math.round(pp));
+        if(nMax)upd("climaTmaxEnero",(sumMax/nMax).toFixed(1));
+        if(nMin)upd("climaTminJulio",(sumMin/nMin).toFixed(1));
+        upd("climaDiasHelada",Math.round(heladas/anios));
       }
     }catch(e){}
   };
@@ -1893,6 +1993,45 @@ export default function App(){
                 ))}
               </div>
               <div style={{fontSize:11,color:"#888",marginTop:6}}>Clases I a IV: suelos arables (riego/cultivo). Clases V a VIII: no arables (ganaderia, forestal, proteccion).</div>
+              {(()=>{
+                const ap=calcularAptitudProductiva(form);
+                if(!ap)return null;
+                return <div style={{marginTop:14,background:"#F7F5F1",border:"1px solid #E2E4E1",borderRadius:8,padding:"12px 14px"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:G,marginBottom:6}}>🌾 Aptitud Productiva (vista previa — aparecerá en el informe)</div>
+                  {!ap.tieneClima&&<div style={{fontSize:11,color:"#9B4B43",marginBottom:8}}>⚠ Sin datos de clima del punto (usa "Calcular distancias" en Ubicación, o "Suelos Auto"): la evaluación solo considera el suelo por ahora.</div>}
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                    {ap.evaluados.map((e,i)=><span key={i} style={{fontSize:11,padding:"4px 9px",borderRadius:20,background:e.aptitud==="Apta"?"#E8ECE8":(e.aptitud.includes("Marginal")?"#FDF3E3":"#F1EBEA"),color:e.aptitud==="Apta"?G:(e.aptitud.includes("Marginal")?"#8a6414":"#9B4B43"),border:"1px solid "+(e.aptitud==="Apta"?G:(e.aptitud.includes("Marginal")?"#C6A66A":"#9B4B43"))}}>{e.grupo.split(" (")[0]}: {e.aptitud.replace(" (limitación de suelo)","").replace(" — riesgo climático"," (clima)")}</span>)}
+                  </div>
+                </div>;
+              })()}
+
+              <div style={{marginTop:14,background:"#fff",border:"1px solid #E2E4E1",borderRadius:8,padding:"12px 14px"}}>
+                <div style={{fontSize:12,fontWeight:700,color:G,marginBottom:6}}>🔬 Consultar INIA sobre un cultivo específico</div>
+                <div style={{fontSize:11,color:"#888",marginBottom:8}}>Busca boletines técnicos oficiales de INIA (biblioteca.inia.cl) para el cultivo y la zona de este predio. Siempre se cita la fuente exacta; no se ejecuta sola, la pides cuando quieras.</div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <input value={iniaCultivo} onChange={e=>setIniaCultivo(e.target.value)} placeholder="Ej. cerezo, palto, nogal, avellano europeo..." style={{...iS,flex:1,margin:0,padding:"8px 10px",fontSize:12.5}}/>
+                  <button onClick={consultarINIA} disabled={iniaStatus==="loading"} style={{...bS,fontSize:12,padding:"8px 14px",opacity:iniaStatus==="loading"?0.6:1}}>{iniaStatus==="loading"?"Buscando…":"Consultar"}</button>
+                </div>
+                {iniaStatus==="notfound"&&<div style={{fontSize:11,color:"#9B4B43",marginTop:6}}>No se encontró información específica de INIA para ese cultivo en esta zona.</div>}
+                {(()=>{
+                  let lista=[];try{lista=JSON.parse(form.consultasINIA||"[]");}catch(e){lista=[];}
+                  if(!lista.length)return null;
+                  return <div style={{marginTop:10}}>
+                    {lista.map((c,i)=>(
+                      <div key={i} style={{background:"#F7F5F1",borderLeft:"3px solid "+G,borderRadius:6,padding:"9px 12px",marginBottom:8}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <b style={{fontSize:12,color:G,textTransform:"capitalize"}}>{c.cultivo}</b>
+                          <button onClick={()=>{const l2=lista.filter((_,j)=>j!==i);upd("consultasINIA",l2.length?JSON.stringify(l2):"");}} style={{fontSize:10,color:"#9B4B43",background:"none",border:"none",cursor:"pointer"}}>quitar</button>
+                        </div>
+                        <div style={{fontSize:11.5,color:"#444",marginTop:3,lineHeight:1.5}}>{c.resumen}</div>
+                        {c.variedadesRecomendadas?<div style={{fontSize:11,color:"#555",marginTop:3}}><b>Variedades:</b> {c.variedadesRecomendadas}</div>:null}
+                        {c.requerimientos?<div style={{fontSize:11,color:"#555",marginTop:2}}><b>Requerimientos:</b> {c.requerimientos}</div>:null}
+                        <div style={{fontSize:10.5,color:"#888",marginTop:4}}>Fuente: {c.fuenteNombre||"INIA"}{c.fechaPublicacion?" ("+c.fechaPublicacion+")":""} — <a href={c.fuenteUrl} target="_blank" rel="noreferrer" style={{color:G}}>ver publicación</a></div>
+                      </div>
+                    ))}
+                  </div>;
+                })()}
+              </div>
 
               <div style={{fontWeight:700,color:G,fontSize:14,margin:"20px 0 8px"}}>🌲 Recursos Naturales — Uso de Suelo y Vegetacion (CONAF)</div>
               <div style={{fontSize:11.5,color:"#888",marginBottom:8}}>Se rellena con "Suelos Auto (CIREN)". Puedes editar, borrar o agregar filas; esta tabla aparece en el informe.</div>
@@ -2516,6 +2655,21 @@ export default function App(){
                                 <Sub>Caracteristicas CIREN:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.ciren}</p>
                 {[["Pendiente",report.pendiente],["Pendiente medida (DEM)",report.pendienteMedida],["Profundidad",report.profundidad],["Erosion",report.erosion],["Pedregosidad",report.pedregosidad],["Drenaje",report.drenaje],["Textura",report.textura],["pH",report.ph],["Aptitud",report.aptitud],["Capacidad de Uso",report.capacidadUso]].filter(([,v])=>v).map(([l,v],i)=><IRw key={i} label={l+":"} value={v}/>)}
+                {(()=>{
+                  const ap=calcularAptitudProductiva(report);
+                  if(!ap)return null;
+                  const filas=ap.evaluados.map(e=>[e.grupo,e.aptitud,e.nota]);
+                  let consultas=[];try{consultas=JSON.parse(report.consultasINIA||"[]");}catch(e){consultas=[];}
+                  return <>
+                    <Sub>Aptitud Productiva (orientativa, según suelo y clima del predio)</Sub>
+                    <p style={TXT}>Evaluación referencial de aptitud por grupo de cultivo, obtenida cruzando la clase de capacidad de uso del suelo (CIREN) y el clima real medido en el punto del predio (Open-Meteo: {ap.precip>0?ap.precip+" mm de precipitación anual, ":""}{ap.tminJulio!==null?"mínima media de julio "+ap.tminJulio+"°C, ":""}{ap.heladas>0?Math.round(ap.heladas)+" días de helada al año":"sin registro de heladas relevante"}) contra requerimientos agronómicos generales de cada grupo. No reemplaza una evaluación agronómica en terreno ni un estudio de zonificación de INIA.</p>
+                    <GTbl headers={["Grupo de Cultivo","Aptitud","Consideración Agronómica"]} rows={filas}/>
+                    {consultas.length?<>
+                      <p style={{...TXT,marginTop:12,fontWeight:700,fontSize:12}}>Consultas técnicas INIA:</p>
+                      {consultas.map((c,i)=><p key={i} style={{...TXT,fontSize:11.5}}><b style={{textTransform:"capitalize"}}>{c.cultivo}:</b> {c.resumen}{c.variedadesRecomendadas?" Variedades: "+c.variedadesRecomendadas+".":""}{c.requerimientos?" Requerimientos: "+c.requerimientos+".":""} <i>(Fuente: {c.fuenteNombre||"INIA"}{c.fechaPublicacion?", "+c.fechaPublicacion:""})</i></p>)}
+                    </>:null}
+                  </>;
+                })()}
 {(()=>{
                   const nU=v=>parseFloat(String(v||"0").replace(",","."))||0;
                   const rolesRep=(report.roles||[]).filter(r=>String(r.rol||"").trim());
