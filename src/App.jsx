@@ -236,6 +236,56 @@ function calcularAptitudProductiva(form){
   evaluados.sort((a,b)=>orden[a.aptitud]-orden[b.aptitud]);
   return {clases,claseMasLimitante,claseMasFavorable,precip,tminJulio,heladas,tieneClima,evaluados};
 }
+
+// ══════════════ EVALUACION TECNICA FOTOVOLTAICA (sintesis de datos YA recopilados) ══════════════
+// Cruza irradiancia solar (Open-Meteo), distancia a la red electrica (Min. Energia) y clase
+// de capacidad de uso del suelo (CIREN) contra umbrales tecnicos habituales del rubro
+// fotovoltaico en Chile, y redacta un parrafo tecnico de sintesis. Es una evaluacion
+// ORIENTATIVA basada en datos ya medidos del predio: no reemplaza un estudio de factibilidad
+// tecnica-economica ni la tramitacion regulatoria (SAG/SEC/CNE) que corresponda.
+function evaluarAptitudFotovoltaica(form){
+  const nd=v=>parseFloat(String(v||"0").replace(",","."))||0;
+  const solar=form.solarKwhM2Dia?nd(form.solarKwhM2Dia):null;
+  let linea=null,sub=null,norm=null;
+  try{linea=JSON.parse(form.energiaLinea||"null");}catch(e){}
+  try{sub=JSON.parse(form.energiaSubestacion||"null");}catch(e){}
+  try{norm=JSON.parse(form.normativaSolar||"null");}catch(e){}
+  const clases=[1,2,3,4,5,6,7,8].filter(n=>nd(form["c"+n])>0);
+  if(solar===null&&!linea&&!sub&&!clases.length)return null;
+
+  const califSolar=(v)=>v===null?null:(v>=5.5?"Excelente":v>=4.5?"Buena":v>=3.5?"Moderada":"Limitada");
+  const califDist=(d)=>d===null||d===undefined?null:(d<=2?"Muy favorable":d<=10?"Favorable":d<=30?"Moderada":"Elevada (mayor costo de conexión)");
+  const claseMasFavorable=clases.length?Math.min(...clases):null;
+  const altaPrioridadAgricola=claseMasFavorable!==null&&claseMasFavorable<=3;
+
+  const califS=califSolar(solar);
+  const califL=linea?califDist(linea.distanciaKm):null;
+  const califSub=sub?califDist(sub.distanciaKm):null;
+
+  // Redaccion tecnica de sintesis (parrafo unico, tono profesional pero legible)
+  const partes=[];
+  if(solar!==null)partes.push("La irradiancia solar media del predio es de "+solar+" kWh/m²/día, lo que se considera un recurso solar "+califS.toLowerCase()+" para generación fotovoltaica en el contexto nacional.");
+  if(linea)partes.push("La línea de transmisión más cercana se encuentra a "+linea.distanciaKm+" km"+(linea.nombre?" ("+linea.nombre+")":"")+", una distancia "+califL.toLowerCase()+" para efectos de costo de conexión a la red.");
+  else if(form.energiaLinea!==undefined)partes.push("No se identificó infraestructura de transmisión eléctrica dentro de un radio de 80 km, lo que representaría un costo de conexión significativo.");
+  if(sub)partes.push("La subestación más cercana está a "+sub.distanciaKm+" km"+(sub.nombre?" ("+sub.nombre+")":"")+".");
+  if(claseMasFavorable!==null){
+    partes.push(altaPrioridadAgricola
+      ? "El suelo del predio corresponde a Clase "+["I","II","III","IV","V","VI","VII","VIII"][claseMasFavorable-1]+", categoría de alta prioridad agrícola, lo que implica una evaluación regulatoria más estricta (trámite IFC del SAG) para autorizar un uso no agrícola del terreno."
+      : "El suelo del predio corresponde a Clase "+["I","II","III","IV","V","VI","VII","VIII"][claseMasFavorable-1]+", fuera de las categorías de mayor prioridad agrícola, lo que en principio facilita —sin garantizarla— la autorización de un uso no agrícola del terreno.");
+  }
+  if(norm&&norm.resumen)partes.push(norm.resumen);
+
+  // Conclusion general (heuristica simple y transparente, no una IA que "decide")
+  let factoresFavorables=0,factoresTotal=0;
+  if(califS){factoresTotal++;if(califS==="Excelente"||califS==="Buena")factoresFavorables++;}
+  if(califL){factoresTotal++;if(califL==="Muy favorable"||califL==="Favorable")factoresFavorables++;}
+  if(claseMasFavorable!==null){factoresTotal++;if(!altaPrioridadAgricola)factoresFavorables++;}
+  const conclusion=factoresTotal<2?null:(factoresFavorables===factoresTotal?"Los antecedentes recopilados son favorables para un proyecto fotovoltaico, sujeto a la tramitación regulatoria correspondiente.":
+    factoresFavorables===0?"Los antecedentes recopilados presentan limitaciones relevantes para un proyecto fotovoltaico en este predio.":
+    "Los antecedentes recopilados son mixtos: existen factores favorables y factores que requieren evaluación adicional antes de avanzar con un proyecto fotovoltaico.");
+
+  return {solar,califS,linea,califL,sub,califSub,claseMasFavorable,altaPrioridadAgricola,parrafo:partes.join(" "),conclusion};
+}
 function PgFB({title,children,num,sub}){
   return <div style={{padding:"0",display:"flex",flexDirection:"column",fontFamily:FONT,background:"#fff"}}>
     {title?<Banda n={num} titulo={title} sub={sub}/>:null}
@@ -2139,6 +2189,16 @@ export default function App(){
                 {normStatus==="notfound"&&<div style={{fontSize:11,color:"#9B4B43",marginTop:6}}>No se encontró normativa específica y verificable para esta comuna.</div>}
 
                 {(()=>{
+                  const ev=evaluarAptitudFotovoltaica(form);
+                  if(!ev)return null;
+                  return <div style={{marginTop:12,background:"#eef1ee",border:"1px solid "+G,borderRadius:8,padding:"11px 14px"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:G,letterSpacing:0.4,marginBottom:5}}>📄 EVALUACIÓN TÉCNICA (vista previa — aparecerá en el informe)</div>
+                    <div style={{fontSize:12,color:"#333",lineHeight:1.65}}>{ev.parrafo}</div>
+                    {ev.conclusion&&<div style={{fontSize:12,fontWeight:700,color:G,marginTop:6}}>{ev.conclusion}</div>}
+                  </div>;
+                })()}
+
+                {(()=>{
                   let linea=null,sub=null;
                   try{linea=JSON.parse(form.energiaLinea||"null");}catch(e){}
                   try{sub=JSON.parse(form.energiaSubestacion||"null");}catch(e){}
@@ -2820,24 +2880,19 @@ export default function App(){
                   </>;
                 })()}
                 {(()=>{
-                  let linea=null,sub=null,norm=null;
-                  try{linea=JSON.parse(report.energiaLinea||"null");}catch(e){}
-                  try{sub=JSON.parse(report.energiaSubestacion||"null");}catch(e){}
-                  try{norm=JSON.parse(report.normativaSolar||"null");}catch(e){}
-                  if(!report.solarKwhM2Dia&&!linea&&!sub&&!norm)return null;
+                  const ev=evaluarAptitudFotovoltaica(report);
+                  let norm=null;try{norm=JSON.parse(report.normativaSolar||"null");}catch(e){}
+                  if(!ev)return null;
                   return <>
-                    <Sub>Aptitud Solar (fotovoltaica) — orientativa</Sub>
-                    {report.solarKwhM2Dia&&<p style={TXT}>Irradiancia solar media en el punto del predio: {report.solarKwhM2Dia} kWh/m²/día (Open-Meteo, promedio de 5 años).</p>}
-                    {(linea||sub)&&<p style={TXT}>
-                      {linea?"Línea de transmisión más cercana: "+linea.distanciaKm+" km"+(linea.nombre?" ("+linea.nombre+")":"")+". ":"No se identificó línea de transmisión dentro de 80 km. "}
-                      {sub?"Subestación más cercana: "+sub.distanciaKm+" km"+(sub.nombre?" ("+sub.nombre+")":"")+". ":"No se identificó subestación dentro de 80 km. "}
-                      Estas son distancias geográficas reales (Ministerio de Energía); no indican capacidad disponible para inyectar energía, la que debe verificarse con la distribuidora o el Coordinador Eléctrico Nacional.
-                    </p>}
-                    {norm&&<>
-                      <p style={{...TXT,fontSize:11.5}}><b>Normativa de uso de suelo:</b> {norm.resumen}</p>
-                      {norm.pasos&&norm.pasos.length?<ol style={{...TXT,fontSize:11.5,paddingLeft:20,margin:"4px 0 8px"}}>{norm.pasos.map((p,i)=><li key={i}>{p}</li>)}</ol>:null}
+                    <Sub>Evaluación Técnica Fotovoltaica — orientativa</Sub>
+                    <p style={TXT}>{ev.parrafo}</p>
+                    {ev.conclusion&&<p style={{...TXT,fontWeight:700,fontSize:12}}>{ev.conclusion}</p>}
+                    <p style={{...TXT,fontSize:10.5,color:"#888",fontStyle:"italic"}}>Evaluación referencial construida a partir de irradiancia solar (Open-Meteo), distancia a infraestructura eléctrica (Ministerio de Energía) y clase de capacidad de uso del suelo (CIREN). No reemplaza un estudio de factibilidad técnico-económica ni la tramitación regulatoria correspondiente. La distancia a la red no equivale a capacidad disponible para inyectar energía, la que debe verificarse con la distribuidora o el Coordinador Eléctrico Nacional.</p>
+                    {norm&&norm.pasos&&norm.pasos.length?<>
+                      <p style={{...TXT,marginTop:8,fontWeight:700,fontSize:11.5}}>Pasos para regularizar el uso de suelo:</p>
+                      <ol style={{...TXT,fontSize:11.5,paddingLeft:20,margin:"4px 0 8px"}}>{norm.pasos.map((p,i)=><li key={i}>{p}</li>)}</ol>
                       {norm.fuentes&&norm.fuentes.length?<p style={{...TXT,fontSize:10,color:"#888",fontStyle:"italic"}}>Fuentes: {norm.fuentes.map((f,i)=>(i>0?"; ":"")+(f.nombre||"fuente oficial")+(f.fecha?" ("+f.fecha+")":"")).join("")}</p>:null}
-                    </>}
+                    </>:null}
                   </>;
                 })()}
 {(()=>{
