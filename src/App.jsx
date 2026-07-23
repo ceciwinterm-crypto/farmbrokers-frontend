@@ -389,6 +389,42 @@ export default function App(){
   const [debugSII,setDebugSII]=useState(null);
   const [propStatus,setPropStatus]=useState({}); // {[indiceRol]: "loading"|"ok"|"notfound"|"error"}
   const [iniaCultivo,setIniaCultivo]=useState("");
+  const [compStatus,setCompStatus]=useState("idle"); // idle|loading|notfound|error
+  const [compCandidatos,setCompCandidatos]=useState([]); // ofertas encontradas, pendientes de revisar
+
+  // Busca ofertas vigentes de campos en portales reales (Portal Inmobiliario, Colliers,
+  // GPS Property, etc.) cerca de la comuna del predio. Entrega candidatos para REVISAR:
+  // nunca se agregan solos a la tabla final de referencias.
+  const buscarComparables=async()=>{
+    const comuna=(form.roles[0]||{}).comuna||"";
+    if(!comuna){alert("Completa la comuna del rol en el Paso 1 antes de buscar.");return;}
+    setCompStatus("loading");setCompCandidatos([]);
+    try{
+      const resp=await fetch(form.backendUrl+"/buscar-comparables",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({comuna,region:form.region,superficieObjetivo:form.superfSIITotal||""})
+      });
+      const data=await resp.json();
+      if(!data.ok){setCompStatus("error");alert(data.mensaje||"No se pudo completar la busqueda.");return;}
+      if(!data.encontrado){setCompStatus("notfound");return;}
+      setCompCandidatos(data.ofertas.map(o=>({...o,fechaConsulta:data.fechaConsulta})));
+      setCompStatus("idle");
+    }catch(e){
+      setCompStatus("error");
+      alert("Error de conexion con el servidor: "+e.message);
+    }
+  };
+  const agregarComparable=(o)=>{
+    const num=v=>parseFloat(String(v||"").replace(/[^\d,.-]/g,"").replace(/\./g,"").replace(",","."))||0;
+    upd("refs",[...form.refs,{
+      oferta:(o.oferta||o.fuente||"Portal inmobiliario")+(o.url?" ⚠ verificar vigencia":""),
+      ubicacion:o.ubicacion, has:o.superficieHa,
+      valorTotal:num(o.precioTotal)?fmtMiles(String(num(o.precioTotal))):"",
+      valorHa:num(o.precioHa)?fmtMiles(String(num(o.precioHa))):"",
+      ajuste:"", fuenteUrl:o.url, fuenteFecha:o.fechaConsulta
+    }]);
+    setCompCandidatos(cs=>cs.filter(c=>c.url!==o.url));
+  };
   const [iniaStatus,setIniaStatus]=useState("idle"); // idle|loading|notfound|error
 
   // Consulta puntual a INIA para UN cultivo (a pedido, nunca automatica).
@@ -2317,7 +2353,27 @@ export default function App(){
                 </table>
               </div>
               <div style={{fontSize:11.5,color:"#777",marginTop:8}}>Si dejas el "Valor ($/ha)" vacio, se calcula solo desde el valor total y la superficie.</div>
-              <button onClick={()=>upd("refs",[...form.refs,{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""}])} style={{...bS,marginTop:10,fontSize:12}}>+ Agregar fila</button>
+              <div style={{display:"flex",gap:10,marginTop:10,alignItems:"center",flexWrap:"wrap"}}>
+                <button onClick={()=>upd("refs",[...form.refs,{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""}])} style={{...bS,fontSize:12}}>+ Agregar fila manual</button>
+                <button onClick={buscarComparables} disabled={compStatus==="loading"} style={{...bS,fontSize:12,opacity:compStatus==="loading"?0.6:1}}>{compStatus==="loading"?"Buscando ofertas…":"🔍 Buscar comparables (Portal Inmobiliario, Colliers, GPS...)"}</button>
+              </div>
+              {compStatus==="notfound"&&<div style={{fontSize:11.5,color:"#9B4B43",marginTop:8}}>No se encontraron ofertas vigentes verificables cerca de esta comuna. Prueba de nuevo más tarde o agrega referencias manualmente.</div>}
+              {compCandidatos.length>0&&(
+                <div style={{marginTop:12,background:"#F7F5F1",border:"1px solid #E2E4E1",borderRadius:8,padding:"12px 14px"}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#8a6414",letterSpacing:0.4,marginBottom:4}}>⚠ OFERTAS ENCONTRADAS — REVISA Y CONFIRMA VIGENCIA ANTES DE AGREGAR</div>
+                  <div style={{fontSize:11,color:"#666",marginBottom:10}}>Las publicaciones inmobiliarias cambian o se retiran constantemente: abre cada link y confirma que la oferta sigue activa antes de usarla en el informe.</div>
+                  {compCandidatos.map((o,i)=>(
+                    <div key={i} style={{background:"#fff",border:"1px solid #E2E4E1",borderRadius:6,padding:"9px 12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                      <div style={{fontSize:12,flex:1,minWidth:220}}>
+                        <b>{o.oferta||o.fuente}</b> — {o.ubicacion||"ubicación no especificada"}<br/>
+                        <span style={{color:"#555"}}>{o.superficieHa?o.superficieHa+" ha":"sup. no publicada"} · {o.precioTotal||o.precioHa||"precio no publicado"}</span><br/>
+                        <a href={o.url} target="_blank" rel="noreferrer" style={{color:G,fontSize:11}}>ver publicación</a>
+                      </div>
+                      <button onClick={()=>agregarComparable(o)} style={{...bS,fontSize:11,padding:"6px 12px",whiteSpace:"nowrap"}}>+ Agregar a la tabla</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </Card>
 
             <SecT icon="🌾" title="Valores por Clase de Suelo"/>
@@ -2843,6 +2899,10 @@ export default function App(){
                       prom?["PROMEDIO","","","","$ "+Math.round(prom).toLocaleString("es-CL")]:null
                     ].filter(Boolean)}/>
                     {prom>0&&<p style={{...TXT,marginTop:10}}>Las referencias de mercado de la zona muestran valores en torno a $ {Math.round(prom).toLocaleString("es-CL")} por hectarea, antecedente que se considera en la valorizacion del predio en estudio junto a su calidad de suelos, acceso y disponibilidad de agua.</p>}
+                    {filas.some(f=>f.r.fuenteUrl)&&<div style={{fontSize:10.5,color:"#888",marginTop:8}}>
+                      Fuentes de las ofertas obtenidas por búsqueda automática (verificar vigencia antes de perfeccionar la tasación):
+                      {filas.filter(f=>f.r.fuenteUrl).map((f,i)=><div key={i}>· {f.r.oferta.replace(" ⚠ verificar vigencia","")}: <a href={f.r.fuenteUrl} target="_blank" rel="noreferrer" style={{color:G}}>{f.r.fuenteUrl}</a>{f.r.fuenteFecha?" (consultado "+f.r.fuenteFecha+")":""}</div>)}
+                    </div>}
                   </>;
                 })()}
                 <Sub>Valorizacion Comercial</Sub>
