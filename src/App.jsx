@@ -432,7 +432,7 @@ export default function App(){
       const data=await resp.json();
       if(!data.ok){setNormStatus("error");alert((data.mensaje||"No se pudo completar la consulta.")+(data.detail?"\n\nDetalle tecnico:\n"+data.detail:""));return;}
       if(!data.encontrado){setNormStatus("notfound");return;}
-      upd("normativaSolar",JSON.stringify({resumen:data.resumen,fuenteUrl:data.fuenteUrl,fuenteNombre:data.fuenteNombre,fechaPublicacion:data.fechaPublicacion}));
+      upd("normativaSolar",JSON.stringify({resumen:data.resumen,pasos:data.pasos||[],fuentes:data.fuentes||[]}));
       setNormStatus("idle");
     }catch(e){
       setNormStatus("error");
@@ -2154,7 +2154,10 @@ export default function App(){
                   if(!norm)return null;
                   return <div style={{marginTop:10,background:"#F7F5F1",borderLeft:"3px solid "+G,borderRadius:6,padding:"9px 12px"}}>
                     <div style={{fontSize:11.5,color:"#444",lineHeight:1.5}}>{norm.resumen}</div>
-                    <div style={{fontSize:10.5,color:"#888",marginTop:4}}>Fuente: {norm.fuenteNombre||"fuente oficial"}{norm.fechaPublicacion?" ("+norm.fechaPublicacion+")":""} — <a href={norm.fuenteUrl} target="_blank" rel="noreferrer" style={{color:G}}>ver publicación</a></div>
+                    {norm.pasos&&norm.pasos.length?<ol style={{fontSize:11,color:"#444",margin:"6px 0 0",paddingLeft:18,lineHeight:1.6}}>{norm.pasos.map((p,i)=><li key={i}>{p}</li>)}</ol>:null}
+                    {norm.fuentes&&norm.fuentes.length?<div style={{fontSize:10.5,color:"#888",marginTop:6}}>
+                      Fuentes: {norm.fuentes.map((f,i)=><span key={i}>{i>0?" · ":""}<a href={f.url} target="_blank" rel="noreferrer" style={{color:G}}>{f.nombre||"ver fuente"}</a>{f.fecha?" ("+f.fecha+")":""}</span>)}
+                    </div>:null}
                   </div>;
                 })()}
               </div>
@@ -2830,7 +2833,11 @@ export default function App(){
                       {sub?"Subestación más cercana: "+sub.distanciaKm+" km"+(sub.nombre?" ("+sub.nombre+")":"")+". ":"No se identificó subestación dentro de 80 km. "}
                       Estas son distancias geográficas reales (Ministerio de Energía); no indican capacidad disponible para inyectar energía, la que debe verificarse con la distribuidora o el Coordinador Eléctrico Nacional.
                     </p>}
-                    {norm&&<p style={{...TXT,fontSize:11.5}}><b>Normativa de uso de suelo:</b> {norm.resumen} <i>(Fuente: {norm.fuenteNombre||"fuente oficial"}{norm.fechaPublicacion?", "+norm.fechaPublicacion:""})</i></p>}
+                    {norm&&<>
+                      <p style={{...TXT,fontSize:11.5}}><b>Normativa de uso de suelo:</b> {norm.resumen}</p>
+                      {norm.pasos&&norm.pasos.length?<ol style={{...TXT,fontSize:11.5,paddingLeft:20,margin:"4px 0 8px"}}>{norm.pasos.map((p,i)=><li key={i}>{p}</li>)}</ol>:null}
+                      {norm.fuentes&&norm.fuentes.length?<p style={{...TXT,fontSize:10,color:"#888",fontStyle:"italic"}}>Fuentes: {norm.fuentes.map((f,i)=>(i>0?"; ":"")+(f.nombre||"fuente oficial")+(f.fecha?" ("+f.fecha+")":"")).join("")}</p>:null}
+                    </>}
                   </>;
                 })()}
 {(()=>{
