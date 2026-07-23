@@ -390,6 +390,55 @@ export default function App(){
   const [propStatus,setPropStatus]=useState({}); // {[indiceRol]: "loading"|"ok"|"notfound"|"error"}
   const [iniaCultivo,setIniaCultivo]=useState("");
   const [compStatus,setCompStatus]=useState("idle"); // idle|loading|notfound|error
+  const [energiaStatus,setEnergiaStatus]=useState("idle"); // idle|loading|error
+  const [normStatus,setNormStatus]=useState("idle"); // idle|loading|notfound|error
+
+  // Distancia real (medicion geografica) a la linea de transmision y subestacion mas cercanas.
+  // NO indica capacidad disponible para inyectar energia: eso requiere estudios de la
+  // distribuidora o del Coordinador Electrico Nacional, no es un dato de un mapa.
+  const consultarEnergiaCercana=async()=>{
+    const lat=form.coordLat, lon=form.coordLon;
+    if(!lat||!lon){alert("Primero necesito las coordenadas del predio (usa Suelos Auto o ingresalas manualmente).");return;}
+    setEnergiaStatus("loading");
+    try{
+      const lonNeg=String(lon).trim().replace(",",".").startsWith("-")?String(lon):"-"+String(lon);
+      const resp=await fetch(form.backendUrl+"/energia-cercana",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({lat:String(lat).replace(",","."),lon:lonNeg.replace(",",".")})
+      });
+      const data=await resp.json();
+      if(!data.ok){setEnergiaStatus("error");alert((data.mensaje||"No se pudo consultar.")+(data.detail?"\n\nDetalle tecnico:\n"+data.detail:""));return;}
+      upd("energiaLinea",JSON.stringify(data.lineaTransmision||null));
+      upd("energiaSubestacion",JSON.stringify(data.subestacion||null));
+      setEnergiaStatus("idle");
+    }catch(e){
+      setEnergiaStatus("error");
+      alert("Error de conexion con el servidor: "+e.message);
+    }
+  };
+
+  // Consulta puntual (a pedido) sobre normativa de uso de suelo agricola para paneles solares.
+  // Nunca se infiere una regla desde la clase de suelo: solo se responde con fuente oficial citada.
+  const consultarNormativaSolar=async()=>{
+    const comuna=(form.roles[0]||{}).comuna||"";
+    if(!comuna){alert("Completa la comuna del rol en el Paso 1 antes de consultar.");return;}
+    setNormStatus("loading");
+    try{
+      const clasesTxt=[1,2,3,4,5,6,7,8].filter(n=>parseFloat(form["c"+n]||"0")>0).map(n=>["I","II","III","IV","V","VI","VII","VIII"][n-1]).join(", ");
+      const resp=await fetch(form.backendUrl+"/consultar-normativa-solar",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({comuna,region:form.region,claseSuelo:clasesTxt})
+      });
+      const data=await resp.json();
+      if(!data.ok){setNormStatus("error");alert((data.mensaje||"No se pudo completar la consulta.")+(data.detail?"\n\nDetalle tecnico:\n"+data.detail:""));return;}
+      if(!data.encontrado){setNormStatus("notfound");return;}
+      upd("normativaSolar",JSON.stringify({resumen:data.resumen,fuenteUrl:data.fuenteUrl,fuenteNombre:data.fuenteNombre,fechaPublicacion:data.fechaPublicacion}));
+      setNormStatus("idle");
+    }catch(e){
+      setNormStatus("error");
+      alert("Error de conexion con el servidor: "+e.message);
+    }
+  };
   const [compCandidatos,setCompCandidatos]=useState([]); // ofertas encontradas, pendientes de revisar
 
   // Busca ofertas vigentes de campos en portales reales (Portal Inmobiliario, Colliers,
@@ -1158,7 +1207,7 @@ export default function App(){
     try{
       const hoy=new Date();const fin=hoy.getFullYear()-1;
       const rc=await fetch("https://archive-api.open-meteo.com/v1/archive?latitude="+latP+"&longitude="+lonP+
-        "&start_date="+(fin-4)+"-01-01&end_date="+fin+"-12-31&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=America%2FSantiago");
+        "&start_date="+(fin-4)+"-01-01&end_date="+fin+"-12-31&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,shortwave_radiation_sum&timezone=America%2FSantiago");
       const jc=await rc.json();
       const d=jc.daily;
       if(d&&d.time&&d.time.length){
@@ -1180,6 +1229,14 @@ export default function App(){
         if(nMax)upd("climaTmaxEnero",(sumMax/nMax).toFixed(1));
         if(nMin)upd("climaTminJulio",(sumMin/nMin).toFixed(1));
         upd("climaDiasHelada",Math.round(heladas/anios));
+        // Irradiancia solar promedio diaria (kWh/m2/dia) desde shortwave_radiation_sum (MJ/m2/dia; 1 kWh = 3.6 MJ)
+        if(d.shortwave_radiation_sum&&d.shortwave_radiation_sum.length){
+          const validos=d.shortwave_radiation_sum.filter(v=>v!=null);
+          if(validos.length){
+            const promMJ=validos.reduce((s,v)=>s+v,0)/validos.length;
+            upd("solarKwhM2Dia",(promMJ/3.6).toFixed(2));
+          }
+        }
       }
     }catch(e){}
   };
@@ -2069,6 +2126,39 @@ export default function App(){
                 })()}
               </div>
 
+              <div style={{marginTop:14,background:"#fff",border:"1px solid #E2E4E1",borderRadius:8,padding:"12px 14px"}}>
+                <div style={{fontSize:12,fontWeight:700,color:G,marginBottom:6}}>☀️ Aptitud Solar (fotovoltaica) del predio</div>
+                {form.solarKwhM2Dia?
+                  <div style={{fontSize:12,color:"#444",marginBottom:8}}>Irradiancia solar media: <b>{form.solarKwhM2Dia} kWh/m²/día</b> (Open-Meteo, punto del predio, promedio 5 años).</div>
+                  :<div style={{fontSize:11,color:"#9B4B43",marginBottom:8}}>⚠ Sin irradiancia calculada aún: usa "Calcular distancias" en Ubicación o "Suelos Auto" para obtenerla junto con el clima.</div>}
+
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <button onClick={consultarEnergiaCercana} disabled={energiaStatus==="loading"} style={{...bS,fontSize:11,padding:"6px 12px",opacity:energiaStatus==="loading"?0.6:1}}>{energiaStatus==="loading"?"Consultando…":"⚡ Distancia a red eléctrica (Min. Energía)"}</button>
+                  <button onClick={consultarNormativaSolar} disabled={normStatus==="loading"} style={{...bS,fontSize:11,padding:"6px 12px",opacity:normStatus==="loading"?0.6:1}}>{normStatus==="loading"?"Consultando…":"📋 Consultar normativa de uso de suelo"}</button>
+                </div>
+                {normStatus==="notfound"&&<div style={{fontSize:11,color:"#9B4B43",marginTop:6}}>No se encontró normativa específica y verificable para esta comuna.</div>}
+
+                {(()=>{
+                  let linea=null,sub=null;
+                  try{linea=JSON.parse(form.energiaLinea||"null");}catch(e){}
+                  try{sub=JSON.parse(form.energiaSubestacion||"null");}catch(e){}
+                  if(!linea&&!sub)return null;
+                  return <div style={{marginTop:10,fontSize:12,color:"#444",lineHeight:1.7}}>
+                    {linea?<div>⚡ Línea de transmisión más cercana: <b>{linea.distanciaKm} km</b>{linea.nombre?" — "+linea.nombre:""}{linea.voltaje?" ("+linea.voltaje+" kV)":""}</div>:<div style={{color:"#9B4B43"}}>No se encontró línea de transmisión dentro de 80 km.</div>}
+                    {sub?<div>🔌 Subestación más cercana: <b>{sub.distanciaKm} km</b>{sub.nombre?" — "+sub.nombre:""}</div>:<div style={{color:"#9B4B43"}}>No se encontró subestación dentro de 80 km.</div>}
+                    <div style={{fontSize:10.5,color:"#888",marginTop:4,fontStyle:"italic"}}>Es una distancia geográfica real (Ministerio de Energía). No indica capacidad disponible para inyectar energía: eso requiere estudios de la distribuidora o del Coordinador Eléctrico Nacional.</div>
+                  </div>;
+                })()}
+                {(()=>{
+                  let norm=null;try{norm=JSON.parse(form.normativaSolar||"null");}catch(e){}
+                  if(!norm)return null;
+                  return <div style={{marginTop:10,background:"#F7F5F1",borderLeft:"3px solid "+G,borderRadius:6,padding:"9px 12px"}}>
+                    <div style={{fontSize:11.5,color:"#444",lineHeight:1.5}}>{norm.resumen}</div>
+                    <div style={{fontSize:10.5,color:"#888",marginTop:4}}>Fuente: {norm.fuenteNombre||"fuente oficial"}{norm.fechaPublicacion?" ("+norm.fechaPublicacion+")":""} — <a href={norm.fuenteUrl} target="_blank" rel="noreferrer" style={{color:G}}>ver publicación</a></div>
+                  </div>;
+                })()}
+              </div>
+
               <div style={{fontWeight:700,color:G,fontSize:14,margin:"20px 0 8px"}}>🌲 Recursos Naturales — Uso de Suelo y Vegetacion (CONAF)</div>
               <div style={{fontSize:11.5,color:"#888",marginBottom:8}}>Se rellena con "Suelos Auto (CIREN)". Puedes editar, borrar o agregar filas; esta tabla aparece en el informe.</div>
               {(()=>{
@@ -2724,6 +2814,23 @@ export default function App(){
                       <p style={{...TXT,marginTop:12,fontWeight:700,fontSize:12}}>Consultas técnicas INIA:</p>
                       {consultas.map((c,i)=><p key={i} style={{...TXT,fontSize:11.5}}><b style={{textTransform:"capitalize"}}>{c.cultivo}:</b> {c.resumen}{c.variedadesRecomendadas?" Variedades: "+c.variedadesRecomendadas+".":""}{c.requerimientos?" Requerimientos: "+c.requerimientos+".":""} <i>(Fuente: {c.fuenteNombre||"INIA"}{c.fechaPublicacion?", "+c.fechaPublicacion:""})</i></p>)}
                     </>:null}
+                  </>;
+                })()}
+                {(()=>{
+                  let linea=null,sub=null,norm=null;
+                  try{linea=JSON.parse(report.energiaLinea||"null");}catch(e){}
+                  try{sub=JSON.parse(report.energiaSubestacion||"null");}catch(e){}
+                  try{norm=JSON.parse(report.normativaSolar||"null");}catch(e){}
+                  if(!report.solarKwhM2Dia&&!linea&&!sub&&!norm)return null;
+                  return <>
+                    <Sub>Aptitud Solar (fotovoltaica) — orientativa</Sub>
+                    {report.solarKwhM2Dia&&<p style={TXT}>Irradiancia solar media en el punto del predio: {report.solarKwhM2Dia} kWh/m²/día (Open-Meteo, promedio de 5 años).</p>}
+                    {(linea||sub)&&<p style={TXT}>
+                      {linea?"Línea de transmisión más cercana: "+linea.distanciaKm+" km"+(linea.nombre?" ("+linea.nombre+")":"")+". ":"No se identificó línea de transmisión dentro de 80 km. "}
+                      {sub?"Subestación más cercana: "+sub.distanciaKm+" km"+(sub.nombre?" ("+sub.nombre+")":"")+". ":"No se identificó subestación dentro de 80 km. "}
+                      Estas son distancias geográficas reales (Ministerio de Energía); no indican capacidad disponible para inyectar energía, la que debe verificarse con la distribuidora o el Coordinador Eléctrico Nacional.
+                    </p>}
+                    {norm&&<p style={{...TXT,fontSize:11.5}}><b>Normativa de uso de suelo:</b> {norm.resumen} <i>(Fuente: {norm.fuenteNombre||"fuente oficial"}{norm.fechaPublicacion?", "+norm.fechaPublicacion:""})</i></p>}
                   </>;
                 })()}
 {(()=>{
