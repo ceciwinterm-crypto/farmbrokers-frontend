@@ -1093,13 +1093,13 @@ export default function App(){
       noAgric.forEach(x=>{
         const ri=form.roles.findIndex(r=>r.rol===x.rol&&r.comuna===x.comuna);
         if(ri>=0){
-          setForm(f=>({...f,roles:f.roles.map((r,j)=>j===ri?{...r,datos:{...r.datos,noAgricola:true,destino:(r.datos||{}).destino||"NO AGRICOLA"}}:r)}));
+          setForm(f=>({...f,roles:f.roles.map((r,j)=>j===ri?{...r,datos:{...r.datos,noAgricola:true,destino:(r.datos||{}).destino||"SIN DATOS CIREN"}}:r)}));
         }
       });
       const fallidos=resultados.filter(x=>!x.d||!x.d.ok);
       if(!oks.length){
         if(noAgric.length){
-          setSuelosStatus({ok:true,msg:"Rol(es) NO AGRICOLA: "+noAgric.map(x=>x.rol).join(", ")+". Sin catastro rural que analizar; el informe incluira sus antecedentes (avaluo, superficie, inscripciones)."});
+          setSuelosStatus({ok:true,msg:"Rol(es) SIN DATOS EN CATASTRO CIREN: "+noAgric.map(x=>x.rol).join(", ")+". Esto no significa que sean urbanos ni no-agricolas — verifica el destino real en SII Mapas. Si es rural/agricola, ingresa las clases de suelo manualmente. El informe incluira sus antecedentes (avaluo, superficie, inscripciones) normalmente."});
           return;
         }
         const p=resultados[0]&&resultados[0].d;
@@ -1236,7 +1236,7 @@ export default function App(){
         if(!form.imagenSatelital)generarSatelital(bb);
       }
       const cab=multi?("Analisis de "+oks.length+" roles ("+oks.map(x=>x.rol).join(" + ")+"). Superficie CIREN total: "+(Math.round(supTotal*100)/100)+" ha. "):("Superficie CIREN del predio: "+(Math.round(supTotal*100)/100)+" ha. ");
-      const naTxt=noAgric.length?(" ℹ Rol(es) NO AGRICOLA (sin catastro rural, se informan con sus antecedentes): "+noAgric.map(x=>x.rol).join(", ")+"."):"";
+      const naTxt=noAgric.length?(" ℹ Rol(es) SIN DATOS CIREN (no confirma que sean urbanos, verificar en SII Mapas; se informan con sus antecedentes): "+noAgric.map(x=>x.rol).join(", ")+"."):"";
       const errTxt=(fallidos.length?(" ⚠ No se pudo consultar: "+fallidos.map(x=>x.rol).join(", ")+"."):"")+naTxt;
       const geTxt=totGE>0?(" Superficie medida sobre el poligono (equivalente a Google Earth): "+totGE.toFixed(2)+" ha"+(detGE.length>1?(" → "+detGE.join(" | ")):"")+"."):"";
       setSuelosStatus({ok:true,msg:cab+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(serieTxt?" Serie: "+serieTxt:"")+carTxt+geTxt+usosTxt+frutTxt+errTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(resultados.map(x=>({rol:x.rol,resultado:x.d})),null,2)});
