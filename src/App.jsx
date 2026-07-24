@@ -364,7 +364,7 @@ const EMPTY = {
   roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}],
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",tipografia:"inter",supPlantadaVerif:"",
-  numTasacion:"",climaTxt:"",guiaConclusion:"",instalacionesLista:"",firmaImg:null,escasezTxt:"",pendienteMedida:"",prediosGeo:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
+  numTasacion:"",climaTxt:"",guiaConclusion:"",instalacionesLista:"",firmaImg:null,escasezTxt:"",pendienteMedida:"",prediosGeo:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",usoSueloConafTxt:"",usoSueloConafRaw:"",
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",plantacionesCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
@@ -442,6 +442,7 @@ export default function App(){
   const [compStatus,setCompStatus]=useState("idle"); // idle|loading|notfound|error
   const [energiaStatus,setEnergiaStatus]=useState("idle"); // idle|loading|error
   const [normStatus,setNormStatus]=useState("idle"); // idle|loading|notfound|error
+  const [conafPuntualStatus,setConafPuntualStatus]=useState("idle"); // idle|loading|notfound|error
 
   // Distancia real (medicion geografica) a la linea de transmision y subestacion mas cercanas.
   // NO indica capacidad disponible para inyectar energia: eso requiere estudios de la
@@ -489,6 +490,34 @@ export default function App(){
       alert("Error de conexion con el servidor: "+e.message);
     }
   };
+  // Consulta el uso de suelo/vegetacion CONAF en el punto exacto del predio (independiente de
+  // CIREN — funciona incluso si el rol no aparece en el catastro rural de CIREN). Usa las mismas
+  // coordenadas ya guardadas en form.coordLat/coordLon (vienen del SII al buscar el rol).
+  const consultarUsoSueloConaf=async()=>{
+    const lat=form.coordLat, lon=form.coordLon;
+    if(!lat||!lon){alert("Primero necesito las coordenadas del predio (vienen automaticas al buscar el rol en SII, o usa Suelos Auto).");return;}
+    if(!form.region){alert("Completa la Region del predio antes de consultar.");return;}
+    setConafPuntualStatus("loading");
+    try{
+      const lonNeg=String(lon).trim().replace(",",".").startsWith("-")?String(lon):"-"+String(lon);
+      const resp=await fetch(form.backendUrl.replace(/\/$/,"")+"/uso-suelo-conaf",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({lat:String(lat).replace(",","."),lon:lonNeg.replace(",","."),region:form.region})
+      });
+      const data=await resp.json();
+      if(!data.ok){setConafPuntualStatus("error");alert(data.mensaje||"No se pudo consultar.");return;}
+      if(!data.encontrado){setConafPuntualStatus("notfound");upd("usoSueloConafTxt","");return;}
+      const txt=[data.uso,data.subuso,data.cobertura,data.especie].filter(Boolean).join(" / ")+
+        (data.superficiePoligonoHa?" (poligono de "+data.superficiePoligonoHa+" ha en el catastro)":"");
+      upd("usoSueloConafTxt",txt);
+      upd("usoSueloConafRaw",JSON.stringify(data));
+      setConafPuntualStatus("idle");
+    }catch(e){
+      setConafPuntualStatus("error");
+      alert("Error de conexion con el servidor: "+e.message);
+    }
+  };
+
   const [compCandidatos,setCompCandidatos]=useState([]); // ofertas encontradas, pendientes de revisar
 
   // Busca ofertas vigentes de campos en portales reales (Portal Inmobiliario, Colliers,
@@ -983,6 +1012,7 @@ export default function App(){
           construccionesTxt:(()=>{try{const l=JSON.parse(form.construccionesLista||"[]").filter(c=>String(c.nombre||"").trim());const li=JSON.parse(form.instalacionesLista||"[]").filter(r=>String(r.nombre||"").trim());const t=[...l.map(c=>c.nombre+(c.m2?" ("+c.m2+" m2"+(c.anio?", año "+c.anio:"")+")":"")+(c.detalle?": "+c.detalle:"")),...li.map(r=>"Instalacion: "+r.nombre+(r.cantidad?" ("+r.cantidad+" "+(r.unidad||"")+")":""))];return t.join(" | ");}catch(e){return "";}})(),
           metodologiaTxt:form.metodologiaTxt,climaTxt:form.climaTxt,numTasacion:form.numTasacion,guiaConclusion:form.guiaConclusion,escasezTxt:form.escasezTxt,
           usosResumen:(()=>{try{const u=JSON.parse(form.usosCIREN||"{}");return Object.entries(u).map(([k,v])=>k+" "+v+" ha").join(", ");}catch(e){return "";}})(),
+          usoSueloConafTxt:form.usoSueloConafTxt,
           coordLat:form.coordLat,coordLon:form.coordLon,distSantiago:form.distSantiago,distComuna:form.distComuna,acceso:form.acceso,
         })
       });
@@ -2130,6 +2160,13 @@ export default function App(){
                   {suelosStatus.debug&&<pre style={{fontSize:10,overflow:"auto",maxHeight:140,background:"#fff",padding:8,borderRadius:6,marginTop:8,color:"#555"}}>{suelosStatus.debug}</pre>}
                 </div>
               )}
+
+              <div style={{marginBottom:12,paddingTop:4,borderTop:"1px dashed #E2E4E1"}}>
+                <button onClick={consultarUsoSueloConaf} disabled={conafPuntualStatus==="loading"} style={{...bS,fontSize:11,padding:"6px 12px",marginTop:10,opacity:conafPuntualStatus==="loading"?0.6:1}}>{conafPuntualStatus==="loading"?"Consultando…":"🌲 Uso de suelo/vegetación puntual (CONAF)"}</button>
+                <span style={{fontSize:11,color:"#888",marginLeft:10}}>Consulta CONAF en el punto exacto del predio (coordenadas SII). Funciona aunque el rol no este en CIREN — util para confirmar si es bosque, matorral, agricola, etc.</span>
+                {conafPuntualStatus==="notfound"&&<div style={{fontSize:11,color:"#9B4B43",marginTop:6}}>El punto no cae dentro de ningun poligono del catastro CONAF (zona sin cobertura o justo en un limite).</div>}
+                {form.usoSueloConafTxt&&<div style={{background:"#f0faf4",border:"1px solid "+G,borderRadius:8,padding:"10px 14px",marginTop:8,fontSize:12.5,color:G}}>🌲 CONAF: <b>{form.usoSueloConafTxt}</b></div>}
+              </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12}}>
                 {[1,2,3,4,5,6,7,8].map(n=>(
                   <Fld key={n} label={"Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1]+" (ha)"} value={form["c"+n]} onChange={v=>upd("c"+n,v)} placeholder="0"/>
