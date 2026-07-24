@@ -434,6 +434,7 @@ export default function App(){
   const importarTasacion=(ev)=>{const file=ev.target.files&&ev.target.files[0];if(!file)return;const rd=new FileReader();rd.onload=()=>{try{const reg=JSON.parse(rd.result);if(reg&&reg.form){setForm(conGKey({...EMPTY,...reg.form}));setShowTas(false);setAvisoGuardado("✓ Tasacion importada desde archivo.");setTimeout(()=>setAvisoGuardado(""),4000);}else alert("El archivo no es una tasacion valida.");}catch(e){alert("Archivo invalido: "+e.message);}};rd.readAsText(file);ev.target.value="";};
   const [satelitalStatus,setSatelitalStatus]=useState("idle");
   const [vistasStatus,setVistasStatus]=useState("idle");
+  const [streetViewStatus,setStreetViewStatus]=useState("idle"); // idle|loading|nocoverage|error|ok
   const [ufStatus,setUfStatus]=useState("idle"); // idle|loading|ok|error
   const [buscandoRol,setBuscandoRol]=useState(-1);
   const [debugSII,setDebugSII]=useState(null);
@@ -962,6 +963,53 @@ export default function App(){
     setTimeout(()=>setVistasStatus("idle"),4000);
   };
 
+  // Foto real del acceso al predio via Google Street View. A diferencia de las vistas
+  // satelitales, Street View SI requiere la API key de Google (no hay equivalente gratis por
+  // teselas para fotos a nivel de calle). Importante: Google devuelve una imagen "sin cobertura"
+  // con status 200 igual, asi que primero se consulta el endpoint de metadata para confirmar que
+  // existe cobertura real en el punto — si no, no se agrega nada (nunca una imagen vacia/generica
+  // como si fuera del predio).
+  const generarStreetView=async()=>{
+    let lat,lon;
+    if(form.coordLat&&form.coordLon){
+      lat=parseFloat(String(form.coordLat).trim().replace(",","."));
+      const lonRaw=String(form.coordLon).trim().replace(",",".");
+      lon=parseFloat(lonRaw.startsWith("-")?lonRaw:"-"+lonRaw);
+    }
+    if(!isFinite(lat)||!isFinite(lon)){alert("Primero ubica el predio: usa \"Suelos Auto\" o ingresa las coordenadas.");return;}
+    if(!form.googleMapsKey){alert("Street View necesita tu API Key de Google Maps (la misma de la vista satelital), con la 'Street View Static API' habilitada en Google Cloud Console. Ingresala arriba en Configuracion / Vista Satelital.");return;}
+    setStreetViewStatus("loading");
+    try{
+      const metaUrl=`https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lon}&key=${form.googleMapsKey}`;
+      const metaResp=await fetch(metaUrl);
+      const meta=await metaResp.json();
+      if(meta.status!=="OK"){
+        setStreetViewStatus("nocoverage");
+        upd("imagenes",(form.imagenes||[]).filter(im=>!im.esStreetView));
+        return;
+      }
+      const url=`https://maps.googleapis.com/maps/api/streetview?size=800x500&location=${lat},${lon}&fov=90&key=${form.googleMapsKey}`;
+      const img=new Image();
+      img.crossOrigin="anonymous";
+      img.onload=()=>{
+        const canvas=document.createElement("canvas");
+        canvas.width=img.width; canvas.height=img.height;
+        canvas.getContext("2d").drawImage(img,0,0);
+        const dataUrl=canvas.toDataURL("image/jpeg",0.9);
+        // Reemplaza un Street View generado antes (si se vuelve a apretar el boton); conserva fotos subidas y vistas aereas
+        upd("imagenes",[...(form.imagenes||[]).filter(im=>!im.esStreetView),
+          {name:"street-view-acceso.jpg",url:dataUrl,cap:"Vista Street View del acceso al predio (Google, referencial — no reemplaza visita a terreno)",esStreetView:true}]);
+        setStreetViewStatus("ok");
+        setTimeout(()=>setStreetViewStatus("idle"),4000);
+      };
+      img.onerror=()=>setStreetViewStatus("error");
+      img.src=url;
+    }catch(e){
+      setStreetViewStatus("error");
+      alert("Error consultando Street View: "+e.message);
+    }
+  };
+
   const handleImages=(e)=>{
     const files=Array.from(e.target.files);
     Promise.all(files.map(f=>new Promise(res=>{
@@ -1269,7 +1317,8 @@ export default function App(){
       const naTxt=noAgric.length?(" ℹ Rol(es) SIN DATOS CIREN (no confirma que sean urbanos, verificar en SII Mapas; se informan con sus antecedentes): "+noAgric.map(x=>x.rol).join(", ")+"."):"";
       const errTxt=(fallidos.length?(" ⚠ No se pudo consultar: "+fallidos.map(x=>x.rol).join(", ")+"."):"")+naTxt;
       const geTxt=totGE>0?(" Superficie medida sobre el poligono (equivalente a Google Earth): "+totGE.toFixed(2)+" ha"+(detGE.length>1?(" → "+detGE.join(" | ")):"")+"."):"";
-      setSuelosStatus({ok:true,msg:cab+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(serieTxt?" Serie: "+serieTxt:"")+carTxt+geTxt+usosTxt+frutTxt+errTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(resultados.map(x=>({rol:x.rol,resultado:x.d})),null,2)});
+      const fuenteClasesTxt=(rellenadas.length&&data.fuenteClases)?(" [Clases via: "+data.fuenteClases+"]"):"";
+      setSuelosStatus({ok:true,msg:cab+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+fuenteClasesTxt+(serieTxt?" Serie: "+serieTxt:"")+carTxt+geTxt+usosTxt+frutTxt+errTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(resultados.map(x=>({rol:x.rol,resultado:x.d})),null,2)});
     }catch(e){
       setSuelosStatus({ok:false,msg:"Error: "+e.message});
     }
@@ -2501,8 +2550,14 @@ export default function App(){
                 </button>
                 {vistasStatus==="ok"&&<span style={{fontSize:12,color:G,fontWeight:600}}>✓ Vistas aéreas agregadas</span>}
                 {vistasStatus==="error"&&<span style={{fontSize:12,color:"#c53030"}}>No se pudieron cargar las imágenes satelitales.</span>}
+                <button onClick={generarStreetView} disabled={streetViewStatus==="loading"} style={{...bS,opacity:streetViewStatus==="loading"?0.6:1}}>
+                  {streetViewStatus==="loading"?"Consultando Street View…":"🚗 Foto Street View del acceso"}
+                </button>
+                {streetViewStatus==="ok"&&<span style={{fontSize:12,color:G,fontWeight:600}}>✓ Street View agregada</span>}
+                {streetViewStatus==="nocoverage"&&<span style={{fontSize:12,color:"#9B4B43"}}>Google no tiene cobertura Street View en este punto.</span>}
+                {streetViewStatus==="error"&&<span style={{fontSize:12,color:"#c53030"}}>No se pudo consultar Street View.</span>}
               </div>
-              <div style={{fontSize:11.5,color:"#888",marginTop:6}}>Si no tienes fotografías de terreno, las vistas aéreas son imágenes satelitales reales del predio (Esri) con sus deslindes, a tres escalas: detalle, entorno y contexto.</div>
+              <div style={{fontSize:11.5,color:"#888",marginTop:6}}>Si no tienes fotografías de terreno, las vistas aéreas son imágenes satelitales reales del predio (Esri) con sus deslindes, a tres escalas: detalle, entorno y contexto. La foto Street View (requiere API Key de Google) muestra el acceso real al predio cuando hay cobertura.</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:12}}>
                 {form.imagenes.map((img,i)=>(
                   <div key={i} style={{position:"relative"}}>
