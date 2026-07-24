@@ -364,7 +364,7 @@ const EMPTY = {
   roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}],
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",tipografia:"inter",supPlantadaVerif:"",
-  numTasacion:"",climaTxt:"",guiaConclusion:"",instalacionesLista:"",firmaImg:null,escasezTxt:"",pendienteMedida:"",prediosGeo:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",usoSueloConafTxt:"",usoSueloConafRaw:"",
+  numTasacion:"",climaTxt:"",guiaConclusion:"",instalacionesLista:"",firmaImg:null,escasezTxt:"",pendienteMedida:"",prediosGeo:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",plantacionesCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
@@ -434,7 +434,6 @@ export default function App(){
   const importarTasacion=(ev)=>{const file=ev.target.files&&ev.target.files[0];if(!file)return;const rd=new FileReader();rd.onload=()=>{try{const reg=JSON.parse(rd.result);if(reg&&reg.form){setForm(conGKey({...EMPTY,...reg.form}));setShowTas(false);setAvisoGuardado("✓ Tasacion importada desde archivo.");setTimeout(()=>setAvisoGuardado(""),4000);}else alert("El archivo no es una tasacion valida.");}catch(e){alert("Archivo invalido: "+e.message);}};rd.readAsText(file);ev.target.value="";};
   const [satelitalStatus,setSatelitalStatus]=useState("idle");
   const [vistasStatus,setVistasStatus]=useState("idle");
-  const [streetViewStatus,setStreetViewStatus]=useState("idle"); // idle|loading|nocoverage|error|ok
   const [ufStatus,setUfStatus]=useState("idle"); // idle|loading|ok|error
   const [buscandoRol,setBuscandoRol]=useState(-1);
   const [debugSII,setDebugSII]=useState(null);
@@ -443,7 +442,6 @@ export default function App(){
   const [compStatus,setCompStatus]=useState("idle"); // idle|loading|notfound|error
   const [energiaStatus,setEnergiaStatus]=useState("idle"); // idle|loading|error
   const [normStatus,setNormStatus]=useState("idle"); // idle|loading|notfound|error
-  const [conafPuntualStatus,setConafPuntualStatus]=useState("idle"); // idle|loading|notfound|error
 
   // Distancia real (medicion geografica) a la linea de transmision y subestacion mas cercanas.
   // NO indica capacidad disponible para inyectar energia: eso requiere estudios de la
@@ -491,34 +489,6 @@ export default function App(){
       alert("Error de conexion con el servidor: "+e.message);
     }
   };
-  // Consulta el uso de suelo/vegetacion CONAF en el punto exacto del predio (independiente de
-  // CIREN — funciona incluso si el rol no aparece en el catastro rural de CIREN). Usa las mismas
-  // coordenadas ya guardadas en form.coordLat/coordLon (vienen del SII al buscar el rol).
-  const consultarUsoSueloConaf=async()=>{
-    const lat=form.coordLat, lon=form.coordLon;
-    if(!lat||!lon){alert("Primero necesito las coordenadas del predio (vienen automaticas al buscar el rol en SII, o usa Suelos Auto).");return;}
-    if(!form.region){alert("Completa la Region del predio antes de consultar.");return;}
-    setConafPuntualStatus("loading");
-    try{
-      const lonNeg=String(lon).trim().replace(",",".").startsWith("-")?String(lon):"-"+String(lon);
-      const resp=await fetch(form.backendUrl.replace(/\/$/,"")+"/uso-suelo-conaf",{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({lat:String(lat).replace(",","."),lon:lonNeg.replace(",","."),region:form.region})
-      });
-      const data=await resp.json();
-      if(!data.ok){setConafPuntualStatus("error");alert(data.mensaje||"No se pudo consultar.");return;}
-      if(!data.encontrado){setConafPuntualStatus("notfound");upd("usoSueloConafTxt","");return;}
-      const txt=[data.uso,data.subuso,data.cobertura,data.especie].filter(Boolean).join(" / ")+
-        (data.superficiePoligonoHa?" (poligono de "+data.superficiePoligonoHa+" ha en el catastro)":"");
-      upd("usoSueloConafTxt",txt);
-      upd("usoSueloConafRaw",JSON.stringify(data));
-      setConafPuntualStatus("idle");
-    }catch(e){
-      setConafPuntualStatus("error");
-      alert("Error de conexion con el servidor: "+e.message);
-    }
-  };
-
   const [compCandidatos,setCompCandidatos]=useState([]); // ofertas encontradas, pendientes de revisar
 
   // Busca ofertas vigentes de campos en portales reales (Portal Inmobiliario, Colliers,
@@ -963,53 +933,6 @@ export default function App(){
     setTimeout(()=>setVistasStatus("idle"),4000);
   };
 
-  // Foto real del acceso al predio via Google Street View. A diferencia de las vistas
-  // satelitales, Street View SI requiere la API key de Google (no hay equivalente gratis por
-  // teselas para fotos a nivel de calle). Importante: Google devuelve una imagen "sin cobertura"
-  // con status 200 igual, asi que primero se consulta el endpoint de metadata para confirmar que
-  // existe cobertura real en el punto — si no, no se agrega nada (nunca una imagen vacia/generica
-  // como si fuera del predio).
-  const generarStreetView=async()=>{
-    let lat,lon;
-    if(form.coordLat&&form.coordLon){
-      lat=parseFloat(String(form.coordLat).trim().replace(",","."));
-      const lonRaw=String(form.coordLon).trim().replace(",",".");
-      lon=parseFloat(lonRaw.startsWith("-")?lonRaw:"-"+lonRaw);
-    }
-    if(!isFinite(lat)||!isFinite(lon)){alert("Primero ubica el predio: usa \"Suelos Auto\" o ingresa las coordenadas.");return;}
-    if(!form.googleMapsKey){alert("Street View necesita tu API Key de Google Maps (la misma de la vista satelital), con la 'Street View Static API' habilitada en Google Cloud Console. Ingresala arriba en Configuracion / Vista Satelital.");return;}
-    setStreetViewStatus("loading");
-    try{
-      const metaUrl=`https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lon}&key=${form.googleMapsKey}`;
-      const metaResp=await fetch(metaUrl);
-      const meta=await metaResp.json();
-      if(meta.status!=="OK"){
-        setStreetViewStatus("nocoverage");
-        upd("imagenes",(form.imagenes||[]).filter(im=>!im.esStreetView));
-        return;
-      }
-      const url=`https://maps.googleapis.com/maps/api/streetview?size=800x500&location=${lat},${lon}&fov=90&key=${form.googleMapsKey}`;
-      const img=new Image();
-      img.crossOrigin="anonymous";
-      img.onload=()=>{
-        const canvas=document.createElement("canvas");
-        canvas.width=img.width; canvas.height=img.height;
-        canvas.getContext("2d").drawImage(img,0,0);
-        const dataUrl=canvas.toDataURL("image/jpeg",0.9);
-        // Reemplaza un Street View generado antes (si se vuelve a apretar el boton); conserva fotos subidas y vistas aereas
-        upd("imagenes",[...(form.imagenes||[]).filter(im=>!im.esStreetView),
-          {name:"street-view-acceso.jpg",url:dataUrl,cap:"Vista Street View del acceso al predio (Google, referencial — no reemplaza visita a terreno)",esStreetView:true}]);
-        setStreetViewStatus("ok");
-        setTimeout(()=>setStreetViewStatus("idle"),4000);
-      };
-      img.onerror=()=>setStreetViewStatus("error");
-      img.src=url;
-    }catch(e){
-      setStreetViewStatus("error");
-      alert("Error consultando Street View: "+e.message);
-    }
-  };
-
   const handleImages=(e)=>{
     const files=Array.from(e.target.files);
     Promise.all(files.map(f=>new Promise(res=>{
@@ -1060,7 +983,6 @@ export default function App(){
           construccionesTxt:(()=>{try{const l=JSON.parse(form.construccionesLista||"[]").filter(c=>String(c.nombre||"").trim());const li=JSON.parse(form.instalacionesLista||"[]").filter(r=>String(r.nombre||"").trim());const t=[...l.map(c=>c.nombre+(c.m2?" ("+c.m2+" m2"+(c.anio?", año "+c.anio:"")+")":"")+(c.detalle?": "+c.detalle:"")),...li.map(r=>"Instalacion: "+r.nombre+(r.cantidad?" ("+r.cantidad+" "+(r.unidad||"")+")":""))];return t.join(" | ");}catch(e){return "";}})(),
           metodologiaTxt:form.metodologiaTxt,climaTxt:form.climaTxt,numTasacion:form.numTasacion,guiaConclusion:form.guiaConclusion,escasezTxt:form.escasezTxt,
           usosResumen:(()=>{try{const u=JSON.parse(form.usosCIREN||"{}");return Object.entries(u).map(([k,v])=>k+" "+v+" ha").join(", ");}catch(e){return "";}})(),
-          usoSueloConafTxt:form.usoSueloConafTxt,
           coordLat:form.coordLat,coordLon:form.coordLon,distSantiago:form.distSantiago,distComuna:form.distComuna,acceso:form.acceso,
         })
       });
@@ -1130,7 +1052,9 @@ export default function App(){
         if(d.reavaluo){updRolDatos(i,"reavaluo",String(d.reavaluo));ok.push("reavaluo");}
         if(!d.areaHomogenea)falta.push("clasificacion de suelos (no publicada - usa el certificado detallado o SITRURAL)");
         falta.push("propietario y RUT (siempre manuales)");
-        setDebugSII({ok:true,msg:"Rellenado automaticamente: "+ok.join(", ")+". Completa a mano: "+falta.join("; ")+".",coords:(d.lat&&d.lon)?{lat:d.lat,lon:d.lon}:null});
+        const correccion=(data.debug||[]).find(x=>x&&x.correccionAutomatica);
+        const avisoCorreccion=correccion?("⚠ "+correccion.correccionAutomatica+". Verifica que sea la comuna correcta. "):"";
+        setDebugSII({ok:true,msg:avisoCorreccion+"Rellenado automaticamente: "+ok.join(", ")+". Completa a mano: "+falta.join("; ")+".",coords:(d.lat&&d.lon)?{lat:d.lat,lon:d.lon}:null});
       }else{
         setDebugSII({ok:false,msg:"No se pudo obtener automaticamente esta vez. Usa los botones Avaluo SII / Mapa SII y copia manual. Detalle tecnico abajo (enviaselo a Claude para ajustar):",debug:JSON.stringify(data.debug||data,null,2).substring(0,1500)});
       }
@@ -1171,13 +1095,13 @@ export default function App(){
       noAgric.forEach(x=>{
         const ri=form.roles.findIndex(r=>r.rol===x.rol&&r.comuna===x.comuna);
         if(ri>=0){
-          setForm(f=>({...f,roles:f.roles.map((r,j)=>j===ri?{...r,datos:{...r.datos,noAgricola:true,destino:(r.datos||{}).destino||"SIN DATOS CIREN"}}:r)}));
+          setForm(f=>({...f,roles:f.roles.map((r,j)=>j===ri?{...r,datos:{...r.datos,noAgricola:true,destino:(r.datos||{}).destino||"NO AGRICOLA"}}:r)}));
         }
       });
       const fallidos=resultados.filter(x=>!x.d||!x.d.ok);
       if(!oks.length){
         if(noAgric.length){
-          setSuelosStatus({ok:true,msg:"Rol(es) SIN DATOS EN CATASTRO CIREN: "+noAgric.map(x=>x.rol).join(", ")+". Esto no significa que sean urbanos ni no-agricolas — verifica el destino real en SII Mapas. Si es rural/agricola, ingresa las clases de suelo manualmente. El informe incluira sus antecedentes (avaluo, superficie, inscripciones) normalmente."});
+          setSuelosStatus({ok:true,msg:"Rol(es) NO AGRICOLA: "+noAgric.map(x=>x.rol).join(", ")+". Sin catastro rural que analizar; el informe incluira sus antecedentes (avaluo, superficie, inscripciones)."});
           return;
         }
         const p=resultados[0]&&resultados[0].d;
@@ -1314,11 +1238,10 @@ export default function App(){
         if(!form.imagenSatelital)generarSatelital(bb);
       }
       const cab=multi?("Analisis de "+oks.length+" roles ("+oks.map(x=>x.rol).join(" + ")+"). Superficie CIREN total: "+(Math.round(supTotal*100)/100)+" ha. "):("Superficie CIREN del predio: "+(Math.round(supTotal*100)/100)+" ha. ");
-      const naTxt=noAgric.length?(" ℹ Rol(es) SIN DATOS CIREN (no confirma que sean urbanos, verificar en SII Mapas; se informan con sus antecedentes): "+noAgric.map(x=>x.rol).join(", ")+"."):"";
+      const naTxt=noAgric.length?(" ℹ Rol(es) NO AGRICOLA (sin catastro rural, se informan con sus antecedentes): "+noAgric.map(x=>x.rol).join(", ")+"."):"";
       const errTxt=(fallidos.length?(" ⚠ No se pudo consultar: "+fallidos.map(x=>x.rol).join(", ")+"."):"")+naTxt;
       const geTxt=totGE>0?(" Superficie medida sobre el poligono (equivalente a Google Earth): "+totGE.toFixed(2)+" ha"+(detGE.length>1?(" → "+detGE.join(" | ")):"")+"."):"";
-      const fuenteClasesTxt=(rellenadas.length&&data.fuenteClases)?(" [Clases via: "+data.fuenteClases+"]"):"";
-      setSuelosStatus({ok:true,msg:cab+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+fuenteClasesTxt+(serieTxt?" Serie: "+serieTxt:"")+carTxt+geTxt+usosTxt+frutTxt+errTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(resultados.map(x=>({rol:x.rol,resultado:x.d})),null,2)});
+      setSuelosStatus({ok:true,msg:cab+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(serieTxt?" Serie: "+serieTxt:"")+carTxt+geTxt+usosTxt+frutTxt+errTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(resultados.map(x=>({rol:x.rol,resultado:x.d})),null,2)});
     }catch(e){
       setSuelosStatus({ok:false,msg:"Error: "+e.message});
     }
@@ -2209,13 +2132,6 @@ export default function App(){
                   {suelosStatus.debug&&<pre style={{fontSize:10,overflow:"auto",maxHeight:140,background:"#fff",padding:8,borderRadius:6,marginTop:8,color:"#555"}}>{suelosStatus.debug}</pre>}
                 </div>
               )}
-
-              <div style={{marginBottom:12,paddingTop:4,borderTop:"1px dashed #E2E4E1"}}>
-                <button onClick={consultarUsoSueloConaf} disabled={conafPuntualStatus==="loading"} style={{...bS,fontSize:11,padding:"6px 12px",marginTop:10,opacity:conafPuntualStatus==="loading"?0.6:1}}>{conafPuntualStatus==="loading"?"Consultando…":"🌲 Uso de suelo/vegetación puntual (CONAF)"}</button>
-                <span style={{fontSize:11,color:"#888",marginLeft:10}}>Consulta CONAF en el punto exacto del predio (coordenadas SII). Funciona aunque el rol no este en CIREN — util para confirmar si es bosque, matorral, agricola, etc.</span>
-                {conafPuntualStatus==="notfound"&&<div style={{fontSize:11,color:"#9B4B43",marginTop:6}}>El punto no cae dentro de ningun poligono del catastro CONAF (zona sin cobertura o justo en un limite).</div>}
-                {form.usoSueloConafTxt&&<div style={{background:"#f0faf4",border:"1px solid "+G,borderRadius:8,padding:"10px 14px",marginTop:8,fontSize:12.5,color:G}}>🌲 CONAF: <b>{form.usoSueloConafTxt}</b></div>}
-              </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12}}>
                 {[1,2,3,4,5,6,7,8].map(n=>(
                   <Fld key={n} label={"Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1]+" (ha)"} value={form["c"+n]} onChange={v=>upd("c"+n,v)} placeholder="0"/>
@@ -2550,14 +2466,8 @@ export default function App(){
                 </button>
                 {vistasStatus==="ok"&&<span style={{fontSize:12,color:G,fontWeight:600}}>✓ Vistas aéreas agregadas</span>}
                 {vistasStatus==="error"&&<span style={{fontSize:12,color:"#c53030"}}>No se pudieron cargar las imágenes satelitales.</span>}
-                <button onClick={generarStreetView} disabled={streetViewStatus==="loading"} style={{...bS,opacity:streetViewStatus==="loading"?0.6:1}}>
-                  {streetViewStatus==="loading"?"Consultando Street View…":"🚗 Foto Street View del acceso"}
-                </button>
-                {streetViewStatus==="ok"&&<span style={{fontSize:12,color:G,fontWeight:600}}>✓ Street View agregada</span>}
-                {streetViewStatus==="nocoverage"&&<span style={{fontSize:12,color:"#9B4B43"}}>Google no tiene cobertura Street View en este punto.</span>}
-                {streetViewStatus==="error"&&<span style={{fontSize:12,color:"#c53030"}}>No se pudo consultar Street View.</span>}
               </div>
-              <div style={{fontSize:11.5,color:"#888",marginTop:6}}>Si no tienes fotografías de terreno, las vistas aéreas son imágenes satelitales reales del predio (Esri) con sus deslindes, a tres escalas: detalle, entorno y contexto. La foto Street View (requiere API Key de Google) muestra el acceso real al predio cuando hay cobertura.</div>
+              <div style={{fontSize:11.5,color:"#888",marginTop:6}}>Si no tienes fotografías de terreno, las vistas aéreas son imágenes satelitales reales del predio (Esri) con sus deslindes, a tres escalas: detalle, entorno y contexto.</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:12}}>
                 {form.imagenes.map((img,i)=>(
                   <div key={i} style={{position:"relative"}}>
@@ -2644,7 +2554,8 @@ export default function App(){
                   const legacy=ha(form.plantacionHas)*num(form.plantacionValorHa);
                   let agua=0;try{agua=JSON.parse(form.recursosHidricos||"[]").reduce((s,r)=>s+num(r.valor),0);}catch(e){}
                   let cons=0;try{cons=JSON.parse(form.construccionesLista||"[]").reduce((s,c2)=>s+ha(c2.m2)*num(c2.vm2),0);}catch(e){}
-                  const total=suelos+pls+legacy+agua+cons;
+                  let inst=0;try{inst=JSON.parse(form.instalacionesLista||"[]").reduce((s,r)=>s+(num(r.vg)||ha(r.cantidad)*num(r.vu)),0);}catch(e){}
+                  const total=suelos+pls+legacy+agua+cons+inst;
                   if(total<=0)return null;
                   const F=v=>"$ "+Math.round(v).toLocaleString("es-CL");
                   const uf=num(form.ufBase);
@@ -2655,7 +2566,7 @@ export default function App(){
                         Suelos: <b>{F(suelos)}</b>
                         {(pls+legacy)>0?<> · Plantaciones: <b>{F(pls+legacy)}</b></>:null}
                         {agua>0?<> · Derechos de Agua: <b>{F(agua)}</b></>:null}
-                        {cons>0?<> · Construcciones: <b>{F(cons)}</b></>:null}
+                        {(cons+inst)>0?<> · Construcciones e Instalaciones: <b>{F(cons+inst)}</b></>:null}
                       </div>
                       <div style={{fontWeight:700,marginTop:6,fontSize:15,color:G}}>TOTAL: {F(total)}{uf>0?"  ·  UF "+Math.round(total/uf).toLocaleString("es-CL"):""}</div>
                       <button onClick={()=>{upd("valorComercial",Math.round(total).toLocaleString("es-CL"));if(uf>0)upd("valorComercialUF",Math.round(total/uf).toLocaleString("es-CL"));}} style={{...bS,fontSize:12,marginTop:8}}>↴ Usar como Valor Comercial</button>
