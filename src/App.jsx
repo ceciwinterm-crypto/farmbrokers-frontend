@@ -1241,7 +1241,9 @@ export default function App(){
       const naTxt=noAgric.length?(" ℹ Rol(es) NO AGRICOLA (sin catastro rural, se informan con sus antecedentes): "+noAgric.map(x=>x.rol).join(", ")+"."):"";
       const errTxt=(fallidos.length?(" ⚠ No se pudo consultar: "+fallidos.map(x=>x.rol).join(", ")+"."):"")+naTxt;
       const geTxt=totGE>0?(" Superficie medida sobre el poligono (equivalente a Google Earth): "+totGE.toFixed(2)+" ha"+(detGE.length>1?(" → "+detGE.join(" | ")):"")+"."):"";
-      setSuelosStatus({ok:true,msg:cab+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(serieTxt?" Serie: "+serieTxt:"")+carTxt+geTxt+usosTxt+frutTxt+errTxt+" (Fuente referencial CIREN/IDE Minagri — valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(resultados.map(x=>({rol:x.rol,resultado:x.d})),null,2)});
+      const fuentesReales=[...new Set(oks.map(x=>x.d.fuenteSuelo).filter(Boolean))];
+      const fuenteTxt=fuentesReales.length?fuentesReales.join(" + "):"CIREN/IDE Minagri";
+      setSuelosStatus({ok:true,msg:cab+(rellenadas.length?("Clases rellenadas → "+rellenadas.join(" | ")):(data.notaClases||"Sin desglose de clases disponible; completa manual."))+(serieTxt?" Serie: "+serieTxt:"")+carTxt+geTxt+usosTxt+frutTxt+errTxt+" (Fuente real de los datos de suelo: "+fuenteTxt+" — referencial, valida con el certificado SII)",debug:(data.notaClases||faltantes.length>=3)?JSON.stringify({camposDelPoligonoCIREN:data.camposDominante||null,debug:data.debug||[]},null,2).substring(0,2500):null,debugFull:JSON.stringify(resultados.map(x=>({rol:x.rol,resultado:x.d})),null,2)});
     }catch(e){
       setSuelosStatus({ok:false,msg:"Error: "+e.message});
     }
