@@ -368,7 +368,7 @@ const EMPTY = {
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",plantacionesCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
-  c1:"0",c2:"0",c3:"0",c4:"0",c5:"0",c6:"0",c7:"0",c8:"0",
+  c1:"0",c2:"0",c3:"0",c4:"0",c5:"0",c6:"0",c7:"0",c8:"0",clasesSIIfiscal:"",
   v1:"",v2:"",v3:"",v4:"",v5:"",v6:"",v7:"",v8:"",
   seriesSuelo:"",pendiente:"",profundidad:"",erosion:"",pedregosidad:"",
   drenaje:"",textura:"",ph:"",aptitud:"",capacidadUso:"",
@@ -973,6 +973,7 @@ export default function App(){
           superfGoogleEarth:form.superfGoogleEarth,
           c1:form.c1,c2:form.c2,c3:form.c3,c4:form.c4,c5:form.c5,c6:form.c6,c7:form.c7,c8:form.c8,
           suelosDetalle:[1,2,3,4,5,6,7,8].map(n=>({n,h:parseFloat((form["c"+n]||"0").replace(",","."))})).filter(x=>x.h>0).map(x=>"Clase "+["I","II","III","IV","V","VI","VII","VIII"][x.n-1]+": "+x.h+" ha").join(", "),
+          clasesSIITxt:(()=>{try{const sf=JSON.parse(form.clasesSIIfiscal||"null");if(!sf||!sf.total)return "";const p=[];Object.entries(sf.riego||{}).forEach(([k,v])=>p.push("Clase "+k+" riego: "+v+" ha"));Object.entries(sf.secano||{}).forEach(([k,v])=>p.push("Clase "+k+" secano: "+v+" ha"));return p.join(", ")+" (total fiscal "+sf.total+" ha)";}catch(e){return "";}})(),
           seriesSuelo:form.seriesSuelo,pendiente:form.pendiente,drenaje:form.drenaje,
           cn1:form.cn1,co1:form.co1,ca1:form.ca1,cq1:form.cq1,
           recursosHidricosTxt:(()=>{try{const l=JSON.parse(form.recursosHidricos||"[]");return l.filter(r=>String(r.nombre||"").trim()||String(r.tipo||"").trim()).map(r=>(r.tipo||"")+" "+(r.nombre||"")+(r.origen?" (origen: "+r.origen+")":"")+(r.derechos?", "+r.derechos+" acciones/derechos":"")+(r.caudal?", "+r.caudal+" l/s":"")+(r.valor?", valorizado en $"+r.valor:"")).join(" | ");}catch(e){return "";}})(),
@@ -1123,6 +1124,15 @@ export default function App(){
           else plants.push({...p,rol});
         });
       });
+      // Clasificacion SII (fiscal) del conjunto de roles: rieN/secN del registro del catastro
+      const siiR={},siiS={};let siiTot=0;
+      oks.forEach(({d})=>{
+        const cs=d.clasesSIIfiscal;if(!cs)return;
+        Object.entries(cs.riego||{}).forEach(([k,v])=>{siiR[k]=Math.round(((siiR[k]||0)+num(v))*100)/100;siiTot+=num(v);});
+        Object.entries(cs.secano||{}).forEach(([k,v])=>{siiS[k]=Math.round(((siiS[k]||0)+num(v))*100)/100;siiTot+=num(v);});
+      });
+      if(siiTot>0)upd("clasesSIIfiscal",JSON.stringify({riego:siiR,secano:siiS,total:Math.round(siiTot*100)/100}));
+      else upd("clasesSIIfiscal","");
       // Superficie SII de cada rol: primero la registrada en el catastro (oficial);
       // si no existe, la superficie CIREN calculada como respaldo referencial
       oks.forEach(x=>{
@@ -1131,6 +1141,7 @@ export default function App(){
         if(ri>=0&&!String((form.roles[ri].datos||{}).superfSII||"").trim())updRolDatos(ri,"superfSII",val);
         // Clases de suelo del rol (para la tabla por rol del informe): siempre se sobreescriben
         if(ri>=0)updRolDatos(ri,"clasesCIREN",JSON.stringify(x.d.clases||{}));
+        if(ri>=0&&x.d.clasesSIIfiscal)updRolDatos(ri,"clasesSIIRol",JSON.stringify(x.d.clasesSIIfiscal));
         // Uso actual CONAF y serie de suelo del rol (para agrupar el informe por paño)
         if(ri>=0)updRolDatos(ri,"usosRol",JSON.stringify(x.d.usos||{}));
         if(ri>=0&&x.d.serie)updRolDatos(ri,"serieRol",x.d.serie);
@@ -2141,6 +2152,23 @@ export default function App(){
               </div>
               <div style={{fontSize:11,color:"#888",marginTop:6}}>Clases I a IV: suelos arables (riego/cultivo). Clases V a VIII: no arables (ganaderia, forestal, proteccion).</div>
               {(()=>{
+                let sf=null;try{sf=JSON.parse(form.clasesSIIfiscal||"null");}catch(e){sf=null;}
+                if(!sf||!sf.total)return null;
+                const nz=o=>Object.entries(o||{}).filter(([,v])=>parseFloat(v)>0);
+                const rg=nz(sf.riego),sc=nz(sf.secano);
+                const sumCIREN=[1,2,3,4,5,6,7,8].reduce((s,n)=>s+(parseFloat(String(form["c"+n]||"0").replace(",","."))||0),0);
+                const difiere=Math.abs(sumCIREN-sf.total)>0.5||rg.some(([k])=>!(parseFloat(String(form["c"+["I","II","III","IV"].indexOf(k)+1]||"0").replace(",","."))>0));
+                return <div style={{marginTop:12,background:"#FDF9F0",border:"1px solid #C6A66A",borderRadius:8,padding:"12px 14px"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#8a6414",marginBottom:6}}>🏛 Clasificación SII (fiscal) — registrada en el catastro para el avalúo</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:6}}>
+                    {rg.map(([k,v],i)=><span key={"r"+i} style={{fontSize:11,padding:"4px 9px",borderRadius:20,background:"#fff",border:"1px solid #C6A66A",color:"#8a6414"}}>Clase {k} riego: {String(v).replace(".",",")} ha</span>)}
+                    {sc.map(([k,v],i)=><span key={"s"+i} style={{fontSize:11,padding:"4px 9px",borderRadius:20,background:"#fff",border:"1px solid #C6A66A",color:"#8a6414"}}>Clase {k} secano: {String(v).replace(".",",")} ha</span>)}
+                    <span style={{fontSize:11,padding:"4px 9px",borderRadius:20,background:"#8a6414",color:"#fff"}}>Total fiscal: {String(sf.total).replace(".",",")} ha</span>
+                  </div>
+                  <div style={{fontSize:11,color:"#666",lineHeight:1.5}}>Esta es la clasificación que el SII tiene enrolada para el cálculo del avalúo (campos rie/sec del catastro). Los campos "Clase I–VIII" de arriba vienen del estudio agrológico (CIREN/SIT Rural): son metodologías distintas y no tienen por qué coincidir.{difiere?<b style={{color:"#9B4B43"}}> ⚠ Difieren en este predio ({sumCIREN.toFixed(2).replace(".",",")} ha agrológicas vs {String(sf.total).replace(".",",")} ha fiscales): el informe mostrará ambas fuentes por separado.</b>:" En este predio coinciden razonablemente."}</div>
+                </div>;
+              })()}
+              {(()=>{
                 const ap=calcularAptitudProductiva(form);
                 if(!ap)return null;
                 return <div style={{marginTop:14,background:"#F7F5F1",border:"1px solid #E2E4E1",borderRadius:8,padding:"12px 14px"}}>
@@ -2865,6 +2893,18 @@ export default function App(){
                   const tot=activos.reduce((s,n)=>s+parseFloat((report["c"+n]||"0").replace(",",".")),0);
                   if(filas.length)filas.push(["","Total Superficie",tot.toFixed(2).replace(".",",")]);
                   return <GTbl boldLast={1} headers={["Linea","Clase de Suelo","Superficie (Ha)"]} rows={filas}/>;
+                })()}
+                {(()=>{
+                  let sf=null;try{sf=JSON.parse(report.clasesSIIfiscal||"null");}catch(e){sf=null;}
+                  if(!sf||!sf.total)return null;
+                  const filas=[];let li=0;
+                  Object.entries(sf.riego||{}).forEach(([k,v])=>{li++;filas.push([String(li),"CLASE "+k+" (riego)",String(v).replace(".",",")]);});
+                  Object.entries(sf.secano||{}).forEach(([k,v])=>{li++;filas.push([String(li),"CLASE "+k+" (secano)",String(v).replace(".",",")]);});
+                  filas.push(["","Total Superficie Fiscal",String(sf.total).replace(".",",")]);
+                  return <div style={{marginTop:10}}>
+                    <p style={{...TXT,fontStyle:"italic",fontSize:12.5,marginBottom:4}}>Clasificación de suelos SII (fiscal), registrada en el catastro de bienes raíces para el cálculo del avalúo. Corresponde a una metodología distinta de la clasificación agrológica anterior, por lo que sus superficies pueden diferir:</p>
+                    <GTbl boldLast={1} headers={["Linea","Clase de Suelo (SII)","Superficie (Ha)"]} rows={filas}/>
+                  </div>;
                 })()}
                                 <Sub>Caracteristicas CIREN:</Sub>
                 <p style={TXT}>{report.ia&&report.ia.ciren}</p>
