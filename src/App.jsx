@@ -1469,91 +1469,168 @@ export default function App(){
     }
   };
 
-  // ════════════════════════════════════════════════════════════════
-  // ⭐ NUEVA FUNCIÓN EXPORTAR WORD (CON DOCX)
-  // ════════════════════════════════════════════════════════════════
-  const exportarWord = async () => {
-    if (!report) {
-      alert("Primero genera el informe.");
-      return;
+  const exportarWord=()=>{
+    const el=document.getElementById("informe");
+    if(!el)return;
+    const clon=el.cloneNode(true);
+
+    // 1) Fuera los pies de pantalla (el .doc lleva pie propio de Word, repetido en cada hoja)
+    clon.querySelectorAll("[data-footer]").forEach(d=>d.remove());
+
+    // 2) Word no entiende flex, grid, radios ni px: se traduce todo a estilos que si soporta
+    clon.querySelectorAll("*").forEach(elm=>{
+      let st=elm.getAttribute("style")||"";
+      if(!st)return;
+      st=st.replace(/display\s*:\s*(flex|inline-flex|grid)[^;]*;?/gi,"display:block;")
+           .replace(/(flex|grid)[a-z-]*\s*:[^;]*;?/gi,"")
+           .replace(/(gap|border-radius|box-shadow|object-fit|min-height|max-height|overflow|position|align-items|justify-content|letter-spacing)\s*:[^;]*;?/gi,"");
+      if(elm.tagName==="DIV")st=st.replace(/height\s*:[^;]*;?/gi,"");
+      // Word no maneja bien los px: todo a puntos (1px = 0,75pt)
+      st=st.replace(/([\d.]+)px/g,(m,n)=>(parseFloat(n)*0.75).toFixed(1)+"pt");
+      elm.setAttribute("style",st);
+    });
+
+    // 2b) Portada nativa de Word: el diseño en capas (flex/absoluto) se desarma en Word
+    // (franjas verdes cortadas, huecos blancos, textos pegados al borde). Se reconstruye
+    // como tabla — Word pinta fondos de celda continuos — usando los mismos datos del informe.
+    const port=clon.querySelector(".pg-portada");
+    if(port&&report){
+      const esc=t=>String(t==null?"":t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const rolesHtml=(report.roles||[]).map(r=>"<div style='font-size:9.5pt;color:#C9D3CC;line-height:1.8;'>Rol N° "+esc(r.rol)+" · "+esc(capTxt(r.comuna))+"</div>").join("")+
+        "<div style='font-size:9.5pt;color:#C9D3CC;line-height:1.8;'>"+(report.provincia?"Provincia de "+esc(capTxt(report.provincia))+" · ":"")+"Región de "+esc(regionTxt(report.region))+", Chile</div>";
+      const metas=[[report.numTasacion?"N° "+report.numTasacion:"","Informe"],
+        [report.fecha,"Fecha de tasación"],
+        [report.solicitante?capTxt(report.solicitante):"","Preparado para"],
+        [report.superfSIITotal>0?report.superfSIITotal.toFixed(2).replace(".",",")+" ha":"","Superficie SII"]
+       ].filter(x=>String(x[0]||"").trim());
+      const metaTds=metas.map(x=>"<td style='border:none;padding:12pt 20pt 0 0;vertical-align:top;'>"+
+        "<div style='font-size:6.5pt;text-transform:uppercase;color:#6C746F;margin-bottom:3pt;letter-spacing:1pt;'>"+esc(x[1])+"</div>"+
+        "<div style='font-size:11pt;font-weight:600;color:#222724;'>"+esc(x[0])+"</div></td>").join("");
+      port.innerHTML=
+        "<table data-libre='1' cellspacing='0' cellpadding='0' width='100%' style='border-collapse:collapse;border:none;margin:0;'>"+
+        "<tr><td style='border:none;background:#C6A66A;height:4pt;font-size:1pt;line-height:1pt;padding:0;'>&nbsp;</td></tr>"+
+        "<tr><td style='border:none;background:#33463B;padding:42pt 34pt 36pt;'>"+
+          "<img src='"+LOGO_WHITE+"' alt='Farm Brokers' style='width:4.2cm;height:auto;'/>"+
+          "<div style='margin:24pt 0 14pt;'><table data-libre='1' cellspacing='0' cellpadding='0' style='border:none;width:40pt;margin:0;'><tr><td style='border:none;background:#C6A66A;height:2pt;font-size:1pt;line-height:1pt;padding:0;'>&nbsp;</td></tr></table></div>"+
+          "<div style='font-size:8pt;text-transform:uppercase;color:#C9D3CC;margin-bottom:10pt;letter-spacing:2.4pt;'>Informe de Tasación</div>"+
+          "<div style='font-size:25pt;font-weight:700;color:#ffffff;line-height:1.2;margin-bottom:12pt;'>"+esc(capTxt(report.predioNombre))+"</div>"+
+          rolesHtml+
+        "</td></tr>"+
+        "<tr><td style='border:none;background:#ffffff;padding:18pt 0 0;'>"+
+          "<table data-libre='1' cellspacing='0' cellpadding='0' style='border:none;margin:0;'><tr>"+metaTds+"</tr></table>"+
+          "<div style='margin-top:26pt;border-top:0.75pt solid #E2E4E1;padding-top:8pt;'>"+
+            "<table data-libre='1' cellspacing='0' cellpadding='0' width='100%' style='border:none;margin:0;'><tr>"+
+            "<td style='border:none;padding:0;font-size:7.5pt;color:#6C746F;'><b style='color:#33463B;'>FARM BROKERS CHILE</b> · Tasaciones · Estudios · Venta de Campos</td>"+
+            "<td style='border:none;padding:0;font-size:7.5pt;color:#6C746F;text-align:right;'>www.farmbrokers.cl</td>"+
+            "</tr></table></div>"+
+        "</td></tr></table>";
     }
 
-    const datos = {
-      predioNombre: report.predioNombre,
-      roles: report.roles,
-      fecha: report.fecha,
-      region: report.region,
-      avaluoTotal: report.avaluoTotal,
-      ufBase: report.ufBase,
-      superfTitulos: report.superfTitulos,
-      superfSIITotal: report.superfSIITotal,
-      superfGoogleEarth: report.superfGoogleEarth,
-      seriesSuelo: report.seriesSuelo,
-      pendiente: report.pendiente,
-      profundidad: report.profundidad,
-      drenaje: report.drenaje,
-      textura: report.textura,
-      ph: report.ph,
-      c1: report.c1, c2: report.c2, c3: report.c3, c4: report.c4,
-      c5: report.c5, c6: report.c6, c7: report.c7, c8: report.c8,
-      v1: report.v1, v2: report.v2, v3: report.v3, v4: report.v4,
-      v5: report.v5, v6: report.v6, v7: report.v7, v8: report.v8,
-      climaTxt: report.climaTxt,
-      recursosHidricosTxt: report.recursosHidricosTxt,
-      plantacionesTxt: report.plantacionesTxt,
-      metodologiaTxt: report.metodologiaTxt,
-      valorComercial: report.valorComercial,
-      valorComercialUF: report.valorComercialUF,
-      valorFacilVenta: report.valorFacilVenta,
-      tasador: report.tasador,
-      numTasacion: report.numTasacion,
-      distSantiago: report.distSantiago,
-      distComuna: report.distComuna,
-      acceso: report.acceso,
-      coordLat: report.coordLat,
-      coordLon: report.coordLon,
-      ia: report.ia,
-      refs: report.refs,
-      clasesSIITxt: report.clasesSIITxt,
-    };
-
-    try {
-      setGenMsg("Generando Word...");
-      setLoading(true);
-
-      const response = await fetch(form.backendUrl.replace(/\/$/,"") + "/generar-word", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(datos),
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.error || "Error al generar el Word");
+    // 2c) Bandas de seccion (borde dorado + numero + titulo): como divs se desarman en Word
+    // (numero apilado, franjas cortadas y restos de fondo verde al pie de la hoja),
+    // se reconstruyen como tabla nativa, igual que la portada.
+    clon.querySelectorAll("div[data-sub]").forEach(b=>{
+      const st=b.getAttribute("style")||"";
+      if(!/rgb\(51,\s*70,\s*59\)|#33463B/i.test(st))return; // solo bandas verdes, no subtitulos
+      const escB=t=>String(t==null?"":t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const divs=Array.from(b.children).filter(x=>x.tagName==="DIV");
+      let num="",titulo="",sub="";
+      const cont=divs.length>=2?divs[1]:divs[0];
+      if(divs.length>=2)num=divs[0].textContent.trim();
+      if(cont){
+        const hijos=Array.from(cont.children).filter(x=>x.tagName==="DIV");
+        titulo=(hijos[0]?hijos[0].textContent:cont.textContent).trim();
+        sub=hijos[1]?hijos[1].textContent.trim():"";
       }
+      const cont2=document.createElement("div");
+      cont2.innerHTML="<table data-libre='1' cellspacing='0' cellpadding='0' width='100%' style='border-collapse:collapse;border:none;margin:0 0 14pt;page-break-after:avoid;'><tr>"+
+        "<td style='border:none;background:#C6A66A;width:3pt;padding:0;font-size:1pt;line-height:1pt;'>&nbsp;</td>"+
+        (num?"<td style='border:none;background:#33463B;width:40pt;padding:8pt 6pt;text-align:center;color:#C6A66A;font-size:14pt;font-weight:700;vertical-align:middle;'>"+escB(num)+"</td>":"")+
+        "<td style='border:none;background:#33463B;padding:8pt 12pt;vertical-align:middle;'>"+
+        "<span style='color:#ffffff;font-size:11pt;font-weight:700;text-transform:uppercase;letter-spacing:1.2pt;'>"+escB(titulo)+"</span>"+
+        (sub?"<br/><span style='color:#C9D3CC;font-size:8pt;font-style:italic;'>"+escB(sub)+"</span>":"")+
+        "</td></tr></table>";
+      b.replaceWith(cont2.firstChild);
+    });
 
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      const nombreLimpio = (report.numTasacion || "sin_numero").replace(/[^a-zA-Z0-9]/g, '');
-      a.download = `Informe_Tasacion_${nombreLimpio}.docx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+    // 3) Filas etiqueta/valor (eran flex) -> parrafo "Etiqueta: valor"
+    clon.querySelectorAll("div").forEach(d=>{
+      if(d.children.length===2&&d.children[0].tagName==="SPAN"&&d.children[1].tagName==="SPAN"&&!d.querySelector("table,img")){
+        const p=document.createElement("p");
+        p.setAttribute("style","margin:2pt 0;font-size:11pt;");
+        p.innerHTML="<b>"+d.children[0].innerHTML+"</b> "+d.children[1].innerHTML;
+        d.replaceWith(p);
+      }
+    });
 
-      setGenMsg("✅ Word generado correctamente");
-      setTimeout(() => setGenMsg(""), 3000);
+    // 4) Imagenes: ancho de pagina (el logo mas chico), sin alto forzado
+    clon.querySelectorAll("img").forEach(im=>{
+      im.removeAttribute("width");im.removeAttribute("height");
+      const alt=(im.getAttribute("alt")||"").toLowerCase();
+      im.setAttribute("style",alt.includes("farm brokers")?"width:4.2cm;height:auto;":"width:15.5cm;height:auto;margin:6pt 0;");
+    });
 
-    } catch (error) {
-      console.error("Error exportando Word:", error);
-      alert("Error al generar el Word: " + error.message);
-    } finally {
-      setLoading(false);
-    }
+    // 5) Tablas con bordes reales y encabezado repetido en cada hoja
+    clon.querySelectorAll("table").forEach(t=>{
+      if(t.hasAttribute("data-libre"))return;
+      t.setAttribute("border","1");t.setAttribute("cellspacing","0");t.setAttribute("cellpadding","4");
+      t.setAttribute("style","border-collapse:collapse;width:100%;margin:8pt 0;mso-table-lspace:0pt;mso-table-rspace:0pt;");
+      const th=t.querySelector("thead tr");
+      if(th)th.setAttribute("style","mso-yfti-irow:-1;mso-row-margin-left:0;");
+    });
+
+    // 6) Saltos de pagina reales entre secciones (Word solo respeta el <br> con page-break)
+    Array.from(clon.children).forEach((pg,idx)=>{
+      pg.setAttribute("style","display:block;margin:0;padding:0;");
+      if(idx>0){
+        const salto=document.createElement("br");
+        salto.setAttribute("clear","all");
+        salto.setAttribute("style","page-break-before:always;mso-special-character:line-break");
+        pg.parentNode.insertBefore(salto,pg);
+      }
+    });
+
+    // 7) Documento Word: hoja A4, margenes reales y pie con numeracion automatica
+    const TIPO=tipoDe(form.tipografia);
+    const pieTxt="Farm Brokers Chile · Tasaciones, Estudios y Venta de Campos"+((report&&report.numTasacion)?("  ·  Informe N° "+report.numTasacion):"");
+    const estilos="@page Seccion1{size:21.0cm 29.7cm;margin:2.0cm 1.8cm 2.2cm 1.8cm;mso-page-orientation:portrait;mso-footer:f1;mso-footer-margin:1.2cm;}"+
+      "div.Seccion1{page:Seccion1;}"+
+      "body{font-family:"+TIPO.texto+";font-size:10.5pt;color:#222724;line-height:1.5;}"+
+      "h1{font-family:"+TIPO.tit+";color:#1a1a1a;font-size:21pt;text-align:center;margin:10pt 0;}"+
+      "h2{font-family:"+TIPO.tit+";color:#33463B;font-size:13.5pt;border-bottom:1.5pt solid #33463B;padding-bottom:3pt;margin:0 0 12pt;page-break-after:avoid;}"+
+      "*{font-family:"+TIPO.texto+";}"+
+      "h1,h2,h3,th{font-family:"+TIPO.tit+";}"+
+      "p{margin:5pt 0;text-align:justify;}"+
+      "table{border-collapse:collapse;width:100%;margin:8pt 0;}"+
+      "tr{page-break-inside:avoid;}"+
+      "td,th{border:0.5pt solid #C9CFC9;padding:3.5pt 6pt;font-size:9pt;vertical-align:top;}"+
+      "th{background:#33463B;color:#ffffff;font-weight:bold;text-align:center;font-size:8pt;letter-spacing:0.6pt;}"+
+      "img{max-width:100%;}"+
+      "p.MsoFooter{font-family:"+TIPO.texto+";font-size:8pt;color:#6C746F;border-top:0.5pt solid #d8d8d8;padding-top:3pt;margin:0;}";
+    const pie="<div style='mso-element:footer' id=f1><p class=MsoFooter>"+pieTxt+
+      "<span style='mso-tab-count:1'></span>www.farmbrokers.cl<span style='mso-tab-count:1'></span>"+
+      "Pag. <span style='mso-field-code:PAGE'></span> de <span style='mso-field-code:NUMPAGES'></span></p></div>";
+    const html="<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>"+
+      "<head><meta charset='utf-8'><title>Informe de Tasacion</title>"+
+      "<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->"+
+      "<style>"+estilos+"</style></head><body><div class=Seccion1>"+clon.innerHTML+pie+"</div></body></html>";
+    const blob=new Blob(["\ufeff",html],{type:"application/msword"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    const limpio=(t)=>String(t||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^0-9a-zA-Z]+/g,"-").replace(/^-|-$/g,"");
+    const nom=[limpio(report&&report.numTasacion),limpio(report&&report.predioNombre)||"Predio"].filter(Boolean).join("_");
+    a.download="Informe_Tasacion_"+nom+".doc";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
+  // ── FICHA PARA PUBLICAR (botón aparte de la tasación) ──
+  // Reproduce el orden de publicación de farmbrokers.cl y OMITE todo dato que
+  // permita identificar el predio exacto: nombre, rol SII, inscripciones,
+  // deslindes, coordenadas, caminos de acceso, propietario y avalúo fiscal.
   const exportarFichaPublicacion=()=>{
     if(!report){alert("Primero genera el informe de tasación.");return;}
     const n=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
@@ -2489,8 +2566,8 @@ export default function App(){
                 {form.imagenes.map((img,i)=>(
                   <div key={i} style={{position:"relative"}}>
                     <img src={img.url} alt={img.name} style={{width:110,height:85,objectFit:"contain",background:"#f4f4f2",borderRadius:6,border:"2px solid "+G}}/>
-                    <input value={img.cap||""} onChange={e=>upd("imagenes",form.imagenes.map((im,j)=>j===i?{...im,cap:e.target.value}:im)} placeholder="Leyenda (ej. Acceso al predio)" style={{...iS,width:110,margin:"4px 0 0",padding:"4px 6px",fontSize:10.5}}/>
-                    {img.orig&&<button onClick={()=>upd("imagenes",form.imagenes.map((im,j)=>j===i?{...im,url:im.realce?im.orig:(im.mejorada||im.url),realce:!im.realce}:im)} title={img.realce?"Mostrando foto realzada — clic para ver original":"Mostrando foto original — clic para realzar"} style={{width:110,margin:"3px 0 0",padding:"3px 4px",fontSize:9.5,borderRadius:5,border:"1px solid "+G,background:img.realce?GH:"#fff",color:G,cursor:"pointer"}}>{img.realce?"✨ Realzada":"○ Original"}</button>}
+                    <input value={img.cap||""} onChange={e=>upd("imagenes",form.imagenes.map((im,j)=>j===i?{...im,cap:e.target.value}:im))} placeholder="Leyenda (ej. Acceso al predio)" style={{...iS,width:110,margin:"4px 0 0",padding:"4px 6px",fontSize:10.5}}/>
+                    {img.orig&&<button onClick={()=>upd("imagenes",form.imagenes.map((im,j)=>j===i?{...im,url:im.realce?im.orig:(im.mejorada||im.url),realce:!im.realce}:im))} title={img.realce?"Mostrando foto realzada — clic para ver original":"Mostrando foto original — clic para realzar"} style={{width:110,margin:"3px 0 0",padding:"3px 4px",fontSize:9.5,borderRadius:5,border:"1px solid "+G,background:img.realce?GH:"#fff",color:G,cursor:"pointer"}}>{img.realce?"✨ Realzada":"○ Original"}</button>}
                     <button onClick={()=>upd("imagenes",form.imagenes.filter((_,j)=>j!==i))} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#e53e3e",color:"#fff",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>x</button>
                   </div>
                 ))}
@@ -3199,3 +3276,4 @@ export default function App(){
     </div>
   );
 }
+
