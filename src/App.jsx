@@ -956,6 +956,15 @@ export default function App(){
     setGenError("");
     const rolesValidos=form.roles.filter(r=>r.rol&&r.rol.trim());
 
+    // Guardia: si las clases de suelo estan todas en 0, el informe saldria sin tabla de
+    // clases ni desglose fiscal, y el texto diria "sin clasificacion disponible".
+    // Se avisa ANTES de gastar la generacion, en vez de fallar en silencio.
+    const sumaClases=[1,2,3,4,5,6,7,8].reduce((s,n)=>s+(parseFloat(String(form["c"+n]||"0").replace(",","."))||0),0);
+    if(sumaClases===0&&rolesValidos.length){
+      const seguir=window.confirm("⚠ La clasificacion de suelos esta vacia (todas las clases en 0).\n\nEl informe saldra SIN tabla de clases de suelo y el texto dira que no hay desglose disponible.\n\nRecomendado: presiona Cancelar y corre \"Suelos Auto\" en Antecedentes Tecnicos primero (se llenan las clases y la clasificacion SII fiscal). Luego genera el informe.\n\n¿Generar el informe igual, sin clases de suelo?");
+      if(!seguir){setLoading(false);setGenMsg("");return;}
+    }
+
     try{
       const resp=await fetch(form.backendUrl.replace(/\/$/,"")+"/generar-informe",{
         method:"POST",
