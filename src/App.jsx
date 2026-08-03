@@ -1482,6 +1482,69 @@ export default function App(){
       elm.setAttribute("style",st);
     });
 
+    // 2b) Portada nativa de Word: el diseño en capas (flex/absoluto) se desarma en Word
+    // (franjas verdes cortadas, huecos blancos, textos pegados al borde). Se reconstruye
+    // como tabla — Word pinta fondos de celda continuos — usando los mismos datos del informe.
+    const port=clon.querySelector(".pg-portada");
+    if(port&&report){
+      const esc=t=>String(t==null?"":t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const rolesHtml=(report.roles||[]).map(r=>"<div style='font-size:9.5pt;color:#C9D3CC;line-height:1.8;'>Rol N° "+esc(r.rol)+" · "+esc(capTxt(r.comuna))+"</div>").join("")+
+        "<div style='font-size:9.5pt;color:#C9D3CC;line-height:1.8;'>"+(report.provincia?"Provincia de "+esc(capTxt(report.provincia))+" · ":"")+"Región de "+esc(regionTxt(report.region))+", Chile</div>";
+      const metas=[[report.numTasacion?"N° "+report.numTasacion:"","Informe"],
+        [report.fecha,"Fecha de tasación"],
+        [report.solicitante?capTxt(report.solicitante):"","Preparado para"],
+        [report.superfSIITotal>0?report.superfSIITotal.toFixed(2).replace(".",",")+" ha":"","Superficie SII"]
+       ].filter(x=>String(x[0]||"").trim());
+      const metaTds=metas.map(x=>"<td style='border:none;padding:12pt 20pt 0 0;vertical-align:top;'>"+
+        "<div style='font-size:6.5pt;text-transform:uppercase;color:#6C746F;margin-bottom:3pt;letter-spacing:1pt;'>"+esc(x[1])+"</div>"+
+        "<div style='font-size:11pt;font-weight:600;color:#222724;'>"+esc(x[0])+"</div></td>").join("");
+      port.innerHTML=
+        "<table data-libre='1' cellspacing='0' cellpadding='0' width='100%' style='border-collapse:collapse;border:none;margin:0;'>"+
+        "<tr><td style='border:none;background:#C6A66A;height:4pt;font-size:1pt;line-height:1pt;padding:0;'>&nbsp;</td></tr>"+
+        "<tr><td style='border:none;background:#33463B;padding:42pt 34pt 36pt;'>"+
+          "<img src='"+LOGO_WHITE+"' alt='Farm Brokers' style='width:4.2cm;height:auto;'/>"+
+          "<div style='margin:24pt 0 14pt;'><table data-libre='1' cellspacing='0' cellpadding='0' style='border:none;width:40pt;margin:0;'><tr><td style='border:none;background:#C6A66A;height:2pt;font-size:1pt;line-height:1pt;padding:0;'>&nbsp;</td></tr></table></div>"+
+          "<div style='font-size:8pt;text-transform:uppercase;color:#C9D3CC;margin-bottom:10pt;letter-spacing:2.4pt;'>Informe de Tasación</div>"+
+          "<div style='font-size:25pt;font-weight:700;color:#ffffff;line-height:1.2;margin-bottom:12pt;'>"+esc(capTxt(report.predioNombre))+"</div>"+
+          rolesHtml+
+        "</td></tr>"+
+        "<tr><td style='border:none;background:#ffffff;padding:18pt 0 0;'>"+
+          "<table data-libre='1' cellspacing='0' cellpadding='0' style='border:none;margin:0;'><tr>"+metaTds+"</tr></table>"+
+          "<div style='margin-top:26pt;border-top:0.75pt solid #E2E4E1;padding-top:8pt;'>"+
+            "<table data-libre='1' cellspacing='0' cellpadding='0' width='100%' style='border:none;margin:0;'><tr>"+
+            "<td style='border:none;padding:0;font-size:7.5pt;color:#6C746F;'><b style='color:#33463B;'>FARM BROKERS CHILE</b> · Tasaciones · Estudios · Venta de Campos</td>"+
+            "<td style='border:none;padding:0;font-size:7.5pt;color:#6C746F;text-align:right;'>www.farmbrokers.cl</td>"+
+            "</tr></table></div>"+
+        "</td></tr></table>";
+    }
+
+    // 2c) Bandas de seccion (borde dorado + numero + titulo): como divs se desarman en Word
+    // (numero apilado, franjas cortadas y restos de fondo verde al pie de la hoja),
+    // se reconstruyen como tabla nativa, igual que la portada.
+    clon.querySelectorAll("div[data-sub]").forEach(b=>{
+      const st=b.getAttribute("style")||"";
+      if(!/rgb\(51,\s*70,\s*59\)|#33463B/i.test(st))return; // solo bandas verdes, no subtitulos
+      const escB=t=>String(t==null?"":t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const divs=Array.from(b.children).filter(x=>x.tagName==="DIV");
+      let num="",titulo="",sub="";
+      const cont=divs.length>=2?divs[1]:divs[0];
+      if(divs.length>=2)num=divs[0].textContent.trim();
+      if(cont){
+        const hijos=Array.from(cont.children).filter(x=>x.tagName==="DIV");
+        titulo=(hijos[0]?hijos[0].textContent:cont.textContent).trim();
+        sub=hijos[1]?hijos[1].textContent.trim():"";
+      }
+      const cont2=document.createElement("div");
+      cont2.innerHTML="<table data-libre='1' cellspacing='0' cellpadding='0' width='100%' style='border-collapse:collapse;border:none;margin:0 0 14pt;page-break-after:avoid;'><tr>"+
+        "<td style='border:none;background:#C6A66A;width:3pt;padding:0;font-size:1pt;line-height:1pt;'>&nbsp;</td>"+
+        (num?"<td style='border:none;background:#33463B;width:40pt;padding:8pt 6pt;text-align:center;color:#C6A66A;font-size:14pt;font-weight:700;vertical-align:middle;'>"+escB(num)+"</td>":"")+
+        "<td style='border:none;background:#33463B;padding:8pt 12pt;vertical-align:middle;'>"+
+        "<span style='color:#ffffff;font-size:11pt;font-weight:700;text-transform:uppercase;letter-spacing:1.2pt;'>"+escB(titulo)+"</span>"+
+        (sub?"<br/><span style='color:#C9D3CC;font-size:8pt;font-style:italic;'>"+escB(sub)+"</span>":"")+
+        "</td></tr></table>";
+      b.replaceWith(cont2.firstChild);
+    });
+
     // 3) Filas etiqueta/valor (eran flex) -> parrafo "Etiqueta: valor"
     clon.querySelectorAll("div").forEach(d=>{
       if(d.children.length===2&&d.children[0].tagName==="SPAN"&&d.children[1].tagName==="SPAN"&&!d.querySelector("table,img")){
@@ -1501,6 +1564,7 @@ export default function App(){
 
     // 5) Tablas con bordes reales y encabezado repetido en cada hoja
     clon.querySelectorAll("table").forEach(t=>{
+      if(t.hasAttribute("data-libre"))return;
       t.setAttribute("border","1");t.setAttribute("cellspacing","0");t.setAttribute("cellpadding","4");
       t.setAttribute("style","border-collapse:collapse;width:100%;margin:8pt 0;mso-table-lspace:0pt;mso-table-rspace:0pt;");
       const th=t.querySelector("thead tr");
@@ -2753,7 +2817,7 @@ export default function App(){
                 {report.roles.map((r,i)=><IRw key={i} label={"Avalúo Fiscal Rol "+r.rol+":"} value={"$ "+fmtMiles(r.datos.avaluoFiscal)+"   "+r.datos.avaluoFecha}/>)}
                 {report.avaluoTotal>0&&<IRw label="Avalúo Fiscal Total:" value={"$ "+report.avaluoTotal.toLocaleString("es-CL")}/>}
                 <IRw label="Fecha Tasación:" value={report.fecha}/>
-                <IRw label="UF Base:" value={"$ "+report.ufBase+" (al "+report.ufFecha+")"}/>
+                <IRw label="UF Base:" value={String(report.ufBase||"").trim()?("$ "+report.ufBase+(String(report.ufFecha||"").trim()?" (al "+report.ufFecha+")":"")):""}/>
               </PgFB>
 
               <PgFB num="02" title="Resumen Ejecutivo" sub="Síntesis del activo y sus atributos">
