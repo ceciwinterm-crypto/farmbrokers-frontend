@@ -285,6 +285,64 @@ function evaluarAptitudFotovoltaica(form){
 
   return {solar,califS,linea,califL,sub,califSub,claseMasFavorable,altaPrioridadAgricola,parrafo:partes.join(" "),conclusion};
 }
+// ── KMZ de los roles del predio (Google Earth) ───────────────────────────────
+// Exporta el MISMO poligono que se dibuja sobre las vistas aereas del informe.
+// Acepta el formato nuevo ({rol,comuna,g}) y el antiguo (geometria suelta).
+function geomDe(x){ return (x && x.type) ? x : (x && x.g ? x.g : null); }
+
+// ZIP minimo en modo "almacenado" (sin compresion): un .kmz es un .zip con el .kml dentro.
+// Se implementa aqui para no depender de ninguna libreria externa en el navegador.
+const TABLA_CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})();
+function crc32(bytes){let c=0xFFFFFFFF;for(let i=0;i<bytes.length;i++)c=TABLA_CRC[(c^bytes[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function zipUnArchivo(nombre,texto){
+  const datos=new TextEncoder().encode(texto);
+  const nom=new TextEncoder().encode(nombre);
+  const crc=crc32(datos);
+  const cab=new Uint8Array(30+nom.length), dv=new DataView(cab.buffer);
+  dv.setUint32(0,0x04034b50,true); dv.setUint16(4,20,true); dv.setUint16(6,0,true);
+  dv.setUint16(8,0,true); dv.setUint16(10,0,true); dv.setUint16(12,0,true);
+  dv.setUint32(14,crc,true); dv.setUint32(18,datos.length,true); dv.setUint32(22,datos.length,true);
+  dv.setUint16(26,nom.length,true); dv.setUint16(28,0,true);
+  cab.set(nom,30);
+  const cen=new Uint8Array(46+nom.length), dc=new DataView(cen.buffer);
+  dc.setUint32(0,0x02014b50,true); dc.setUint16(4,20,true); dc.setUint16(6,20,true);
+  dc.setUint16(8,0,true); dc.setUint16(10,0,true); dc.setUint16(12,0,true); dc.setUint16(14,0,true);
+  dc.setUint32(16,crc,true); dc.setUint32(20,datos.length,true); dc.setUint32(24,datos.length,true);
+  dc.setUint16(28,nom.length,true); dc.setUint16(30,0,true); dc.setUint16(32,0,true);
+  dc.setUint16(34,0,true); dc.setUint16(36,0,true); dc.setUint32(38,0,true); dc.setUint32(42,0,true);
+  cen.set(nom,46);
+  const desplCen=cab.length+datos.length;
+  const fin=new Uint8Array(22), df=new DataView(fin.buffer);
+  df.setUint32(0,0x06054b50,true); df.setUint16(4,0,true); df.setUint16(6,0,true);
+  df.setUint16(8,1,true); df.setUint16(10,1,true);
+  df.setUint32(12,cen.length,true); df.setUint32(16,desplCen,true); df.setUint16(20,0,true);
+  const total=new Uint8Array(cab.length+datos.length+cen.length+fin.length);
+  let p=0; [cab,datos,cen,fin].forEach(b=>{total.set(b,p);p+=b.length;});
+  return new Blob([total],{type:"application/vnd.google-earth.kmz"});
+}
+
+const escXml=t=>String(t==null?"":t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+// Un anillo de coordenadas -> texto KML (lon,lat,0). Google Earth exige el anillo cerrado.
+function anilloKml(anillo){
+  const pts=(anillo||[]).filter(p=>Array.isArray(p)&&isFinite(p[0])&&isFinite(p[1]));
+  if(pts.length<3)return "";
+  const cerr=(pts[0][0]!==pts[pts.length-1][0]||pts[0][1]!==pts[pts.length-1][1])?[...pts,pts[0]]:pts;
+  return cerr.map(p=>p[0].toFixed(7)+","+p[1].toFixed(7)+",0").join(" ");
+}
+// Geometria GeoJSON -> <Polygon> (o <MultiGeometry> si el rol viene en varias partes)
+function poligonoKml(g){
+  const polys=g.type==="Polygon"?[g.coordinates]:(g.type==="MultiPolygon"?g.coordinates:[]);
+  const trozos=polys.map(poly=>{
+    const ext=anilloKml((poly||[])[0]);
+    if(!ext)return "";
+    const huecos=(poly||[]).slice(1).map(anilloKml).filter(Boolean)
+      .map(h=>"<innerBoundaryIs><LinearRing><coordinates>"+h+"</coordinates></LinearRing></innerBoundaryIs>").join("");
+    return "<Polygon><tessellate>1</tessellate><outerBoundaryIs><LinearRing><coordinates>"+ext+
+      "</coordinates></LinearRing></outerBoundaryIs>"+huecos+"</Polygon>";
+  }).filter(Boolean);
+  if(!trozos.length)return "";
+  return trozos.length===1?trozos[0]:("<MultiGeometry>"+trozos.join("")+"</MultiGeometry>");
+}
 function PgFB({title,children,num,sub}){
   return <div style={{padding:"0",display:"flex",flexDirection:"column",fontFamily:FONT,background:"#fff"}}>
     {title?<Banda n={num} titulo={title} sub={sub}/>:null}
@@ -709,7 +767,7 @@ export default function App(){
           cargadas++;
           if(cargadas===COLS*ROWS&&!fallo){
             // Deslindes del predio sombreados (si Suelos Auto trajo la geometria); si no, marcador
-            let geos=[];try{geos=JSON.parse(form.prediosGeo||"[]");}catch(err){geos=[];}
+            let geos=[];try{geos=JSON.parse(form.prediosGeo||"[]");}catch(err){geos=[];}geos=geos.map(geomDe).filter(Boolean);
             const nT2=Math.pow(2,z);
             const extW2=(x0)/nT2*360-180, extE2=(x0+COLS)/nT2*360-180;
             const t2lat=(y)=>Math.atan(Math.sinh(Math.PI*(1-2*y/nT2)))*180/Math.PI;
@@ -861,7 +919,7 @@ export default function App(){
         if(cargadas===COLS*ROWS&&!fallo){
           try{
             if(conPoligono){
-              let geos=[];try{geos=JSON.parse(form.prediosGeo||"[]");}catch(e){geos=[];}
+              let geos=[];try{geos=JSON.parse(form.prediosGeo||"[]");}catch(e){geos=[];}geos=geos.map(geomDe).filter(Boolean);
               const extW=(x0)/n*360-180, extE=(x0+COLS)/n*360-180;
               const t2lat=(y)=>Math.atan(Math.sinh(Math.PI*(1-2*y/n)))*180/Math.PI;
               const extN=t2lat(y0), extS=t2lat(y0+ROWS);
@@ -1239,7 +1297,9 @@ export default function App(){
         }catch(e){}})();
         const geosRol=oks.map(x=>({rol:x.rol,comuna:x.comuna,g:x.d.predioGeo})).filter(x=>x.g);
         const geos=geosRol.map(x=>x.g);
-        if(geos.length)upd("prediosGeo",JSON.stringify(geos));
+        // Se guarda rol + comuna junto a cada poligono (necesario para rotular el KMZ).
+        // Formato antiguo (solo geometrias) sigue siendo valido al leer: ver geomDe().
+        if(geos.length)upd("prediosGeo",JSON.stringify(geosRol.map(x=>({rol:x.rol,comuna:x.comuna,g:x.g}))));
         // ── Superficie medida sobre el poligono real del predio (equivale a medirlo en Google Earth) ──
         geosRol.forEach(x=>{
           const haGE=areaHaGeo(x.g);
@@ -1632,6 +1692,66 @@ export default function App(){
     }finally{ setLoading(false); }
   };
 
+
+  // Descarga un KMZ con el/los rol(es) del predio, listo para abrir en Google Earth.
+  // Es el mismo poligono que se dibuja sobre las vistas aereas del informe (fuente CIREN).
+  const exportarKMZ=()=>{
+    const base=report||form;
+    let crudos=[];
+    try{crudos=JSON.parse(base.prediosGeo||"[]");}catch(e){crudos=[];}
+    const rolesF=(base.roles||[]).filter(r=>String(r.rol||"").trim());
+    const piezas=crudos.map((x,i)=>{
+      const g=geomDe(x);
+      if(!g)return null;
+      const rol=String((x&&x.rol)||((rolesF[i]||{}).rol)||"").trim();
+      const comuna=String((x&&x.comuna)||((rolesF[i]||{}).comuna)||"").trim();
+      return {g,rol,comuna,ha:areaHaGeo(g)};
+    }).filter(Boolean);
+    if(!piezas.length){
+      alert("Todavia no hay poligonos del predio.\n\nPresiona \"Suelos Auto\" en Antecedentes Tecnicos: ahi se descarga el poligono de cada rol desde el catastro, y con eso se arma el KMZ.");
+      return;
+    }
+    const nombrePredio=capTxt(base.predioNombre)||"Predio";
+    const totalHa=piezas.reduce((s,p)=>s+p.ha,0);
+    const varios=piezas.length>1;
+    const marcas=piezas.map(p=>{
+      const geo=poligonoKml(p.g);
+      if(!geo)return "";
+      const titulo=p.rol?("Rol "+p.rol+(p.comuna?" — "+capTxt(p.comuna):"")):nombrePredio;
+      const desc=[p.rol?"Rol SII: "+p.rol:"",p.comuna?"Comuna: "+capTxt(p.comuna):"",
+        p.ha>0?"Superficie del poligono: "+p.ha.toFixed(2).replace(".",",")+" ha":""].filter(Boolean).join("\n");
+      return "<Placemark><name>"+escXml(titulo)+"</name><description>"+escXml(desc)+
+        "</description><styleUrl>#fb</styleUrl>"+geo+"</Placemark>";
+    }).filter(Boolean).join("");
+    if(!marcas){alert("Los poligonos guardados no tienen coordenadas validas. Vuelve a correr \"Suelos Auto\".");return;}
+
+    const descDoc=[nombrePredio,
+      varios?(piezas.length+" roles: "+piezas.map(p=>p.rol).filter(Boolean).join(" + ")):(piezas[0].rol?"Rol "+piezas[0].rol:""),
+      base.region?"Región de "+regionTxt(base.region):"",
+      totalHa>0?("Superficie total del poligono: "+totalHa.toFixed(2).replace(".",",")+" ha"):"",
+      "Fuente: catastro de propiedades rurales (CIREN / IDE Minagri). Poligono referencial: validar con titulos y mensura."
+    ].filter(Boolean).join("\n");
+
+    // Con varios roles van dentro de una carpeta (se ven juntos y se pueden apagar uno a uno)
+    const cuerpo=varios?("<Folder><name>Roles del predio ("+piezas.length+")</name><open>1</open>"+marcas+"</Folder>"):marcas;
+    const kml='<?xml version="1.0" encoding="UTF-8"?>\n'+
+      '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>'+
+      "<name>"+escXml(nombrePredio+(base.numTasacion?" ("+base.numTasacion+")":""))+"</name>"+
+      "<description>"+escXml(descDoc)+"</description>"+
+      '<Style id="fb"><LineStyle><color>ff00d4ff</color><width>3</width></LineStyle>'+
+      "<PolyStyle><color>3300d4ff</color><fill>1</fill><outline>1</outline></PolyStyle></Style>"+
+      cuerpo+"</Document></kml>";
+
+    const limpiar=t=>String(t||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^0-9a-zA-Z]+/g,"-").replace(/^-|-$/g,"");
+    const nombreArch=limpiar(nombrePredio||"Predio")+(piezas.length===1&&piezas[0].rol?("_Rol-"+limpiar(piezas[0].rol)):(varios?"_"+piezas.length+"-roles":""))+".kmz";
+    const blob=zipUnArchivo("doc.kml",kml);
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=nombreArch;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+    setAvisoGuardado("✓ KMZ generado: "+(varios?(piezas.length+" roles, "+totalHa.toFixed(2).replace(".",",")+" ha en total"):("1 rol, "+totalHa.toFixed(2).replace(".",",")+" ha")));
+    setTimeout(()=>setAvisoGuardado(""),6000);
+  };
 
   const exportarFichaPublicacion=()=>{
     if(!report){alert("Primero genera el informe de tasación.");return;}
@@ -2747,6 +2867,7 @@ export default function App(){
                 </select>
                 <button onClick={()=>setStep(2)} style={bS}>← Editar</button>
                 <button onClick={exportarWord} style={bS}>📄 Word</button>
+                <button onClick={exportarKMZ} style={bS} title="Poligono de los roles para Google Earth">🌍 KMZ</button>
                 <button onClick={()=>window.print()} style={{...bP,background:ORO}}>🖨️ Imprimir / PDF</button>
               </div>
             </div>
@@ -3268,6 +3389,7 @@ export default function App(){
             <div className="noprint" style={{display:"flex",gap:12,justifyContent:"center",marginTop:20}}>
               <button onClick={()=>window.print()} style={bP}>🖨️ Imprimir / Guardar PDF</button>
               <button onClick={exportarWord} style={{...bP,background:ORO}}>📄 Descargar Word Editable</button>
+              <button onClick={exportarKMZ} style={bS} title="Descarga el poligono de los roles para abrirlo en Google Earth">🌍 KMZ para Google Earth</button>
               <button onClick={exportarFichaPublicacion} style={bS} title="Ficha anonimizada lista para publicar en la web">🌐 Ficha para Publicar</button>
               <button onClick={()=>{setReport(null);setStep(0);setForm(conGKey({...EMPTY}));setIdTasacionActual(null);dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form:{...EMPTY}}).catch(()=>{});setSatelitalStatus("idle");setUfStatus("idle");}} style={bS}>Nueva Tasación</button>
             </div>
