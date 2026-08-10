@@ -1442,90 +1442,128 @@ export default function App(){
       img.src="https://tile.openstreetmap.org/"+z+"/"+(x0+dx)+"/"+(y0+dy)+".png";
     }
   };
-  const generarPlanoSuelos=(bbox,capaId,capaPredioId,capaFrut,rotuloRoles)=>{
+  // ── Plano de suelos y roles sobre imagen satelital ──────────────────────────
+  // Se arma a la maxima resolucion que permita la cobertura satelital, se recorta al
+  // predio y recien despues se dibujan borde, rotulos y leyenda: asi los trazos y textos
+  // quedan proporcionados al recorte final y no gigantes como cuando se dibujaban antes.
+  const generarPlanoSuelos=async(bbox,capaId,capaPredioId,capaFrut,rotuloRoles)=>{
     if(!bbox||capaId===null||capaId===undefined)return;
     const [w,s,e,n]=bbox;
-    const cLon=(w+e)/2, cLat=(s+n)/2;
-    // Acercamiento maximo: se elige el zoom mas alto donde el predio cabe en el mosaico
+    const T=256, MAX_TILES=6;
+    const lon2x=(lo,z)=>(lo+180)/360*Math.pow(2,z);
+    const lat2y=(la,z)=>{const r=la*Math.PI/180;return (1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*Math.pow(2,z);};
+    // Zoom mas alto en que el predio (con holgura) cabe en el mosaico
     let z=15;
-    for(let zz=15;zz>=11;zz--){ // tope z15: cobertura garantizada
-      const px=(e-w)/360*Math.pow(2,zz)*256;
-      const py=Math.abs(n-s)/170*Math.pow(2,zz)*256;
-      if(px<=1000&&py<=700){z=zz;break;}
+    for(let zz=18;zz>=11;zz--){
+      const ax=Math.abs(lon2x(e,zz)-lon2x(w,zz)), ay=Math.abs(lat2y(s,zz)-lat2y(n,zz));
+      if(ax<=MAX_TILES-1.4&&ay<=MAX_TILES-1.4){z=zz;break;}
     }
+    const x1=lon2x(w,z), x2=lon2x(e,z), y1=lat2y(n,z), y2=lat2y(s,z);
+    const x0=Math.floor(x1)-1, y0=Math.floor(y1)-1;
+    const COLS=Math.min(MAX_TILES+2,Math.ceil(x2)-x0+1), ROWS=Math.min(MAX_TILES+2,Math.ceil(y2)-y0+1);
     const nT=Math.pow(2,z);
-    const xF=(cLon+180)/360*nT;
-    const latR=cLat*Math.PI/180;
-    const yF=(1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*nT;
-    const T=256,COLS=4,ROWS=3;
-    const x0=Math.floor(xF)-Math.floor(COLS/2), y0=Math.floor(yF)-Math.floor(ROWS/2);
-    const tile2lon=x=>x/nT*360-180;
-    const tile2lat=y=>Math.atan(Math.sinh(Math.PI*(1-2*y/nT)))*180/Math.PI;
-    const extW=tile2lon(x0), extE=tile2lon(x0+COLS), extN=tile2lat(y0), extS=tile2lat(y0+ROWS);
-    const canvas=document.createElement("canvas");
-    canvas.width=COLS*T; canvas.height=ROWS*T;
-    const ctx=canvas.getContext("2d");
-    let cargadas=0;
-    const finalizar=()=>{
-      // capa de suelos CIREN semitransparente encima
-      const img2=new Image();
-      img2.crossOrigin="anonymous";
-      const terminar=()=>{
-        const px1=(w-extW)/(extE-extW)*canvas.width, px2=(e-extW)/(extE-extW)*canvas.width;
-        const py1=(extN-n)/(extN-extS)*canvas.height, py2=(extN-s)/(extN-extS)*canvas.height;
-        ctx.strokeStyle="#e53935"; ctx.lineWidth=4;
-        ctx.strokeRect(px1,py1,px2-px1,py2-py1);
-        // RECORTE: la imagen final es SOLO el recuadro rojo con un pequeño margen
-        const mx=(px2-px1)*0.07, my=(py2-py1)*0.07;
-        const cx0=Math.max(0,px1-mx), cy0=Math.max(0,py1-my);
-        const cw=Math.min(canvas.width,px2+mx)-cx0, ch=Math.min(canvas.height,py2+my)-cy0;
-        const c2=document.createElement("canvas");
-        c2.width=Math.max(200,Math.round(cw)); c2.height=Math.max(160,Math.round(ch));
-        const ctx2=c2.getContext("2d");
-        ctx2.drawImage(canvas,cx0,cy0,cw,ch,0,0,c2.width,c2.height);
-        ctx2.font="bold 14px Arial";
-        if(rotuloRoles){
-          ctx2.fillStyle="rgba(255,255,255,0.9)"; ctx2.fillRect(6,6,ctx2.measureText("Rol(es): "+rotuloRoles).width+18,24);
-          ctx2.fillStyle="#1e5631"; ctx2.fillText("Rol(es): "+rotuloRoles,14,23);
-        }
-        ctx2.font="10px Arial";
-        const ley="Capacidad de Uso CIREN"+(capaFrut?" + Cat. Fruticola":"")+" + Roles SII (referencial)";
-        const lw=ctx2.measureText(ley).width+14;
-        ctx2.fillStyle="rgba(255,255,255,0.85)"; ctx2.fillRect(c2.width-lw,c2.height-18,lw,18);
-        ctx2.fillStyle="#333"; ctx2.fillText(ley,c2.width-lw+7,c2.height-5);
-        upd("imagenSuelosMap",c2.toDataURL("image/jpeg",0.92));
+    const extW=x0/nT*360-180, extE=(x0+COLS)/nT*360-180;
+    const t2lat=(y)=>Math.atan(Math.sinh(Math.PI*(1-2*y/nT)))*180/Math.PI;
+    const extN=t2lat(y0), extS=t2lat(y0+ROWS);
+
+    const lienzo=document.createElement("canvas");
+    lienzo.width=COLS*T; lienzo.height=ROWS*T;
+    const ctx=lienzo.getContext("2d");
+
+    const cargar=(url)=>new Promise((res)=>{
+      const im=new Image(); im.crossOrigin="anonymous";
+      im.onload=()=>res(im); im.onerror=()=>res(null);
+      im.src=url;
+    });
+
+    try{
+      // 1) Base satelital
+      const teselas=[];
+      for(let dx=0;dx<COLS;dx++)for(let dy=0;dy<ROWS;dy++)
+        teselas.push(cargar("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"+z+"/"+(y0+dy)+"/"+(x0+dx)).then(im=>({im,dx,dy})));
+      let vacias=0;
+      (await Promise.all(teselas)).forEach(({im,dx,dy})=>{ if(im)ctx.drawImage(im,dx*T,dy*T,T,T); else vacias++; });
+      if(vacias>COLS*ROWS*0.4)throw new Error("cobertura satelital insuficiente en este zoom");
+
+      const bboxWms=extW+","+extS+","+extE+","+extN;
+      const dibujarCapa=async(url,alpha)=>{
+        const im=await cargar(url);
+        if(!im)return false;
+        ctx.globalAlpha=alpha; ctx.drawImage(im,0,0,lienzo.width,lienzo.height); ctx.globalAlpha=1;
+        return true;
       };
-      const dibujarFruticola=()=>{
-        if(!capaFrut||!form.backendUrl){terminar();return;}
+      // 2) Capas: suelos CIREN, roles SII y catastro fruticola
+      await dibujarCapa("https://esri.ciren.cl/server/rest/services/ESTUDIO_AGROLOGICO_SUELOS/MapServer/export?bbox="+bboxWms+"&bboxSR=4326&imageSR=4326&size="+lienzo.width+","+lienzo.height+"&layers=show:"+capaId+"&format=png32&transparent=true&f=image",0.5);
+      if(capaPredioId!==null&&capaPredioId!==undefined)
+        await dibujarCapa("https://esri.ciren.cl/server/rest/services/IDEMINAGRI/PROPIEDADES_RURALES/MapServer/export?bbox="+bboxWms+"&bboxSR=4326&imageSR=4326&size="+lienzo.width+","+lienzo.height+"&layers=show:"+capaPredioId+"&format=png32&transparent=true&f=image",0.75);
+      if(capaFrut&&form.backendUrl){
         const wms="https://visor.sitrural.cl/geoserver/wms?service=WMS&version=1.1.0&request=GetMap&layers="+encodeURIComponent(capaFrut)+
-          "&bbox="+extW+","+extS+","+extE+","+extN+"&srs=EPSG:4326&width="+canvas.width+"&height="+canvas.height+"&format=image/png&transparent=true";
-        const img5=new Image(); img5.crossOrigin="anonymous";
-        img5.onload=()=>{ ctx.globalAlpha=0.85; ctx.drawImage(img5,0,0,canvas.width,canvas.height); ctx.globalAlpha=1; terminar(); };
-        img5.onerror=()=>{setAvisoGuardado("⚠ La capa fruticola no se pudo superponer en el plano (se genero sin ella). Reintenta Suelos Auto.");setTimeout(()=>setAvisoGuardado(""),7000);terminar();};
-        img5.src=form.backendUrl.replace(/\/$/,"")+"/img-sitrural?u="+encodeURIComponent(wms);
-      };
-      const dibujarRoles=()=>{
-        if(capaPredioId===null||capaPredioId===undefined){dibujarFruticola();return;}
-        const img3=new Image(); img3.crossOrigin="anonymous";
-        img3.onload=()=>{ ctx.globalAlpha=0.9; ctx.drawImage(img3,0,0,canvas.width,canvas.height); ctx.globalAlpha=1; dibujarFruticola(); };
-        img3.onerror=()=>dibujarFruticola();
-        img3.src="https://esri.ciren.cl/server/rest/services/IDEMINAGRI/PROPIEDADES_RURALES/MapServer/export?bbox="+extW+","+extS+","+extE+","+extN+"&bboxSR=4326&imageSR=4326&size="+canvas.width+","+canvas.height+"&layers=show:"+capaPredioId+"&format=png32&transparent=true&f=image";
-      };
-      img2.onload=()=>{
-        ctx.globalAlpha=0.55;
-        ctx.drawImage(img2,0,0,canvas.width,canvas.height);
-        ctx.globalAlpha=1;
-        dibujarRoles();
-      };
-      img2.onerror=()=>{ dibujarRoles(); };
-      img2.src="https://esri.ciren.cl/server/rest/services/ESTUDIO_AGROLOGICO_SUELOS/MapServer/export?bbox="+extW+","+extS+","+extE+","+extN+"&bboxSR=4326&imageSR=4326&size="+canvas.width+","+canvas.height+"&layers=show:"+capaId+"&format=png32&transparent=true&f=image";
-    };
-    for(let dx=0;dx<COLS;dx++)for(let dy=0;dy<ROWS;dy++){
-      const img=new Image(); img.crossOrigin="anonymous";
-      const tx=x0+dx,ty=y0+dy;
-      img.onload=()=>{ ctx.drawImage(img,dx*T,dy*T,T,T); if(++cargadas===COLS*ROWS)finalizar(); };
-      img.onerror=()=>{ if(++cargadas===COLS*ROWS)finalizar(); };
-      img.src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"+z+"/"+ty+"/"+tx;
+          "&bbox="+bboxWms+"&srs=EPSG:4326&width="+lienzo.width+"&height="+lienzo.height+"&format=image/png&transparent=true";
+        await dibujarCapa(form.backendUrl.replace(/\/$/,"")+"/img-sitrural?u="+encodeURIComponent(wms),0.8);
+      }
+
+      // 3) Recorte al predio con holgura, escalado a resolucion de impresion
+      const aX=(lo)=>(lo-extW)/(extE-extW)*lienzo.width;
+      const aY=(la)=>(extN-la)/(extN-extS)*lienzo.height;
+      const px1=aX(w), px2=aX(e), py1=aY(n), py2=aY(s);
+      const mx=Math.max((px2-px1)*0.14,26), my=Math.max((py2-py1)*0.14,26);
+      const cx0=Math.max(0,px1-mx), cy0=Math.max(0,py1-my);
+      const cw=Math.min(lienzo.width,px2+mx)-cx0, ch=Math.min(lienzo.height,py2+my)-cy0;
+      const ANCHO_FINAL=1500;
+      const esc=Math.min(ANCHO_FINAL/cw,2.2);
+      const fin=document.createElement("canvas");
+      fin.width=Math.round(cw*esc); fin.height=Math.round(ch*esc);
+      const fx=fin.getContext("2d");
+      fx.imageSmoothingEnabled=true; fx.imageSmoothingQuality="high";
+      fx.drawImage(lienzo,cx0,cy0,cw,ch,0,0,fin.width,fin.height);
+
+      // 4) Contorno REAL del predio (no un rectangulo): mismo poligono del KMZ
+      const pX=(lo)=>(aX(lo)-cx0)*esc, pY=(la)=>(aY(la)-cy0)*esc;
+      let geos=[];
+      try{geos=JSON.parse(form.prediosGeo||"[]").map(geomDe).filter(Boolean);}catch(err){geos=[];}
+      const anillos=(g)=>g.type==="Polygon"?[g.coordinates]:(g.type==="MultiPolygon"?g.coordinates:[]);
+      const trazo=Math.max(2,Math.round(fin.width/420));
+      if(geos.length){
+        geos.forEach(g=>anillos(g).forEach(poly=>(poly||[]).forEach((an,ai)=>{
+          if(!an||an.length<3)return;
+          fx.beginPath();
+          an.forEach((p,k)=>{const X=pX(p[0]),Y=pY(p[1]);if(k===0)fx.moveTo(X,Y);else fx.lineTo(X,Y);});
+          fx.closePath();
+          fx.strokeStyle="rgba(0,0,0,0.55)"; fx.lineWidth=trazo+2.5; fx.stroke();  // sombra: legible sobre claro y oscuro
+          fx.strokeStyle="#FFD400"; fx.lineWidth=trazo; fx.stroke();
+        })));
+      }else{
+        fx.strokeStyle="rgba(0,0,0,0.55)"; fx.lineWidth=trazo+2.5;
+        fx.strokeRect(pX(w),pY(n),pX(e)-pX(w),pY(s)-pY(n));
+        fx.strokeStyle="#FFD400"; fx.lineWidth=trazo;
+        fx.strokeRect(pX(w),pY(n),pX(e)-pX(w),pY(s)-pY(n));
+      }
+
+      // 5) Rotulo y leyenda, proporcionados al recorte final
+      const fT=Math.max(12,Math.round(fin.width/52));
+      if(rotuloRoles){
+        const txt="Rol "+(String(rotuloRoles).includes("+")?"(es): ":"N° ")+rotuloRoles;
+        fx.font="600 "+fT+"px Arial";
+        const anc=fx.measureText(txt).width;
+        const pad=Math.round(fT*0.55);
+        fx.fillStyle="rgba(255,255,255,0.9)";
+        fx.fillRect(pad,pad,anc+pad*2,fT+pad*1.4);
+        fx.fillStyle="#1e5631";
+        fx.fillText(txt,pad*2,pad+fT*1.02);
+      }
+      const fL=Math.max(10,Math.round(fin.width/95));
+      const ley="Capacidad de uso de suelo CIREN"+(capaFrut?" · Catastro frutícola":"")+" · Roles SII — referencial";
+      fx.font=fL+"px Arial";
+      const lw=fx.measureText(ley).width+fL*1.4;
+      fx.fillStyle="rgba(255,255,255,0.86)";
+      fx.fillRect(fin.width-lw,fin.height-fL*1.9,lw,fL*1.9);
+      fx.fillStyle="#333";
+      fx.fillText(ley,fin.width-lw+fL*0.7,fin.height-fL*0.55);
+
+      upd("imagenSuelosMap",fin.toDataURL("image/jpeg",0.94));
+    }catch(err){
+      setAvisoGuardado("⚠ No se pudo armar el plano de suelos ("+err.message+"). Reintenta Suelos Auto.");
+      setTimeout(()=>setAvisoGuardado(""),8000);
     }
   };
 
