@@ -343,6 +343,82 @@ function poligonoKml(g){
   if(!trozos.length)return "";
   return trozos.length===1?trozos[0]:("<MultiGeometry>"+trozos.join("")+"</MultiGeometry>");
 }
+// ── Valorizacion a partir de comparables reales de mercado ──────────────────
+// El valor de una oferta comparable corresponde al CAMPO COMPLETO: suelo mas
+// plantaciones, agua y mejoras. Por eso el total de mercado se toma como el valor
+// del predio entero, y a los suelos se les asigna lo que queda despues de descontar
+// los componentes ya valorizados (metodo residual). Asi todo suma sin duplicarse:
+//     suelos + plantaciones + agua + construcciones = total de mercado
+const COEF_CLASE={I:1,II:0.90,III:0.75,IV:0.55,V:0.30,VI:0.20,VII:0.10,VIII:0.05};
+
+// Componentes distintos del suelo que ya tienen valor cargado en la tasacion
+function componentesValorizados(d){
+  const num=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+  const ha=v=>parseFloat(String(v||"0").replace(",","."))||0;
+  const pj=(s)=>{try{return JSON.parse(s||"[]");}catch(e){return [];}};
+  const fP=factorPlant(d);
+  const plantas=pj(d.plantacionesCIREN).reduce((s,p)=>s+ha(p.has)*fP*num(p.vha),0)
+              + ha(d.plantacionHas)*num(d.plantacionValorHa);
+  const agua=pj(d.recursosHidricos).reduce((s,r)=>s+num(r.valor),0);
+  const construcciones=pj(d.construccionesLista).reduce((s,x)=>s+ha(x.m2)*num(x.vm2),0);
+  const instalaciones=pj(d.instalacionesLista).reduce((s,r)=>s+(num(r.vg)||ha(r.cantidad)*num(r.vu)),0);
+  return {plantas,agua,construcciones,instalaciones,total:plantas+agua+construcciones+instalaciones};
+}
+
+// modo: "residual" (las ofertas incluyen mejoras) | "suelo" (ofertas de terreno pelado)
+function sugerirValorSuelos(datos,ajustePct,modo){
+  const ROM=["I","II","III","IV","V","VI","VII","VIII"];
+  const num=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+  const ha=v=>parseFloat(String(v||"0").replace(",","."))||0;
+  const vals=(datos.refs||[]).map(r=>{
+    const vh=num(r.valorHa);
+    if(vh>0)return vh;
+    const vt=num(r.valorTotal), h=ha(r.has);
+    return (vt>0&&h>0)?vt/h:0;
+  }).filter(v=>v>0).sort((a,b)=>a-b);
+  if(!vals.length)return {error:"Sin referencias de mercado con valor por hectárea. Agrega comparables (manuales o con el buscador) antes de sugerir."};
+  const mid=Math.floor(vals.length/2);
+  const mediana=vals.length%2?vals[mid]:(vals[mid-1]+vals[mid])/2;
+  const clases={};
+  ROM.forEach((cl,i)=>{const h=ha(datos["c"+(i+1)]);if(h>0)clases[cl]=h;});
+  const supTot=Object.values(clases).reduce((s,v)=>s+v,0);
+  if(!supTot)return {error:"El predio no tiene clases de suelo cargadas. Corre \"Suelos Auto\" primero."};
+  const ponderado=ROM.reduce((s,cl)=>s+(clases[cl]||0)*COEF_CLASE[cl],0);
+
+  const base=mediana*(ajustePct/100);
+  const totalMercado=base*supTot;
+  const otros=componentesValorizados(datos);
+  const residual=modo==="suelo"?totalMercado:(totalMercado-otros.total);
+  if(residual<=0)return {error:"Los componentes ya valorizados (plantaciones, agua, construcciones: $ "+Math.round(otros.total).toLocaleString("es-CL")+") igualan o superan el valor de mercado del predio ($ "+Math.round(totalMercado).toLocaleString("es-CL")+"). Revisa esos valores o los comparables antes de sugerir el suelo."};
+
+  const unidad=residual/ponderado;   // valor de una hectárea "Clase I equivalente"
+  return {
+    n:vals.length, mediana, min:vals[0], max:vals[vals.length-1],
+    dispersion:vals[0]>0?vals[vals.length-1]/vals[0]:0,
+    base, supTot, indice:ponderado/supTot, modo,
+    totalMercado, otros, residual,
+    vhaSuelo:residual/supTot,
+    detalle:ROM.filter(cl=>clases[cl]>0).map(cl=>({clase:cl,ha:clases[cl],coef:COEF_CLASE[cl],
+      vha:unidad*COEF_CLASE[cl], valor:unidad*COEF_CLASE[cl]*clases[cl]}))
+  };
+}
+
+// ── Respaldo en la nube (disco persistente del backend) ─────────────────────
+// La clave se guarda solo en este navegador; nunca viaja dentro de la tasacion.
+const leerClave=()=>{try{return localStorage.getItem("fb_clave")||"";}catch(e){return "";}};
+const guardarClave=(v)=>{try{localStorage.setItem("fb_clave",v||"");}catch(e){}};
+async function nube(backendUrl,ruta,cuerpo){
+  if(!backendUrl)throw new Error("Falta configurar la URL del servidor.");
+  const clave=leerClave();
+  if(!clave)throw new Error("Falta la clave de respaldo. Configurala en Inicio → Respaldo en la nube.");
+  const r=await fetch(backendUrl.replace(/\/$/,"")+ruta,{
+    method:"POST",headers:{"Content-Type":"application/json","X-FB-Clave":clave},
+    body:JSON.stringify(cuerpo||{})});
+  const d=await r.json().catch(()=>({error:"Respuesta no valida del servidor"}));
+  if(!r.ok)throw new Error(d.error||("Error HTTP "+r.status));
+  return d;
+}
+
 function PgFB({title,children,num,sub}){
   return <div style={{padding:"0",display:"flex",flexDirection:"column",fontFamily:FONT,background:"#fff"}}>
     {title?<Banda n={num} titulo={title} sub={sub}/>:null}
@@ -464,6 +540,9 @@ export default function App(){
     }
   },[form.roles]);
   const [listaTas,setListaTas]=useState([]);
+  const [listaNube,setListaNube]=useState(null);   // null = aun no consultada
+  const [nubeMsg,setNubeMsg]=useState("");
+  const [claveInput,setClaveInput]=useState(leerClave());
   const [selUnir,setSelUnir]=useState([]);
   const [avisoGuardado,setAvisoGuardado]=useState("");
   // Borrador automatico: todo cambio queda guardado en el navegador
@@ -480,13 +559,52 @@ export default function App(){
     const nombre=prompt("Nombre para guardar esta tasacion:",nombreSug);
     if(nombre===null)return;
     let num=form.numTasacion;
-    if(!num){num=proximoCorrelativo();upd("numTasacion",num);}
+    if(!num){
+      // El correlativo lo asigna el servidor: asi no se repite aunque trabajes
+      // desde varios computadores. Si no hay conexion, se usa el local.
+      try{ num=(await nube(form.backendUrl,"/correlativo")).numero; }
+      catch(e){ num=proximoCorrelativo(); }
+      upd("numTasacion",num);
+    }
     const id=(actualizar&&idTasacionActual)?idTasacionActual:("tas_"+Date.now());
-    await dbGuardar({id,nombre:(nombre||nombreSug)+"  ["+num+"]",fecha:new Date().toISOString(),form:{...form,numTasacion:num}});
+    const nombreFinal=(nombre||nombreSug)+"  ["+num+"]";
+    const datos={...form,numTasacion:num};
+    await dbGuardar({id,nombre:nombreFinal,fecha:new Date().toISOString(),form:datos});
     setIdTasacionActual(id);
-    setAvisoGuardado((actualizar?"✓ Actualizada: ":"✓ Guardada: ")+(nombre||nombreSug));setTimeout(()=>setAvisoGuardado(""),4000);
+    setAvisoGuardado((actualizar?"✓ Actualizada: ":"✓ Guardada: ")+(nombre||nombreSug)+" — respaldando…");
+    // Respaldo en la nube: si falla, la tasacion YA quedo guardada en el navegador
+    try{
+      const r=await nube(form.backendUrl,"/tasacion-guardar",{id,nombre:nombreFinal,datos});
+      setAvisoGuardado("✓ "+(actualizar?"Actualizada":"Guardada")+" y respaldada en la nube ("+(r.bytes/1048576).toFixed(1)+" MB)");
+    }catch(e){
+      setAvisoGuardado("✓ Guardada en este navegador, pero NO se respaldó en la nube: "+e.message);
+    }
+    setTimeout(()=>setAvisoGuardado(""),7000);
   };
-  const abrirMisTasaciones=async()=>{const regs=await dbListar();setListaTas(regs.sort((x,y)=>y.fecha.localeCompare(x.fecha)));setShowTas(true);};
+  const abrirMisTasaciones=async()=>{
+    const regs=await dbListar();setListaTas(regs.sort((x,y)=>y.fecha.localeCompare(x.fecha)));
+    setShowTas(true);setListaNube(null);setNubeMsg("");
+    cargarNube();
+  };
+  const cargarNube=async()=>{
+    if(!leerClave()){setNubeMsg("Configura la clave de respaldo en Inicio para ver tus tasaciones en la nube.");return;}
+    setNubeMsg("Consultando la nube…");
+    try{
+      const est=await nube(form.backendUrl,"/almacen-estado");
+      const d=await nube(form.backendUrl,"/tasaciones");
+      setListaNube(d.tasaciones||[]);
+      setNubeMsg(est.aviso?("⚠ "+est.aviso):((d.tasaciones||[]).length+" tasación(es) respaldadas · "+est.espacioUsadoMB+" MB usados"));
+    }catch(e){setListaNube([]);setNubeMsg("No se pudo consultar la nube: "+e.message);}
+  };
+  const abrirDesdeNube=async(id,nombre)=>{
+    try{
+      setNubeMsg("Descargando…");
+      const d=await nube(form.backendUrl,"/tasacion-abrir",{id});
+      setForm(conGKey({...EMPTY,...d.registro.datos}));
+      setIdTasacionActual(id);setShowTas(false);setNubeMsg("");
+      setAvisoGuardado("✓ Abierta desde la nube: "+nombre);setTimeout(()=>setAvisoGuardado(""),5000);
+    }catch(e){setNubeMsg("No se pudo abrir: "+e.message);}
+  };
   const exportarTasacion=(reg)=>{const blob=new Blob([JSON.stringify(reg,null,2)],{type:"application/json"});const u=URL.createObjectURL(blob);const el=document.createElement("a");el.href=u;el.download=("Tasacion_"+reg.nombre.replace(/[^\w\-]+/g,"_")+".json");el.click();URL.revokeObjectURL(u);};
   const importarTasacion=(ev)=>{const file=ev.target.files&&ev.target.files[0];if(!file)return;const rd=new FileReader();rd.onload=()=>{try{const reg=JSON.parse(rd.result);if(reg&&reg.form){setForm(conGKey({...EMPTY,...reg.form}));setShowTas(false);setAvisoGuardado("✓ Tasacion importada desde archivo.");setTimeout(()=>setAvisoGuardado(""),4000);}else alert("El archivo no es una tasacion valida.");}catch(e){alert("Archivo invalido: "+e.message);}};rd.readAsText(file);ev.target.value="";};
   const [satelitalStatus,setSatelitalStatus]=useState("idle");
@@ -496,7 +614,10 @@ export default function App(){
   const [debugSII,setDebugSII]=useState(null);
   const [propStatus,setPropStatus]=useState({}); // {[indiceRol]: "loading"|"ok"|"notfound"|"error"}
   const [iniaCultivo,setIniaCultivo]=useState("");
-  const [compStatus,setCompStatus]=useState("idle"); // idle|loading|notfound|error
+  const [compStatus,setCompStatus]=useState("idle");
+  const [valAjuste,setValAjuste]=useState("100");
+  const [valModo,setValModo]=useState("residual"); // comparables con mejoras (lo habitual) o terreno pelado // % de ajuste sobre la mediana de comparables
+  const [valPrev,setValPrev]=useState(null);   // vista previa antes de aplicar // idle|loading|notfound|error
   const [energiaStatus,setEnergiaStatus]=useState("idle"); // idle|loading|error
   const [normStatus,setNormStatus]=useState("idle"); // idle|loading|notfound|error
 
@@ -1985,6 +2106,28 @@ export default function App(){
                     </div>
                     <div style={{fontSize:12,color:"#777",marginBottom:12}}>Guardadas en este navegador. Usa "Exportar" para respaldar en archivo (y poder abrirlas en otro computador con "Importar").</div>
                     <label style={{display:"inline-block",border:"1px solid "+G,color:G,borderRadius:6,padding:"7px 12px",fontSize:12.5,cursor:"pointer",marginBottom:14}}>⬆ Importar desde archivo<input type="file" accept=".json" onChange={importarTasacion} style={{display:"none"}}/></label>
+                    <div style={{background:"#F7F5F1",border:"1px solid "+G,borderRadius:8,padding:"12px 14px",marginBottom:16}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                        <div style={{fontWeight:700,color:G,fontSize:13}}>☁️ Respaldo en la nube</div>
+                        <button onClick={cargarNube} style={{...bS,fontSize:11,padding:"5px 10px"}}>↻ Actualizar</button>
+                      </div>
+                      {nubeMsg?<div style={{fontSize:11.5,color:nubeMsg.startsWith("⚠")||nubeMsg.startsWith("No se")?"#9B4B43":"#666",marginBottom:8,lineHeight:1.5}}>{nubeMsg}</div>:null}
+                      {listaNube&&listaNube.length>0?listaNube.map(t=>{
+                        const yaLocal=listaTas.some(x=>x.id===t.id);
+                        return <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",borderTop:"1px solid #E2E4E1",padding:"8px 0"}}>
+                          <div style={{flex:1}}>
+                            <div style={{fontWeight:600,fontSize:13}}>{t.predio||t.nombre} {t.numTasacion?<span style={{color:GRIS,fontWeight:400}}>· {t.numTasacion}</span>:null}</div>
+                            <div style={{fontSize:11,color:"#999"}}>{t.roles?"Rol "+t.roles+" · ":""}{t.comuna?capTxt(t.comuna)+" · ":""}{new Date(t.guardado).toLocaleString("es-CL")} · {(t.bytes/1048576).toFixed(1)} MB{yaLocal?" · también en este navegador":""}</div>
+                          </div>
+                          <button onClick={()=>abrirDesdeNube(t.id,t.predio||t.nombre)} style={{border:"1px solid "+G,background:G,color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>Abrir</button>
+                          <button onClick={async()=>{
+                            if(!confirm("¿Eliminar \""+(t.predio||t.nombre)+"\" del respaldo en la nube?\n\n(Queda una copia de seguridad en el servidor y no afecta la copia de este navegador.)"))return;
+                            try{await nube(form.backendUrl,"/tasacion-borrar",{id:t.id});cargarNube();}catch(e){setNubeMsg("No se pudo borrar: "+e.message);}
+                          }} style={{border:"1px solid #c66",background:"#fff",color:"#c66",borderRadius:6,padding:"6px 9px",fontSize:12,cursor:"pointer"}}>✕</button>
+                        </div>;
+                      }):(listaNube?<div style={{fontSize:12,color:"#999"}}>Aún no hay tasaciones respaldadas en la nube.</div>:null)}
+                    </div>
+                    <div style={{fontWeight:700,color:G,fontSize:13,marginBottom:4}}>💻 En este navegador</div>
                     {selUnir.length>=2&&<button onClick={()=>{
                       const regs=listaTas.filter(r=>selUnir.includes(r.id));
                       const num=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
@@ -2118,6 +2261,29 @@ export default function App(){
                 <input value={form.backendUrl} onChange={e=>upd("backendUrl",e.target.value)} placeholder="https://tu-backend.up.railway.app" style={{...iS,flex:1}}/>
               </div>
               {form.backendUrl&&<div style={{fontSize:11,color:G,marginTop:6}}>Servidor configurado. Los informes se generaran usando este backend.</div>}
+            </div>
+
+            <div style={{background:"#fff",borderRadius:10,padding:20,border:"2px solid "+(leerClave()?G:ORO),marginBottom:14}}>
+              <div style={{fontWeight:700,color:leerClave()?G:ORO,fontSize:14,marginBottom:8}}>
+                {leerClave()?"✓ ":"☁️ "}Respaldo en la nube
+              </div>
+              <div style={{fontSize:12,color:"#666",marginBottom:10,lineHeight:1.6}}>
+                Con esto tus tasaciones dejan de vivir solo en este navegador: cada vez que guardas, se suben también al servidor.
+                Si cambias de computador o se borran los datos del navegador, las recuperas desde 📂 Mis Tasaciones.
+                La clave es la misma que configuraste en Railway (variable <b>FB_CLAVE</b>) y se guarda solo en este equipo.
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <input type="password" value={claveInput} onChange={e=>setClaveInput(e.target.value)} placeholder="Clave de respaldo" style={{...iS,flex:1,minWidth:200}}/>
+                <button onClick={async()=>{
+                  guardarClave(claveInput.trim());
+                  if(!claveInput.trim()){setAvisoGuardado("Clave borrada de este equipo.");setTimeout(()=>setAvisoGuardado(""),4000);return;}
+                  try{
+                    const est=await nube(form.backendUrl,"/almacen-estado");
+                    setAvisoGuardado(est.aviso?("⚠ "+est.aviso):("✓ Conectado. "+est.tasaciones+" tasación(es) respaldadas · "+est.espacioUsadoMB+" MB"));
+                  }catch(e){setAvisoGuardado("No se pudo conectar: "+e.message);}
+                  setTimeout(()=>setAvisoGuardado(""),9000);
+                }} style={{...bP,fontSize:13,padding:"10px 18px"}}>Guardar y probar</button>
+              </div>
             </div>
 
             <div style={{background:"#fff",borderRadius:10,padding:20,border:"1px solid #e8e8e8"}}>
@@ -2787,6 +2953,86 @@ export default function App(){
 
             <SecT icon="🌾" title="Valores por Clase de Suelo"/>
             <Card>
+              <div style={{background:"#F7F5F1",border:"1px solid "+G,borderRadius:8,padding:"13px 16px",marginBottom:14}}>
+                <div style={{fontSize:12.5,fontWeight:700,color:G,marginBottom:4}}>🧮 Sugerir valores desde las referencias de mercado</div>
+                <div style={{fontSize:11.5,color:"#666",lineHeight:1.6,marginBottom:9}}>
+                  Las ofertas comparables corresponden al <b>campo completo</b> (suelo, plantaciones, agua y mejoras).
+                  Por eso la mediana × superficie se toma como valor de mercado del predio entero, y al suelo se le asigna
+                  lo que queda al descontar los componentes que ya valorizaste. Así <b>todo suma</b> sin duplicarse.
+                </div>
+                <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
+                  <select value={valModo} onChange={e=>{setValModo(e.target.value);setValPrev(null);}} style={{...iS,width:330,margin:0,padding:"6px 9px",fontSize:12}}>
+                    <option value="residual">Las ofertas comparables incluyen plantaciones y mejoras</option>
+                    <option value="suelo">Las ofertas son de terreno sin plantaciones ni mejoras</option>
+                  </select>
+                  <span style={{fontSize:12,color:"#444"}}>Ajuste:</span>
+                  <input value={valAjuste} onChange={e=>{setValAjuste(e.target.value);setValPrev(null);}} style={{...iS,width:65,margin:0,padding:"6px 9px",fontSize:12.5,textAlign:"center"}}/>
+                  <span style={{fontSize:12,color:"#444"}}>%</span>
+                  <button onClick={()=>{
+                    const pct=parseFloat(String(valAjuste).replace(",","."))||0;
+                    if(pct<=0){alert("El ajuste debe ser un porcentaje mayor que 0.");return;}
+                    const r=sugerirValorSuelos(form,pct,valModo);
+                    if(r.error){alert(r.error);return;}
+                    setValPrev(r);
+                  }} style={{...bS,fontSize:12,padding:"7px 13px"}}>Calcular</button>
+                  <span style={{fontSize:11,color:"#888"}}>(100 % = igual al mercado; baja si el predio tiene peor acceso, agua o topografía)</span>
+                </div>
+                {valPrev?(()=>{
+                  const F=v=>"$ "+Math.round(v).toLocaleString("es-CL");
+                  const o=valPrev.otros;
+                  const resid=valPrev.modo==="residual";
+                  const totalFinal=valPrev.residual+(resid?o.total:0);
+                  return <div>
+                    <div style={{fontSize:12,color:"#444",lineHeight:1.8,borderTop:"1px solid #E2E4E1",paddingTop:8}}>
+                      <b>{valPrev.n}</b> comparable(s) · mediana <b>{F(valPrev.mediana)}/ha</b> · rango {F(valPrev.min)} – {F(valPrev.max)}<br/>
+                      Índice de calidad del predio: <b>{(valPrev.indice*100).toFixed(0)}%</b> (100% sería todo Clase I) · Superficie: <b>{valPrev.supTot.toFixed(2).replace(".",",")} ha</b>
+                    </div>
+                    {/* Como se reparte el valor de mercado entre todos los componentes */}
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,margin:"9px 0"}}>
+                      <tbody>
+                        <tr style={{background:GH,fontWeight:700,color:G}}>
+                          <td style={{padding:"6px 8px"}}>Valor de mercado del predio ({F(valPrev.base)}/ha × {valPrev.supTot.toFixed(2).replace(".",",")} ha)</td>
+                          <td style={{padding:"6px 8px",textAlign:"right"}}>{F(valPrev.totalMercado)}</td>
+                        </tr>
+                        {resid?[["Menos plantaciones ya valorizadas",o.plantas],["Menos derechos de agua",o.agua],["Menos construcciones",o.construcciones],["Menos instalaciones",o.instalaciones]]
+                          .filter(x=>x[1]>0).map((x,i)=><tr key={i} style={{background:"#fff"}}>
+                            <td style={{padding:"5px 8px",color:"#666"}}>{x[0]}</td>
+                            <td style={{padding:"5px 8px",textAlign:"right",color:"#9B4B43"}}>− {F(x[1])}</td>
+                          </tr>):null}
+                        <tr style={{background:HUESO,fontWeight:700}}>
+                          <td style={{padding:"6px 8px"}}>{resid&&o.total>0?"Queda para los suelos":"Valor asignado a los suelos"}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right"}}>{F(valPrev.residual)} &nbsp;<span style={{fontWeight:400,color:"#888"}}>({F(valPrev.vhaSuelo)}/ha)</span></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,margin:"0 0 8px"}}>
+                      <thead><tr style={{background:G,color:"#fff"}}>{["Clase","Ha","Coef.","$/ha sugerido","Valor"].map((h,i)=><th key={i} style={{padding:"6px 8px",textAlign:i===0?"left":"right",fontSize:11}}>{h}</th>)}</tr></thead>
+                      <tbody>{valPrev.detalle.map((d,i)=><tr key={i} style={{background:i%2?"#fff":HUESO}}>
+                        <td style={{padding:"5px 8px"}}>Clase {d.clase}</td>
+                        <td style={{padding:"5px 8px",textAlign:"right"}}>{d.ha.toFixed(2).replace(".",",")}</td>
+                        <td style={{padding:"5px 8px",textAlign:"right",color:"#888"}}>{d.coef.toFixed(2).replace(".",",")}</td>
+                        <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600}}>{F(d.vha)}</td>
+                        <td style={{padding:"5px 8px",textAlign:"right"}}>{F(d.valor)}</td>
+                      </tr>)}</tbody>
+                    </table>
+                    {resid&&o.total>0?<div style={{fontSize:12,color:G,background:"#eef4ee",borderRadius:6,padding:"8px 11px",marginBottom:8,lineHeight:1.7}}>
+                      <b>Así queda la tasación completa:</b> suelos {F(valPrev.residual)}
+                      {o.plantas>0?" + plantaciones "+F(o.plantas):""}{o.agua>0?" + agua "+F(o.agua):""}
+                      {o.construcciones>0?" + construcciones "+F(o.construcciones):""}{o.instalaciones>0?" + instalaciones "+F(o.instalaciones):""}
+                      {" = "}<b>{F(totalFinal)}</b>, coincidente con el valor de mercado.
+                    </div>:null}
+                    {valPrev.modo==="suelo"&&o.total>0?<div style={{fontSize:11.5,color:"#9B4B43",marginBottom:6}}>⚠ Elegiste comparables de terreno sin mejoras, pero la tasación ya tiene {F(o.total)} en plantaciones, agua o construcciones. El total del predio quedará en {F(valPrev.residual+o.total)}, por sobre lo que indican los comparables.</div>:null}
+                    {valPrev.dispersion>=3?<div style={{fontSize:11.5,color:"#9B4B43",marginBottom:6}}>⚠ Las ofertas comparables son muy dispares (la mayor es {valPrev.dispersion.toFixed(1)} veces la menor). La mediana puede no ser representativa: revisa si corresponden a predios comparables en tamaño, riego y uso.</div>:null}
+                    {avaluoTotal>0&&totalFinal<avaluoTotal?<div style={{fontSize:11.5,color:"#9B4B43",marginBottom:6}}>⚠ El total ({F(totalFinal)}) queda bajo el avalúo fiscal ({F(avaluoTotal)}), lo que es inusual. Verifica las unidades de los comparables (¿pesos o UF?).</div>:null}
+                    <button onClick={()=>{
+                      const ROM=["I","II","III","IV","V","VI","VII","VIII"];
+                      valPrev.detalle.forEach(d=>upd("v"+(ROM.indexOf(d.clase)+1),fmtMiles(String(Math.round(d.vha)))));
+                      setAvisoGuardado("✓ Valores aplicados a "+valPrev.detalle.length+" clase(s). Revisa el sumador de la Valorización Comercial y ajusta lo que corresponda.");
+                      setTimeout(()=>setAvisoGuardado(""),7000);
+                    }} style={{...bP,fontSize:12,padding:"8px 15px"}}>↴ Aplicar a las clases de suelo</button>
+                  </div>;
+                })():null}
+              </div>
               <div style={{fontSize:12,color:"#666",marginBottom:10}}>Ingresa el valor por hectarea de cada clase presente en el predio. El valor total se calcula solo en la tabla del informe.</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12}}>
                 {[1,2,3,4,5,6,7,8].filter(n=>parseFloat((form["c"+n]||"0").replace(",","."))>0).map(n=>(
