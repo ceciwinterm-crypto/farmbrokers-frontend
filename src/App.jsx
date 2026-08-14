@@ -362,7 +362,9 @@ function componentesValorizados(d){
   const agua=pj(d.recursosHidricos).reduce((s,r)=>s+num(r.valor),0);
   const construcciones=pj(d.construccionesLista).reduce((s,x)=>s+ha(x.m2)*num(x.vm2),0);
   const instalaciones=pj(d.instalacionesLista).reduce((s,r)=>s+(num(r.vg)||ha(r.cantidad)*num(r.vu)),0);
-  return {plantas,agua,construcciones,instalaciones,total:plantas+agua+construcciones+instalaciones};
+  const maquinaria=pj(d.maquinariaLista).reduce((s,r)=>s+ha(r.cantidad)*num(r.vu),0);
+  return {plantas,agua,construcciones,instalaciones,maquinaria,
+          total:plantas+agua+construcciones+instalaciones+maquinaria};
 }
 
 // modo: "residual" (las ofertas incluyen mejoras) | "suelo" (ofertas de terreno pelado)
@@ -506,7 +508,7 @@ const EMPTY = {
   seriesSuelo:"",pendiente:"",profundidad:"",erosion:"",pedregosidad:"",
   drenaje:"",textura:"",ph:"",aptitud:"",capacidadUso:"",
   cn1:"",co1:"",ca1:"",cq1:"",cn2:"",co2:"",ca2:"",cq2:"",recursosHidricos:"",
-  construcciones:"No posee construcciones ni instalaciones de ningun tipo.",construccionesLista:"",metodologiaTxt:"",deslindeN:"",deslindeS:"",deslindeO:"",deslindeP:"",
+  construcciones:"No posee construcciones ni instalaciones de ningun tipo.",construccionesLista:"",maquinariaLista:"",metodologiaTxt:"",deslindeN:"",deslindeS:"",deslindeO:"",deslindeP:"",
   plantacionDesc:"",plantacionHas:"0",plantacionValorHa:"0",
   refs:[{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""}],
   valorComercial:"",valorComercialUF:"",valorFacilVenta:"",valorFacilVentaUF:"",
@@ -519,6 +521,16 @@ const conGKey=(f)=>({...f,googleMapsKey:leerGKey()||f.googleMapsKey||""});
 
 export default function App(){
   const [step,setStep]=useState(0);
+  const [showCot,setShowCot]=useState(false);
+  const COT_VACIA={numero:"",fecha:"",cliente:"",rutCliente:"",email:"",telefono:"",
+    predio:"",ubicacion:"",roles:"",superficie:"",
+    items:[{detalle:"Informe de tasación comercial del predio",uf:""}],
+    plazo:"10 días hábiles",formaPago:"Contra entrega del informe",vigencia:"15 días",
+    notas:"",incluye:"Levantamiento topográfico y fotografía satelital · Levantamiento de información predial con información detallada según bases de datos ministeriales · Valorización del predio según referencias de mercado y datos internos de Farm Brokers Chile · Descripción de antecedentes legales de la propiedad"};
+  const [cot,setCot]=useState(()=>{try{return {...COT_VACIA,...JSON.parse(localStorage.getItem("fb_cot_borrador")||"{}")};}catch(e){return COT_VACIA;}});
+  const updCot=(k,v)=>setCot(p=>{const n={...p,[k]:v};try{localStorage.setItem("fb_cot_borrador",JSON.stringify(n));}catch(e){}return n;});
+  const numeroCot=()=>{const y=new Date().getFullYear();const k="fb_cot_num_"+y;const n=(parseInt(localStorage.getItem(k)||"0",10)||0)+1;localStorage.setItem(k,String(n));return "C-"+y+"-"+String(n).padStart(3,"0");};
+
   const [loading,setLoading]=useState(false);
   const [report,setReport]=useState(null);
   const [genMsg,setGenMsg]=useState("");
@@ -1912,6 +1924,90 @@ export default function App(){
     setTimeout(()=>setAvisoGuardado(""),6000);
   };
 
+  // ── Cotización en PDF/Word (mismo lenguaje visual del informe) ─────────────
+  const cotHTML=()=>{
+    const n=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+    const uf=n(form.ufBase);
+    const items=(cot.items||[]).filter(i=>String(i.detalle||"").trim()||n(i.uf)>0);
+    const totalUF=items.reduce((s,i)=>s+n(i.uf),0);
+    const totalPesos=uf>0?totalUF*uf:0;
+    const esc=t=>String(t==null?"":t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const fUF=v=>v.toLocaleString("es-CL",{minimumFractionDigits:1,maximumFractionDigits:1});
+    const fila=(a,b,c2)=>"<tr><td style='padding:9px 12px;border-bottom:1px solid #E2E4E1;font-size:12pt;'>"+esc(a)+"</td>"+
+      "<td style='padding:9px 12px;border-bottom:1px solid #E2E4E1;text-align:right;font-size:12pt;white-space:nowrap;'>"+b+"</td>"+
+      (c2!==undefined?"<td style='padding:9px 12px;border-bottom:1px solid #E2E4E1;text-align:right;font-size:12pt;white-space:nowrap;'>"+c2+"</td>":"")+"</tr>";
+    const dato=(k,v)=>String(v||"").trim()?("<div style='margin-bottom:5pt;'><span style='font-size:8pt;letter-spacing:1pt;text-transform:uppercase;color:#6C746F;'>"+esc(k)+"</span><br/><span style='font-size:11.5pt;color:#222724;'>"+esc(v)+"</span></div>"):"";
+
+    return "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>"+
+    "<head><meta charset='utf-8'><title>Cotización "+esc(cot.numero)+"</title>"+
+    "<style>@page{size:21cm 29.7cm;margin:1.8cm 2cm;}body{font-family:Georgia,serif;color:#222724;}</style></head><body>"+
+    "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;'><tr>"+
+      "<td style='background:#C6A66A;height:5pt;font-size:1pt;line-height:1pt;'>&nbsp;</td></tr>"+
+      "<tr><td style='background:#33463B;padding:22pt 30pt;'>"+
+        "<img src='"+LOGO_WHITE+"' style='width:3.6cm;'/><br/>"+
+        "<div style='margin-top:16pt;font-size:8.5pt;letter-spacing:2.6pt;text-transform:uppercase;color:#C9D3CC;'>Cotización de Servicios</div>"+
+        "<div style='font-size:23pt;font-weight:700;color:#ffffff;margin-top:6pt;'>Tasación Agrícola</div>"+
+        "<div style='font-size:10.5pt;color:#C9D3CC;margin-top:8pt;'>N° "+esc(cot.numero)+" &nbsp;·&nbsp; "+esc(cot.fecha)+"</div>"+
+      "</td></tr></table>"+
+
+    "<table width='100%' cellspacing='0' cellpadding='0' style='margin-top:20pt;border-collapse:collapse;'><tr>"+
+      "<td width='50%' valign='top' style='padding-right:14pt;'>"+
+        "<div style='font-size:9pt;font-weight:700;letter-spacing:1.4pt;text-transform:uppercase;color:#33463B;border-bottom:1.5pt solid #C6A66A;padding-bottom:4pt;margin-bottom:9pt;'>Cliente</div>"+
+        dato("Nombre",cot.cliente)+dato("RUT",cot.rutCliente)+dato("Email",cot.email)+dato("Teléfono",cot.telefono)+
+      "</td>"+
+      "<td width='50%' valign='top' style='padding-left:14pt;'>"+
+        "<div style='font-size:9pt;font-weight:700;letter-spacing:1.4pt;text-transform:uppercase;color:#33463B;border-bottom:1.5pt solid #C6A66A;padding-bottom:4pt;margin-bottom:9pt;'>Propiedad a tasar</div>"+
+        dato("Predio",cot.predio)+dato("Ubicación",cot.ubicacion)+dato("Rol(es) SII",cot.roles)+dato("Superficie aprox.",cot.superficie)+
+      "</td></tr></table>"+
+
+    "<div style='font-size:9pt;font-weight:700;letter-spacing:1.4pt;text-transform:uppercase;color:#33463B;border-bottom:1.5pt solid #C6A66A;padding-bottom:4pt;margin:22pt 0 0;'>Detalle del servicio</div>"+
+    "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;margin-top:9pt;'>"+
+      "<tr style='background:#33463B;color:#ffffff;'>"+
+        "<th style='padding:8pt 12pt;text-align:left;font-size:9pt;letter-spacing:1pt;text-transform:uppercase;'>Concepto</th>"+
+        "<th style='padding:8pt 12pt;text-align:right;font-size:9pt;letter-spacing:1pt;text-transform:uppercase;white-space:nowrap;'>UF</th>"+
+        (uf>0?"<th style='padding:8pt 12pt;text-align:right;font-size:9pt;letter-spacing:1pt;text-transform:uppercase;white-space:nowrap;'>Pesos</th>":"")+"</tr>"+
+      items.map(i=>fila(i.detalle,fUF(n(i.uf)),uf>0?("$ "+Math.round(n(i.uf)*uf).toLocaleString("es-CL")):undefined)).join("")+
+      "<tr style='background:#F7F5F1;font-weight:700;color:#33463B;'>"+
+        "<td style='padding:11pt 12pt;font-size:12.5pt;'>TOTAL</td>"+
+        "<td style='padding:11pt 12pt;text-align:right;font-size:12.5pt;white-space:nowrap;'>UF "+fUF(totalUF)+"</td>"+
+        (uf>0?"<td style='padding:11pt 12pt;text-align:right;font-size:12.5pt;white-space:nowrap;'>$ "+Math.round(totalPesos).toLocaleString("es-CL")+"</td>":"")+"</tr>"+
+    "</table>"+
+    (uf>0?"<div style='font-size:9pt;color:#6C746F;font-style:italic;margin-top:5pt;'>Valores expresados en UF. Equivalencia en pesos calculada con la UF del "+esc(form.ufFecha||"día")+" ($ "+esc(form.ufBase)+"); el monto final se ajusta al valor de la UF a la fecha de pago.</div>":"")+
+
+    (String(cot.incluye||"").trim()?"<div style='font-size:9pt;font-weight:700;letter-spacing:1.4pt;text-transform:uppercase;color:#33463B;border-bottom:1.5pt solid #C6A66A;padding-bottom:4pt;margin:16pt 0 7pt;page-break-after:avoid;'>El servicio incluye</div>"+
+      "<div style='font-size:10.5pt;line-height:1.75;'>"+String(cot.incluye).split("·").map(x=>x.trim()).filter(Boolean).map(x=>"› "+esc(x)).join("<br/>")+"</div>":"")+
+
+    "<table width='100%' cellspacing='0' cellpadding='0' style='margin-top:16pt;border-collapse:collapse;background:#F7F5F1;page-break-inside:avoid;'><tr>"+
+      ["Plazo de entrega|"+cot.plazo,"Forma de pago|"+cot.formaPago,"Validez de esta cotización|"+cot.vigencia]
+        .map(x=>{const p=x.split("|");return "<td width='33%' valign='top' style='padding:12pt 14pt;'>"+
+          "<div style='font-size:8pt;letter-spacing:1pt;text-transform:uppercase;color:#6C746F;margin-bottom:3pt;'>"+esc(p[0])+"</div>"+
+          "<div style='font-size:11pt;font-weight:600;color:#222724;'>"+esc(p[1])+"</div></td>";}).join("")+
+    "</tr></table>"+
+
+    (String(cot.notas||"").trim()?"<div style='margin-top:16pt;font-size:10.5pt;line-height:1.7;border-left:3pt solid #C6A66A;padding-left:12pt;color:#444;'>"+esc(cot.notas)+"</div>":"")+
+
+    "<div style='margin-top:22pt;padding-top:10pt;border-top:1px solid #E2E4E1;font-size:9pt;color:#6C746F;'>"+
+      "<b style='color:#33463B;'>"+esc(form.tasador||"Farm Brokers Chile")+"</b><br/>"+
+      "Farm Brokers Chile · Tasaciones, Estudios y Venta de Campos · www.farmbrokers.cl"+
+      (form.email?" · "+esc(form.email):"")+
+    "</div></body></html>";
+  };
+
+  const cotDescargarWord=()=>{
+    const blob=new Blob(["\ufeff"+cotHTML()],{type:"application/msword"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;
+    a.download="Cotizacion_"+(cot.numero||"FarmBrokers")+"_"+String(cot.cliente||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-zA-Z0-9]+/g,"-").replace(/^-|-$/g,"")+".doc";
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+  };
+  const cotImprimir=()=>{
+    const v=window.open("","_blank");
+    if(!v){alert("El navegador bloqueó la ventana. Permite las ventanas emergentes para imprimir la cotización.");return;}
+    v.document.write(cotHTML());v.document.close();
+    setTimeout(()=>{v.focus();v.print();},400);
+  };
+
   const exportarFichaPublicacion=()=>{
     if(!report){alert("Primero genera el informe de tasación.");return;}
     const n=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
@@ -2098,7 +2194,92 @@ export default function App(){
         <div style={{textAlign:"right",display:"flex",gap:14,alignItems:"center"}}>
 
                 {avisoGuardado?<div style={{position:"fixed",top:74,right:20,zIndex:99,background:"#1e5631",color:"#fff",padding:"10px 18px",borderRadius:8,fontSize:13,boxShadow:"0 4px 14px rgba(0,0,0,0.25)"}}>{avisoGuardado}</div>:null}
-                {showTas?<div onClick={()=>setShowTas(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:98,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {showCot?<div onClick={()=>setShowCot(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:98,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",color:TINTA,borderRadius:12,padding:24,width:"min(760px,94vw)",maxHeight:"88vh",overflow:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontWeight:700,fontSize:17,color:G,fontFamily:FONT}}>💼 Cotización de Tasación</div>
+              <button onClick={()=>setShowCot(false)} style={{border:"none",background:"transparent",fontSize:18,cursor:"pointer"}}>✕</button>
+            </div>
+            <div style={{fontSize:12,color:"#777",marginBottom:14}}>Completa los datos y descarga la cotización con el formato de Farm Brokers. Los precios los defines tú en cada caso.</div>
+
+            <G2>
+              <Fld label="N° de cotización" value={cot.numero} onChange={v=>updCot("numero",v)} placeholder="C-2026-001"/>
+              <Fld label="Fecha" value={cot.fecha} onChange={v=>updCot("fecha",v)}/>
+            </G2>
+
+            <div style={{fontWeight:700,color:G,fontSize:13,margin:"16px 0 6px"}}>Cliente</div>
+            <G2>
+              <Fld label="Nombre o razón social" value={cot.cliente} onChange={v=>updCot("cliente",v)}/>
+              <Fld label="RUT" value={cot.rutCliente} onChange={v=>updCot("rutCliente",v)}/>
+              <Fld label="Email" value={cot.email} onChange={v=>updCot("email",v)}/>
+              <Fld label="Teléfono" value={cot.telefono} onChange={v=>updCot("telefono",v)}/>
+            </G2>
+
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"16px 0 6px"}}>
+              <div style={{fontWeight:700,color:G,fontSize:13}}>Propiedad a tasar</div>
+              <button onClick={()=>{
+                const r=(form.roles||[]).filter(x=>String(x.rol||"").trim());
+                if(!r.length&&!form.predioNombre){alert("No hay datos en la tasación actual para copiar.");return;}
+                if(form.predioNombre)updCot("predio",capTxt(form.predioNombre));
+                if(r.length){
+                  updCot("roles",r.map(x=>x.rol).join(" + "));
+                  updCot("ubicacion",capTxt((r[0]||{}).comuna||"")+(form.region?", Región de "+regionTxt(form.region):""));
+                }
+                if(superfSIITotal>0)updCot("superficie",superfSIITotal.toFixed(2).replace(".",",")+" ha");
+              }} style={{...bS,fontSize:11,padding:"5px 10px"}}>↴ Traer de la tasación actual</button>
+            </div>
+            <G2>
+              <Fld label="Nombre del predio" value={cot.predio} onChange={v=>updCot("predio",v)}/>
+              <Fld label="Ubicación (comuna, región)" value={cot.ubicacion} onChange={v=>updCot("ubicacion",v)}/>
+              <Fld label="Rol(es) SII" value={cot.roles} onChange={v=>updCot("roles",v)} placeholder="792-86 + 792-87"/>
+              <Fld label="Superficie aproximada" value={cot.superficie} onChange={v=>updCot("superficie",v)} placeholder="20,87 ha"/>
+            </G2>
+
+            <div style={{fontWeight:700,color:G,fontSize:13,margin:"16px 0 6px"}}>Detalle y valores (en UF)</div>
+            {(cot.items||[]).map((it,i)=>(
+              <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+                <input value={it.detalle} onChange={e=>updCot("items",cot.items.map((x,j)=>j===i?{...x,detalle:e.target.value}:x))} placeholder="Concepto (ej. Informe de tasación, Visita a terreno, Rol adicional)" style={{...iS,flex:1,margin:0,padding:"8px 10px",fontSize:12.5}}/>
+                <input value={it.uf} onChange={e=>updCot("items",cot.items.map((x,j)=>j===i?{...x,uf:e.target.value}:x))} placeholder="UF" style={{...iS,width:90,margin:0,padding:"8px 10px",fontSize:12.5,textAlign:"right"}}/>
+                {cot.items.length>1?<button onClick={()=>updCot("items",cot.items.filter((_,j)=>j!==i))} style={{...bS,padding:"7px 10px",fontSize:12}}>✕</button>:null}
+              </div>
+            ))}
+            <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginTop:4}}>
+              <button onClick={()=>updCot("items",[...(cot.items||[]),{detalle:"",uf:""}])} style={{...bS,fontSize:12}}>+ Agregar línea</button>
+              {["Rol adicional","Visita a terreno","Valorización de plantaciones","Valorización de construcciones","Valorización de maquinaria e instalaciones","Recargo por distancia"].map((t,i)=>
+                <button key={i} onClick={()=>updCot("items",[...(cot.items||[]),{detalle:t,uf:""}])} style={{border:"1px dashed "+GL,background:"#fff",color:G,borderRadius:20,padding:"5px 11px",fontSize:11,cursor:"pointer"}}>+ {t}</button>)}
+            </div>
+            {(()=>{
+              const n=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+              const t=(cot.items||[]).reduce((s,i)=>s+n(i.uf),0);
+              const uf=n(form.ufBase);
+              if(t<=0)return <div style={{fontSize:11.5,color:"#9B4B43",marginTop:8}}>Ingresa al menos un valor en UF para poder emitir la cotización.</div>;
+              return <div style={{background:GH,borderRadius:8,padding:"10px 14px",marginTop:10,fontSize:14,color:G,fontWeight:700}}>
+                Total: UF {t.toLocaleString("es-CL",{minimumFractionDigits:1,maximumFractionDigits:1})}
+                {uf>0?<span style={{fontWeight:400,fontSize:13}}> &nbsp;·&nbsp; equivalente a $ {Math.round(t*uf).toLocaleString("es-CL")} (UF de hoy)</span>
+                     :<span style={{fontWeight:400,fontSize:12,color:"#9B4B43"}}> &nbsp;· sin valor de UF cargado: la cotización saldrá solo en UF</span>}
+              </div>;
+            })()}
+
+            <div style={{fontWeight:700,color:G,fontSize:13,margin:"18px 0 6px"}}>Condiciones</div>
+            <G3>
+              <Fld label="Plazo de entrega" value={cot.plazo} onChange={v=>updCot("plazo",v)}/>
+              <Fld label="Forma de pago" value={cot.formaPago} onChange={v=>updCot("formaPago",v)}/>
+              <Fld label="Validez" value={cot.vigencia} onChange={v=>updCot("vigencia",v)}/>
+            </G3>
+            <Fld label="El servicio incluye (separa cada punto con · )" value={cot.incluye} onChange={v=>updCot("incluye",v)} multi/>
+            <Fld label="Observaciones (opcional)" value={cot.notas} onChange={v=>updCot("notas",v)} multi placeholder="Ej. El valor no incluye gastos de inscripción ni certificados que deban solicitarse a terceros."/>
+
+            <div style={{display:"flex",gap:10,marginTop:18,flexWrap:"wrap"}}>
+              <button onClick={cotImprimir} style={bP}>🖨️ Imprimir / Guardar PDF</button>
+              <button onClick={cotDescargarWord} style={{...bP,background:ORO}}>📄 Descargar Word</button>
+              <button onClick={()=>{
+                if(!confirm("¿Empezar una cotización nueva? Se limpian los datos del cliente y la propiedad."))return;
+                setCot({...COT_VACIA,numero:numeroCot(),fecha:new Date().toLocaleDateString("es-CL",{day:"numeric",month:"long",year:"numeric"})});
+              }} style={bS}>Nueva cotización</button>
+            </div>
+          </div>
+        </div>:null}
+        {showTas?<div onClick={()=>setShowTas(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:98,display:"flex",alignItems:"center",justifyContent:"center"}}>
                   <div onClick={e=>e.stopPropagation()} style={{background:"#fff",color:"#222",borderRadius:12,padding:24,width:"min(640px,92vw)",maxHeight:"80vh",overflow:"auto"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                       <div style={{fontWeight:700,fontSize:17,color:G}}>📂 Mis Tasaciones</div>
@@ -2194,6 +2375,7 @@ export default function App(){
                 </div>:null}
                 <button onClick={guardarTasacion} style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>💾 Guardar</button>
                 <button onClick={abrirMisTasaciones} style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>📂 Mis Tasaciones</button>
+                <button onClick={()=>{if(!cot.numero)updCot("numero",numeroCot());if(!cot.fecha)updCot("fecha",new Date().toLocaleDateString("es-CL",{day:"numeric",month:"long",year:"numeric"}));setShowCot(true);}} style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>💼 Cotización</button>
           {ufStatus==="ok"
             ? <div style={{display:"flex",gap:14,alignItems:"center"}}>
                 <div><div style={{fontSize:10,opacity:0.6}}>UF HOY</div><div style={{fontWeight:700,fontSize:16,color:ORO}}>${form.ufBase}</div></div>
@@ -2874,6 +3056,30 @@ export default function App(){
                   <button onClick={()=>guardarI([...ins,{nombre:"",cantidad:"",unidad:"",vu:"",vg:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar instalacion</button>
                 </div>;
               })()}
+              <div style={{fontWeight:600,color:G,margin:"16px 0 6px",fontSize:13}}>Maquinaria y equipos (se valorizan aparte del predio)</div>
+              <div style={{fontSize:11.5,color:"#888",marginBottom:8}}>Tractores, implementos, equipos de riego móviles, camiones. Si la venta los incluye, se listan y valorizan aquí; si no, deja la sección vacía.</div>
+              {(()=>{
+                let mq=[];
+                try{mq=JSON.parse(form.maquinariaLista||"[]");}catch(e){mq=[];}
+                const guardarM=(arr)=>upd("maquinariaLista",arr.length?JSON.stringify(arr):"");
+                const setM=(i,cmp,v)=>guardarM(mq.map((r,j)=>j===i?{...r,[cmp]:v}:r));
+                const nM=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+                const cM=v=>parseFloat(String(v||"0").replace(",","."))||0;
+                return <div>
+                  {mq.map((r,i)=>(
+                    <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center",flexWrap:"wrap"}}>
+                      <input value={r.nombre||""} onChange={e=>setM(i,"nombre",e.target.value)} placeholder="Maquinaria o equipo (ej. Tractor New Holland TD5.90)" style={{...iS,flex:3,minWidth:210,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.anio||""} onChange={e=>setM(i,"anio",e.target.value)} placeholder="Año" style={{...iS,width:70,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.estado||""} onChange={e=>setM(i,"estado",e.target.value)} placeholder="Estado" style={{...iS,width:110,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.cantidad||""} onChange={e=>setM(i,"cantidad",e.target.value)} placeholder="Cant." style={{...iS,width:65,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <input value={r.vu||""} onChange={e=>setM(i,"vu",fmtMiles(e.target.value))} placeholder="$ unitario" style={{...iS,width:115,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                      <span style={{fontSize:11.5,color:"#666",minWidth:95}}>{(cM(r.cantidad)&&nM(r.vu))?("$ "+Math.round(cM(r.cantidad)*nM(r.vu)).toLocaleString("es-CL")):""}</span>
+                      <button onClick={()=>guardarM(mq.filter((_,j)=>j!==i))} style={{...bS,padding:"6px 10px",fontSize:12}}>✕</button>
+                    </div>
+                  ))}
+                  <button onClick={()=>guardarM([...mq,{nombre:"",anio:"",estado:"",cantidad:"1",vu:""}])} style={{...bS,fontSize:12,marginTop:4}}>+ Agregar maquinaria</button>
+                </div>;
+              })()}
             </Card>
 
             <SecT icon="📸" title="Fotografias del Predio"/>
@@ -2994,7 +3200,7 @@ export default function App(){
                           <td style={{padding:"6px 8px"}}>Valor de mercado del predio ({F(valPrev.base)}/ha × {valPrev.supTot.toFixed(2).replace(".",",")} ha)</td>
                           <td style={{padding:"6px 8px",textAlign:"right"}}>{F(valPrev.totalMercado)}</td>
                         </tr>
-                        {resid?[["Menos plantaciones ya valorizadas",o.plantas],["Menos derechos de agua",o.agua],["Menos construcciones",o.construcciones],["Menos instalaciones",o.instalaciones]]
+                        {resid?[["Menos plantaciones ya valorizadas",o.plantas],["Menos derechos de agua",o.agua],["Menos construcciones",o.construcciones],["Menos instalaciones",o.instalaciones],["Menos maquinaria y equipos",o.maquinaria]]
                           .filter(x=>x[1]>0).map((x,i)=><tr key={i} style={{background:"#fff"}}>
                             <td style={{padding:"5px 8px",color:"#666"}}>{x[0]}</td>
                             <td style={{padding:"5px 8px",textAlign:"right",color:"#9B4B43"}}>− {F(x[1])}</td>
@@ -3018,7 +3224,7 @@ export default function App(){
                     {resid&&o.total>0?<div style={{fontSize:12,color:G,background:"#eef4ee",borderRadius:6,padding:"8px 11px",marginBottom:8,lineHeight:1.7}}>
                       <b>Así queda la tasación completa:</b> suelos {F(valPrev.residual)}
                       {o.plantas>0?" + plantaciones "+F(o.plantas):""}{o.agua>0?" + agua "+F(o.agua):""}
-                      {o.construcciones>0?" + construcciones "+F(o.construcciones):""}{o.instalaciones>0?" + instalaciones "+F(o.instalaciones):""}
+                      {o.construcciones>0?" + construcciones "+F(o.construcciones):""}{o.instalaciones>0?" + instalaciones "+F(o.instalaciones):""}{o.maquinaria>0?" + maquinaria "+F(o.maquinaria):""}
                       {" = "}<b>{F(totalFinal)}</b>, coincidente con el valor de mercado.
                     </div>:null}
                     {valPrev.modo==="suelo"&&o.total>0?<div style={{fontSize:11.5,color:"#9B4B43",marginBottom:6}}>⚠ Elegiste comparables de terreno sin mejoras, pero la tasación ya tiene {F(o.total)} en plantaciones, agua o construcciones. El total del predio quedará en {F(valPrev.residual+o.total)}, por sobre lo que indican los comparables.</div>:null}
@@ -3055,7 +3261,8 @@ export default function App(){
                   let agua=0;try{agua=JSON.parse(form.recursosHidricos||"[]").reduce((s,r)=>s+num(r.valor),0);}catch(e){}
                   let cons=0;try{cons=JSON.parse(form.construccionesLista||"[]").reduce((s,c2)=>s+ha(c2.m2)*num(c2.vm2),0);}catch(e){}
                   let inst=0;try{inst=JSON.parse(form.instalacionesLista||"[]").reduce((s,r)=>s+(num(r.vg)||ha(r.cantidad)*num(r.vu)),0);}catch(e){}
-                  const total=suelos+pls+legacy+agua+cons+inst;
+                  let maq=0;try{maq=JSON.parse(form.maquinariaLista||"[]").reduce((s,r)=>s+ha(r.cantidad)*num(r.vu),0);}catch(e){}
+                  const total=suelos+pls+legacy+agua+cons+inst+maq;
                   if(total<=0)return null;
                   const F=v=>"$ "+Math.round(v).toLocaleString("es-CL");
                   const uf=num(form.ufBase);
@@ -3067,6 +3274,7 @@ export default function App(){
                         {(pls+legacy)>0?<> · Plantaciones: <b>{F(pls+legacy)}</b></>:null}
                         {agua>0?<> · Derechos de Agua: <b>{F(agua)}</b></>:null}
                         {(cons+inst)>0?<> · Construcciones e Instalaciones: <b>{F(cons+inst)}</b></>:null}
+                        {maq>0?<> · Maquinaria y equipos: <b>{F(maq)}</b></>:null}
                       </div>
                       <div style={{fontWeight:700,marginTop:6,fontSize:15,color:G}}>TOTAL: {F(total)}{uf>0?"  ·  UF "+Math.round(total/uf).toLocaleString("es-CL"):""}</div>
                       <button onClick={()=>{upd("valorComercial",Math.round(total).toLocaleString("es-CL"));if(uf>0)upd("valorComercialUF",Math.round(total/uf).toLocaleString("es-CL"));}} style={{...bS,fontSize:12,marginTop:8}}>↴ Usar como Valor Comercial</button>
@@ -3558,6 +3766,19 @@ export default function App(){
                     {cs.length?<GTbl boldLast={1} headers={conValorC?["Construcciones","m²","Año","$ x m²","Valor"]:["Construcciones","m²","Año"]}
                       rows={[...cs.map(c=>{const base=[c.nombre,c.m2||"-",c.anio||"-"];return conValorC?[...base,nC(c.vm2)>0?"$ "+Math.round(nC(c.vm2)).toLocaleString("es-CL"):"-",(nC(c.vm2)&&mC(c.m2))?"$ "+Math.round(mC(c.m2)*nC(c.vm2)).toLocaleString("es-CL"):"-"]:base;}),
                         conValorC?["Subtotal Construcciones",cs.reduce((s,c)=>s+mC(c.m2),0).toFixed(1),"","","$ "+Math.round(subC).toLocaleString("es-CL")]:null]}/>:null}
+                    {(()=>{
+                      let mq=[];try{mq=JSON.parse(report.maquinariaLista||"[]").filter(x=>String(x.nombre||"").trim());}catch(e){mq=[];}
+                      if(!mq.length)return null;
+                      const cM=v=>parseFloat(String(v||"0").replace(",","."))||0;
+                      const tot=mq.reduce((s,r)=>s+cM(r.cantidad)*nC(r.vu),0);
+                      window.__maqValor=tot;
+                      return <>
+                        <Sub>Maquinaria y Equipos</Sub>
+                        <p style={TXT}>El predio incluye {mq.length} máquina(s) o equipo(s) que se valorizan de forma independiente del inmueble, según su antigüedad, estado de conservación y valores de mercado de bienes similares.</p>
+                        <GTbl headers={["Maquinaria / Equipo","Año","Estado","Cantidad"]}
+                          rows={mq.map(r=>[r.nombre,r.anio||"-",r.estado||"-",r.cantidad||"1"])}/>
+                      </>;
+                    })()}
                     {ins.length?<GTbl boldLast={1} headers={conValorI?["Instalaciones","Cantidad","Unidad","$ unitario","Valor"]:["Instalaciones","Cantidad","Unidad"]}
                       rows={[...ins.map(r=>{const val=nC(r.vg)||mC(r.cantidad)*nC(r.vu);const base=[r.nombre,r.cantidad||"-",r.unidad||"-"];return conValorI?[...base,nC(r.vu)>0?"$ "+Math.round(nC(r.vu)).toLocaleString("es-CL"):(nC(r.vg)>0?"global":"-"),val>0?"$ "+Math.round(val).toLocaleString("es-CL"):"-"]:base;}),
                         conValorI?["Subtotal Instalaciones","","","","$ "+Math.round(subI).toLocaleString("es-CL")]:null]}/>:null}
@@ -3609,6 +3830,7 @@ export default function App(){
                   }),
                   ["Total Suelos",[1,2,3,4,5,6,7,8].reduce((a,n)=>a+parseFloat((report["c"+n]||"0").replace(",","."))||a,0).toFixed(2),"",[1,2,3,4,5,6,7,8].reduce((a,n)=>{const h=parseFloat((report["c"+n]||"0").replace(",","."))||0;const v=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;return a+h*v;},0)>0?"$ "+Math.round([1,2,3,4,5,6,7,8].reduce((a,n)=>{const h=parseFloat((report["c"+n]||"0").replace(",","."))||0;const v=parseFloat((report["v"+n]||"").replace(/\./g,"").replace(",","."))||0;return a+h*v;},0)).toLocaleString("es-CL"):""],
                   (window.__consValor&&window.__consValor>0)?["Infraestructura","","","$ "+Math.round(window.__consValor).toLocaleString("es-CL")]:null,
+                  (window.__maqValor&&window.__maqValor>0)?["Maquinaria y Equipos","","","$ "+Math.round(window.__maqValor).toLocaleString("es-CL")]:null,
                   (window.__rhValor&&window.__rhValor>0)?["Derechos de Agua","","","$ "+Math.round(window.__rhValor).toLocaleString("es-CL")]:null,
                   (window.__plsValor&&window.__plsValor.length)?["Plantaciones Frutales",window.__plsValor.reduce((s,p)=>s+p.has,0).toFixed(2),"",window.__plsValor.some(p=>p.vha&&p.has)?"$ "+Math.round(window.__plsValor.reduce((s,p)=>s+(p.vha*p.has||0),0)).toLocaleString("es-CL"):"-"]:null,
                   report.plantacionDesc?["Plantaciones",report.plantacionHas,"$ "+fmtMiles(report.plantacionValorHa),"-"]:null,
