@@ -2034,7 +2034,7 @@ export default function App(){
         "<td style='padding:5pt 8pt 5pt 6pt;border-bottom:0.75pt solid #EDEEEC;font-size:10.5pt;line-height:1.55;'>"+esc(x)+"</td></tr>").join("")+
       "</table>":"")+
 
-    (hay(cot.requiere)?sec("Documentación que debe aportar el cliente")+
+    (hay(cot.requiere)?sec("Documentos requeridos")+
       "<p style='font-size:9.5pt;color:#6C746F;margin:-3pt 0 6pt 14pt;line-height:1.5;'>Para iniciar el trabajo se requieren los siguientes antecedentes. El plazo de entrega comienza a contarse desde su recepción completa.</p>"+
       "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;'>"+
       String(cot.requiere).split("·").map(x=>x.trim()).filter(Boolean).map((x,i)=>
@@ -2048,9 +2048,8 @@ export default function App(){
     // ── Cierre: firma del tasador y datos de contacto ──
     "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;margin-top:26pt;'><tr>"+
       "<td valign='bottom'>"+
-        (form.firmaImg?"<img src='"+form.firmaImg+"' style='height:1.4cm;'/><br/>":"")+
-        "<div style='border-top:0.75pt solid #B9BEB9;width:7cm;padding-top:6pt;'>"+
-          "<div style='font-size:10.5pt;font-weight:700;color:#222724;'>"+esc(form.tasador||"Farm Brokers Chile")+"</div>"+
+        "<div style='border-top:0.75pt solid #B9BEB9;width:7.5cm;padding-top:6pt;'>"+
+          "<div style='font-size:10.5pt;font-weight:700;color:#222724;'>Equipo de Estudios y Tasaciones</div>"+
           "<div style='font-size:9pt;color:#6C746F;line-height:1.6;'>Farm Brokers Chile · Tasaciones, Estudios y Venta de Campos<br/>"+
           "www.farmbrokers.cl"+(hay(form.email)?" &nbsp;·&nbsp; "+esc(form.email):"")+"</div>"+
         "</div>"+
@@ -2304,13 +2303,34 @@ export default function App(){
             </G2>
 
             <div style={{fontWeight:700,color:G,fontSize:13,margin:"16px 0 6px"}}>Detalle y valores (en UF)</div>
-            {(cot.items||[]).map((it,i)=>(
-              <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
-                <input value={it.detalle} onChange={e=>updCot("items",cot.items.map((x,j)=>j===i?{...x,detalle:e.target.value}:x))} placeholder="Concepto (ej. Informe de tasación, Visita a terreno, Rol adicional)" style={{...iS,flex:1,margin:0,padding:"8px 10px",fontSize:12.5}}/>
-                <input value={it.uf} onChange={e=>updCot("items",cot.items.map((x,j)=>j===i?{...x,uf:e.target.value}:x))} placeholder="UF" style={{...iS,width:90,margin:0,padding:"8px 10px",fontSize:12.5,textAlign:"right"}}/>
-                {cot.items.length>1?<button onClick={()=>updCot("items",cot.items.filter((_,j)=>j!==i))} style={{...bS,padding:"7px 10px",fontSize:12}}>✕</button>:null}
-              </div>
-            ))}
+            {(()=>{
+              const nUF=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+              const uf=nUF(form.ufBase);
+              return <>
+                <div style={{display:"flex",gap:8,marginBottom:4,fontSize:10.5,color:"#999",letterSpacing:0.5}}>
+                  <div style={{flex:1}}>CONCEPTO</div><div style={{width:90,textAlign:"right"}}>UF</div><div style={{width:120,textAlign:"right"}}>PESOS</div><div style={{width:34}}/>
+                </div>
+                {(cot.items||[]).map((it,i)=>(
+                  <div key={i} style={{display:"flex",gap:8,marginBottom:6,alignItems:"center"}}>
+                    <input value={it.detalle} onChange={e=>updCot("items",cot.items.map((x,j)=>j===i?{...x,detalle:e.target.value}:x))} placeholder="Concepto (ej. Informe de tasación, Visita a terreno, Rol adicional)" style={{...iS,flex:1,margin:0,padding:"8px 10px",fontSize:12.5}}/>
+                    <input value={it.uf} onChange={e=>updCot("items",cot.items.map((x,j)=>j===i?{...x,uf:e.target.value}:x))} placeholder="UF" style={{...iS,width:90,margin:0,padding:"8px 10px",fontSize:12.5,textAlign:"right"}}/>
+                    {/* Escribe en pesos y la UF se calcula sola (y viceversa) */}
+                    <input
+                      value={nUF(it.uf)>0&&uf>0?Math.round(nUF(it.uf)*uf).toLocaleString("es-CL"):""}
+                      onChange={e=>{
+                        if(uf<=0){alert("Aún no se ha cargado el valor de la UF. Presiona ↻ UF arriba a la derecha e inténtalo de nuevo.");return;}
+                        const pesos=parseFloat(String(e.target.value).replace(/[^\d]/g,""))||0;
+                        const val=pesos>0?String(Math.round(pesos/uf*10)/10).replace(".",","):"";
+                        updCot("items",cot.items.map((x,j)=>j===i?{...x,uf:val}:x));
+                      }}
+                      placeholder={uf>0?"$":"sin UF"}
+                      style={{...iS,width:120,margin:0,padding:"8px 10px",fontSize:12.5,textAlign:"right",background:uf>0?"#FBFAF8":"#f0f0f0",color:uf>0?GRIS:"#bbb"}}/>
+                    {cot.items.length>1?<button onClick={()=>updCot("items",cot.items.filter((_,j)=>j!==i))} style={{...bS,padding:"7px 10px",fontSize:12}}>✕</button>:<div style={{width:34}}/>}
+                  </div>
+                ))}
+                <div style={{fontSize:11,color:"#888",marginBottom:6}}>Escribe el valor en la columna que prefieras: la otra se calcula sola con la UF del día{form.ufFecha?" ("+form.ufFecha+")":""}.</div>
+              </>;
+            })()}
             <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginTop:4}}>
               <button onClick={()=>updCot("items",[...(cot.items||[]),{detalle:"",uf:""}])} style={{...bS,fontSize:12}}>+ Agregar línea</button>
               {["Rol adicional","Visita a terreno","Valorización de plantaciones","Valorización de construcciones","Valorización de maquinaria e instalaciones","Recargo por distancia"].map((t,i)=>
@@ -2335,7 +2355,7 @@ export default function App(){
               <Fld label="Validez" value={cot.vigencia} onChange={v=>updCot("vigencia",v)}/>
             </G3>
             <Fld label="El servicio incluye (separa cada punto con · )" value={cot.incluye} onChange={v=>updCot("incluye",v)} multi/>
-            <Fld label="Documentación que debe aportar el cliente (separa cada punto con · )" value={cot.requiere} onChange={v=>updCot("requiere",v)} multi/>
+            <Fld label="Documentos requeridos (separa cada punto con · )" value={cot.requiere} onChange={v=>updCot("requiere",v)} multi/>
             <Fld label="Observaciones (opcional)" value={cot.notas} onChange={v=>updCot("notas",v)} multi placeholder="Ej. El valor no incluye gastos de inscripción ni certificados que deban solicitarse a terceros."/>
 
             <div style={{display:"flex",gap:10,marginTop:18,flexWrap:"wrap"}}>
