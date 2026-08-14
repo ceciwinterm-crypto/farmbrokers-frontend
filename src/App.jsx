@@ -217,21 +217,32 @@ function calcularAptitudProductiva(form){
   const nd=v=>parseFloat(String(v||"0").replace(",","."))||0;
   const clases=[1,2,3,4,5,6,7,8].filter(n=>nd(form["c"+n])>0);
   if(!clases.length)return null;
-  const claseMasLimitante=Math.max(...clases); // la clase mas alta = la mas restrictiva presente
+  const claseMasLimitante=Math.max(...clases);
   const claseMasFavorable=Math.min(...clases);
+  // Clase DOMINANTE (la de mayor superficie): es la que define la aptitud real del predio.
+  // Usar la mejor clase presente daba resultados absurdos (6 ha Clase II en 315 ha
+  // hacian aparecer todo el predio como apto para frutales exigentes).
+  let claseDominante=claseMasFavorable, haMax=0;
+  clases.forEach(n=>{const h=nd(form["c"+n]);if(h>haMax){haMax=h;claseDominante=n;}});
+  const supClasif=clases.reduce((s,n)=>s+nd(form["c"+n]),0);
+  const pctBueno=supClasif>0?clases.filter(n=>n<=3).reduce((s,n)=>s+nd(form["c"+n]),0)/supClasif:0;
   const precip=nd(form.climaPrecipMm), tminJulio=form.climaTminJulio!==undefined&&form.climaTminJulio!==""?nd(form.climaTminJulio):null, heladas=nd(form.climaDiasHelada);
   const tieneClima=precip>0||tminJulio!==null;
   const evaluados=CULTIVOS_APTITUD.map(c=>{
-    const okSuelo=claseMasFavorable<=c.claseMax;
+    // El suelo es apto si la clase dominante lo permite; si solo una fraccion menor
+    // del predio alcanza esa calidad, queda como parcial.
+    const okSuelo=claseDominante<=c.claseMax;
+    const parcial=!okSuelo&&claseMasFavorable<=c.claseMax&&pctBueno>=0.15;
     const okHelada=!tieneClima||heladas<=c.heladaAlerta;
     const okPrecip=!tieneClima||precip>=c.precipMin;
     let aptitud;
-    if(!okSuelo)aptitud="No apta (limitación de suelo)";
+    if(!okSuelo&&parcial)aptitud="Parcial — solo en los sectores de mejor clase";
+    else if(!okSuelo)aptitud="No apta (limitación de suelo)";
     else if(!okHelada||!okPrecip)aptitud="Marginal — riesgo climático";
     else aptitud="Apta";
     return {...c,aptitud};
   });
-  const orden={"Apta":0,"Marginal — riesgo climático":1,"No apta (limitación de suelo)":2};
+  const orden={"Apta":0,"Marginal — riesgo climático":1,"Parcial — solo en los sectores de mejor clase":2,"No apta (limitación de suelo)":3};
   evaluados.sort((a,b)=>orden[a.aptitud]-orden[b.aptitud]);
   return {clases,claseMasLimitante,claseMasFavorable,precip,tminJulio,heladas,tieneClima,evaluados};
 }
@@ -254,7 +265,10 @@ function evaluarAptitudFotovoltaica(form){
 
   const califSolar=(v)=>v===null?null:(v>=5.5?"Excelente":v>=4.5?"Buena":v>=3.5?"Moderada":"Limitada");
   const califDist=(d)=>d===null||d===undefined?null:(d<=2?"Muy favorable":d<=10?"Favorable":d<=30?"Moderada":"Elevada (mayor costo de conexión)");
-  const claseMasFavorable=clases.length?Math.min(...clases):null;
+  // Clase dominante (mayor superficie): define el criterio regulatorio real del predio
+  let claseMasFavorable=null,haMaxFv=0;
+  clases.forEach(n=>{const h=nd(form["c"+n]);if(h>haMaxFv){haMaxFv=h;claseMasFavorable=n;}});
+  if(claseMasFavorable===null&&clases.length)claseMasFavorable=Math.min(...clases);
   const altaPrioridadAgricola=claseMasFavorable!==null&&claseMasFavorable<=3;
 
   const califS=califSolar(solar);
@@ -508,7 +522,7 @@ const EMPTY = {
   seriesSuelo:"",pendiente:"",profundidad:"",erosion:"",pedregosidad:"",
   drenaje:"",textura:"",ph:"",aptitud:"",capacidadUso:"",
   cn1:"",co1:"",ca1:"",cq1:"",cn2:"",co2:"",ca2:"",cq2:"",recursosHidricos:"",
-  construcciones:"No posee construcciones ni instalaciones de ningun tipo.",construccionesLista:"",maquinariaLista:"",metodologiaTxt:"",deslindeN:"",deslindeS:"",deslindeO:"",deslindeP:"",
+  construcciones:"No posee construcciones ni instalaciones de ningun tipo.",construccionesLista:"",maquinariaLista:"",documentos:"",metodologiaTxt:"",deslindeN:"",deslindeS:"",deslindeO:"",deslindeP:"",
   plantacionDesc:"",plantacionHas:"0",plantacionValorHa:"0",
   refs:[{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""}],
   valorComercial:"",valorComercialUF:"",valorFacilVenta:"",valorFacilVentaUF:"",
@@ -1336,8 +1350,12 @@ export default function App(){
       // si no existe, la superficie CIREN calculada como respaldo referencial
       oks.forEach(x=>{
         const ri=form.roles.findIndex(r=>r.rol===x.rol&&r.comuna===x.comuna);
-        const val=(x.d.superficieSII&&x.d.superficieSII>0)?String(x.d.superficieSII):x.d.superficieHa;
-        if(ri>=0&&!String((form.roles[ri].datos||{}).superfSII||"").trim())updRolDatos(ri,"superfSII",val);
+        // La superficie SII solo se rellena si el catastro la publica de verdad.
+        // La superficie CIREN va a su propio campo: atribuirla al SII seria un error
+        // grave en el informe (el certificado del SII puede decir otra cosa).
+        if(ri>=0&&x.d.superficieSII&&x.d.superficieSII>0&&!String((form.roles[ri].datos||{}).superfSII||"").trim())
+          updRolDatos(ri,"superfSII",String(x.d.superficieSII));
+        if(ri>=0)updRolDatos(ri,"superfCIREN",String(x.d.superficieHa).replace(".",","));
         // Clases de suelo del rol (para la tabla por rol del informe): siempre se sobreescriben
         if(ri>=0)updRolDatos(ri,"clasesCIREN",JSON.stringify(x.d.clases||{}));
         if(ri>=0&&x.d.clasesSIIfiscal)updRolDatos(ri,"clasesSIIRol",JSON.stringify(x.d.clasesSIIfiscal));
@@ -1416,7 +1434,10 @@ export default function App(){
               if(ix+1<gx){s+=Math.abs(el[(ix+1)*gy+iy]-el[k])/dxm;nP2++;}
               if(iy+1<gy){s+=Math.abs(el[ix*gy+iy+1]-el[k])/dym;nP2++;}
             }
-            upd("pendienteMedida",Math.round(s/nP2*100)+"% promedio (modelo de elevacion, referencial)");
+            const pend=Math.round(s/nP2*100);
+            // Un 0% es un resultado invalido del modelo (predio muy chico frente a la grilla):
+            // se omite en vez de informar una pendiente que no es real.
+            if(pend>0)upd("pendienteMedida",pend+"% promedio (modelo de elevacion, referencial)");
           }
         }catch(e){}})();
         (async()=>{try{
@@ -3171,6 +3192,88 @@ export default function App(){
               })()}
             </Card>
 
+            <SecT icon="📎" title="Documentos del Encargo"/>
+            <Card>
+              <div style={{fontSize:12,color:"#666",marginBottom:10,lineHeight:1.6}}>
+                Adjunta aquí los certificados y antecedentes que respaldan la tasación (avalúo fiscal detallado, inscripciones, derechos de agua).
+                Quedan guardados junto a la tasación y en el respaldo de la nube: no se imprimen en el informe, son tu archivo de respaldo.
+              </div>
+              {(()=>{
+                let docs=[];try{docs=JSON.parse(form.documentos||"[]");}catch(e){docs=[];}
+                const guardar=(arr)=>upd("documentos",arr.length?JSON.stringify(arr):"");
+                return <div>
+                  {docs.map((d,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,alignItems:"center",borderTop:"1px solid #eee",padding:"8px 0"}}>
+                      <span style={{fontSize:18}}>{/pdf/i.test(d.tipo||"")?"📄":"🖼️"}</span>
+                      <div style={{flex:1}}>
+                        <input value={d.nombre||""} onChange={e=>guardar(docs.map((x,j)=>j===i?{...x,nombre:e.target.value}:x))} style={{...iS,margin:0,padding:"6px 9px",fontSize:12.5}}/>
+                        <div style={{fontSize:10.5,color:"#999",marginTop:2}}>{d.archivo} · {(d.bytes/1024).toFixed(0)} KB</div>
+                      </div>
+                      <a href={d.url} download={d.archivo} style={{...bS,fontSize:11,padding:"5px 10px",textDecoration:"none"}}>Descargar</a>
+                      <button onClick={()=>{if(confirm("¿Quitar \""+(d.nombre||d.archivo)+"\"?"))guardar(docs.filter((_,j)=>j!==i));}} style={{border:"1px solid #c66",background:"#fff",color:"#c66",borderRadius:6,padding:"5px 9px",fontSize:12,cursor:"pointer"}}>✕</button>
+                    </div>
+                  ))}
+                  <label style={{display:"inline-block",border:"1px dashed "+G,color:G,borderRadius:6,padding:"9px 16px",fontSize:12.5,cursor:"pointer",marginTop:10}}>
+                    ⬆ Adjuntar documento (PDF o imagen)
+                    <input type="file" accept=".pdf,image/*" multiple style={{display:"none"}} onChange={e=>{
+                      const files=Array.from(e.target.files||[]);
+                      if(!files.length)return;
+                      const grandes=files.filter(f=>f.size>8*1024*1024);
+                      if(grandes.length){alert("Estos archivos superan los 8 MB y harian muy pesada la tasación:\n\n"+grandes.map(f=>f.name).join("\n")+"\n\nComprímelos o súbelos por separado.");}
+                      Promise.all(files.filter(f=>f.size<=8*1024*1024).map(f=>new Promise(res=>{
+                        const r=new FileReader();
+                        r.onload=ev=>res({nombre:f.name.replace(/\.[^.]+$/,""),archivo:f.name,tipo:f.type,bytes:f.size,url:ev.target.result,fecha:new Date().toISOString()});
+                        r.readAsDataURL(f);
+                      }))).then(nuevos=>{if(nuevos.length)guardar([...docs,...nuevos]);});
+                      e.target.value="";
+                    }}/>
+                  </label>
+                </div>;
+              })()}
+
+              <div style={{fontWeight:700,color:G,fontSize:13,margin:"20px 0 6px"}}>🏛 Clasificación de suelos del certificado SII (fiscal)</div>
+              <div style={{fontSize:11.5,color:"#888",marginBottom:8,lineHeight:1.6}}>
+                Cópiala del anexo del certificado de avalúo (líneas de suelo: 3ª de secano, 4ª de riego, etc.).
+                Es la clasificación con que el SII calcula el avalúo, y suele diferir de la agrológica CIREN: el informe muestra ambas por separado.
+              </div>
+              {(()=>{
+                let sf=null;try{sf=JSON.parse(form.clasesSIIfiscal||"null");}catch(e){}
+                const ROM=["I","II","III","IV","V","VI","VII","VIII"];
+                const rg={...((sf||{}).riego||{})}, sc={...((sf||{}).secano||{})};
+                const nn=v=>parseFloat(String(v||"0").replace(",","."))||0;
+                const guardar=(r2,s2)=>{
+                  const lim=(o)=>{const x={};Object.entries(o).forEach(([k,v])=>{if(nn(v)>0)x[k]=Math.round(nn(v)*100)/100;});return x;};
+                  const R=lim(r2),S=lim(s2);
+                  const tot=Object.values(R).concat(Object.values(S)).reduce((a,b)=>a+b,0);
+                  upd("clasesSIIfiscal",tot>0?JSON.stringify({riego:R,secano:S,total:Math.round(tot*100)/100}):"");
+                };
+                const tot=Object.values(rg).concat(Object.values(sc)).reduce((a,b)=>a+nn(b),0);
+                return <div>
+                  <div style={{display:"grid",gridTemplateColumns:"70px 1fr 1fr",gap:8,alignItems:"center",fontSize:11.5,color:"#888",marginBottom:4}}>
+                    <div>CLASE</div><div>RIEGO (ha)</div><div>SECANO (ha)</div>
+                  </div>
+                  {ROM.map((cl,i)=>(
+                    <div key={cl} style={{display:"grid",gridTemplateColumns:"70px 1fr 1fr",gap:8,alignItems:"center",marginBottom:5}}>
+                      <div style={{fontSize:12.5,color:G,fontWeight:600}}>{cl}</div>
+                      <input value={rg[cl]||""} onChange={e=>{const r2={...rg};r2[cl]=e.target.value;guardar(r2,sc);}} placeholder="—" style={{...iS,margin:0,padding:"6px 9px",fontSize:12.5,textAlign:"right"}}/>
+                      <input value={sc[cl]||""} onChange={e=>{const s2={...sc};s2[cl]=e.target.value;guardar(rg,s2);}} placeholder="—" style={{...iS,margin:0,padding:"6px 9px",fontSize:12.5,textAlign:"right"}}/>
+                    </div>
+                  ))}
+                  {tot>0?(()=>{
+                    const agro=[1,2,3,4,5,6,7,8].reduce((s,n)=>s+nn(form["c"+n]),0);
+                    const sii=(form.roles||[]).reduce((s,r)=>s+nn((r.datos||{}).superfSII),0);
+                    return <div style={{background:"#FDF9F0",border:"1px solid "+ORO,borderRadius:8,padding:"10px 13px",marginTop:8,fontSize:12,lineHeight:1.7}}>
+                      <b style={{color:"#8a6414"}}>Total fiscal: {tot.toFixed(2).replace(".",",")} ha</b>
+                      {agro>0?<> · Clasificación agrológica CIREN: {agro.toFixed(2).replace(".",",")} ha</>:null}
+                      {sii>0?<> · Superficie SII del rol: {sii.toFixed(2).replace(".",",")} ha</>:null}
+                      {sii>0&&Math.abs(tot-sii)>1?<div style={{color:"#9B4B43",marginTop:3}}>⚠ El total fiscal no coincide con la superficie SII del rol: revisa que hayas copiado todas las líneas del certificado.</div>:null}
+                      {agro>0&&Math.abs(tot-agro)>1?<div style={{color:"#666",marginTop:3}}>La diferencia con la clasificación CIREN es normal (metodologías distintas): el informe muestra ambas por separado.</div>:null}
+                    </div>;
+                  })():null}
+                </div>;
+              })()}
+            </Card>
+
             <SecT icon="📸" title="Fotografias del Predio"/>
             <Card>
               <input ref={fileRef} type="file" multiple accept="image/*" style={{display:"none"}} onChange={handleImages}/>
@@ -3838,7 +3941,9 @@ export default function App(){
                   if(cs.length||ins.length){
                     const m2tot=cs.reduce((s,c)=>s+mC(c.m2),0);
                     const partes=[];
-                    if(cs.length)partes.push(cs.length+" construccion"+(cs.length>1?"es":"")+" por un total de "+m2tot.toFixed(0)+" m² edificados ("+cs.map(c=>c.nombre).join(", ")+")");
+                    if(cs.length)partes.push(cs.length+" construccion"+(cs.length>1?"es":"")+
+                      (m2tot>0?" por un total de "+m2tot.toFixed(0)+" m² edificados":"")+
+                      " ("+cs.map(c=>c.nombre).join(", ")+")");
                     if(ins.length)partes.push(ins.length+" instalacion"+(ins.length>1?"es":"")+" ("+ins.map(r=>r.nombre).join(", ")+")");
                     const auto="El predio cuenta con "+partes.join(" y ")+".";
                     intro=esDefault?auto:(report.construcciones+" "+auto);
@@ -3890,14 +3995,17 @@ export default function App(){
                     return {r,vha};
                   });
                   if(!filas.length)return null;
-                  const conDato=filas.filter(f=>f.vha>0);
+                  // Se descartan valores absurdos (ej. $200/ha por un precio mal publicado):
+                  // un solo dato malo distorsiona por completo el promedio de la zona.
+                  const conDato=filas.filter(f=>f.vha>=300000&&f.vha<=500000000);
+                  const descartadas=filas.filter(f=>f.vha>0&&(f.vha<300000||f.vha>500000000)).length;
                   const prom=conDato.length?conDato.reduce((s,f)=>s+f.vha,0)/conDato.length:0;
                   return <>
                     <GTbl boldLast={prom?1:0} headers={["Oferta","Ubicacion","Sup. (ha)","Valor Total ($)","Valor ($/ha)"]} rows={[
                       ...filas.map(f=>[f.r.oferta,f.r.ubicacion,f.r.has,num(f.r.valorTotal)?"$ "+Math.round(num(f.r.valorTotal)).toLocaleString("es-CL"):"-",f.vha?"$ "+Math.round(f.vha).toLocaleString("es-CL"):"-"]),
                       prom?["PROMEDIO","","","","$ "+Math.round(prom).toLocaleString("es-CL")]:null
                     ].filter(Boolean)}/>
-                    {prom>0&&<p style={{...TXT,marginTop:10}}>Las referencias de mercado de la zona muestran valores en torno a $ {Math.round(prom).toLocaleString("es-CL")} por hectarea, antecedente que se considera en la valorizacion del predio en estudio junto a su calidad de suelos, acceso y disponibilidad de agua.</p>}
+                    {prom>0&&<p style={{...TXT,marginTop:10}}>Las referencias de mercado de la zona muestran valores en torno a $ {Math.round(prom).toLocaleString("es-CL")} por hectarea{conDato.length<filas.length?" (promedio calculado sobre "+conDato.length+" de las "+filas.length+" referencias; el resto no informa un valor unitario consistente)":""}, antecedente que se considera en la valorizacion del predio en estudio junto a su calidad de suelos, acceso y disponibilidad de agua.</p>}
                     {filas.some(f=>f.r.fuenteUrl)&&<div style={{fontSize:10.5,color:"#888",marginTop:8}}>
                       Fuentes de las ofertas obtenidas por búsqueda automática (verificar vigencia antes de perfeccionar la tasación):
                       {filas.filter(f=>f.r.fuenteUrl).map((f,i)=><div key={i}>· {f.r.oferta.replace(" ⚠ verificar vigencia","")}: <a href={f.r.fuenteUrl} target="_blank" rel="noreferrer" style={{color:G}}>{f.r.fuenteUrl}</a>{f.r.fuenteFecha?" (consultado "+f.r.fuenteFecha+")":""}</div>)}
