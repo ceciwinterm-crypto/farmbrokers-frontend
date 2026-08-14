@@ -526,7 +526,7 @@ export default function App(){
     predio:"",ubicacion:"",roles:"",superficie:"",
     intro:"",items:[{detalle:"Informe de tasación comercial del predio",uf:""}],
     plazo:"10 días hábiles",formaPago:"Contra entrega del informe",vigencia:"15 días",
-    notas:"",incluye:"Levantamiento topográfico y fotografía satelital · Levantamiento de información predial con información detallada según bases de datos ministeriales · Valorización del predio según referencias de mercado y datos internos de Farm Brokers Chile · Descripción de antecedentes legales de la propiedad"};
+    notas:"",requiere:"Certificado de avalúo fiscal detallado por rol · Antecedentes legales de la propiedad y de los derechos de aguas (inscripciones de dominio) · Plano o archivo KMZ con los deslindes del predio · Fotografías del predio",incluye:"Levantamiento topográfico y fotografía satelital · Levantamiento de información predial con información detallada según bases de datos ministeriales · Valorización del predio según referencias de mercado y datos internos de Farm Brokers Chile · Descripción de antecedentes legales de la propiedad"};
   const [cot,setCot]=useState(()=>{try{return {...COT_VACIA,...JSON.parse(localStorage.getItem("fb_cot_borrador")||"{}")};}catch(e){return COT_VACIA;}});
   const updCot=(k,v)=>setCot(p=>{const n={...p,[k]:v};try{localStorage.setItem("fb_cot_borrador",JSON.stringify(n));}catch(e){}return n;});
   const numeroCot=()=>{const y=new Date().getFullYear();const k="fb_cot_num_"+y;const n=(parseInt(localStorage.getItem(k)||"0",10)||0)+1;localStorage.setItem(k,String(n));return "C-"+y+"-"+String(n).padStart(3,"0");};
@@ -1937,7 +1937,7 @@ export default function App(){
     const hay=v=>String(v||"").trim()!=="";
 
     // Titulo de seccion con marcador dorado
-    const sec=(t)=>"<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;margin:20pt 0 9pt;page-break-after:avoid;'><tr>"+
+    const sec=(t)=>"<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;margin:11pt 0 6pt;page-break-after:avoid;'><tr>"+
       "<td style='background:#C6A66A;width:5pt;font-size:1pt;line-height:1pt;'>&nbsp;</td>"+
       "<td width='100%' style='padding-left:9pt;font-size:11.5pt;font-weight:700;letter-spacing:1.3pt;text-transform:uppercase;color:#33463B;white-space:nowrap;'>"+esc(t)+"</td>"+
       "</tr></table>";
@@ -2014,6 +2014,13 @@ export default function App(){
     "</table>"+
     (uf>0?"<div style='font-size:8.5pt;color:#6C746F;font-style:italic;margin-top:6pt;'>Equivalencia calculada con la UF del "+esc(form.ufFecha||"día")+" ("+esc("$ "+form.ufBase)+"). El monto final se ajustará al valor de la UF vigente a la fecha de pago.</div>":"")+
 
+    "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;margin-top:18pt;border:0.75pt solid #E2E4E1;page-break-inside:avoid;'><tr>"+
+      [["Plazo de entrega",cot.plazo],["Forma de pago",cot.formaPago],["Validez de la cotización",cot.vigencia]]
+      .map((p,i)=>"<td width='33%' valign='top' style='padding:11pt 14pt;"+(i<2?"border-right:0.75pt solid #E2E4E1;":"")+"'>"+
+        "<div style='font-size:7.5pt;letter-spacing:1.2pt;text-transform:uppercase;color:#8A9490;margin-bottom:3pt;'>"+esc(p[0])+"</div>"+
+        "<div style='font-size:10.5pt;font-weight:600;'>"+esc(p[1])+"</div></td>").join("")+
+    "</tr></table>"+
+
     // ══ SEGUNDA PLANA ══
     "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;page-break-before:always;'><tr>"+
       "<td style='font-family:Georgia,serif;font-size:15pt;font-weight:700;color:#33463B;letter-spacing:0.5pt;border-bottom:2pt solid #C6A66A;padding-bottom:5pt;'>ALCANCE Y CONDICIONES</td>"+
@@ -2023,37 +2030,30 @@ export default function App(){
     (hay(cot.incluye)?sec("El servicio incluye")+
       "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;'>"+
       String(cot.incluye).split("·").map(x=>x.trim()).filter(Boolean).map((x,i)=>
-        "<tr><td width='34' valign='top' style='padding:9pt 0 9pt 14pt;border-bottom:0.75pt solid #EDEEEC;font-size:9pt;font-weight:700;color:#C6A66A;'>"+String(i+1).padStart(2,"0")+"</td>"+
-        "<td style='padding:9pt 8pt 9pt 6pt;border-bottom:0.75pt solid #EDEEEC;font-size:10.5pt;line-height:1.6;'>"+esc(x)+"</td></tr>").join("")+
+        "<tr><td width='34' valign='top' style='padding:5pt 0 5pt 14pt;border-bottom:0.75pt solid #EDEEEC;font-size:9pt;font-weight:700;color:#C6A66A;'>"+String(i+1).padStart(2,"0")+"</td>"+
+        "<td style='padding:5pt 8pt 5pt 6pt;border-bottom:0.75pt solid #EDEEEC;font-size:10.5pt;line-height:1.55;'>"+esc(x)+"</td></tr>").join("")+
       "</table>":"")+
 
-    sec("Condiciones comerciales")+
-    "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;'>"+
-      [["Plazo de entrega",cot.plazo],["Forma de pago",cot.formaPago],["Validez de la cotización",cot.vigencia]]
-      .map(p=>"<tr><td width='38%' style='padding:8pt 14pt;border-bottom:0.75pt solid #EDEEEC;font-size:8pt;letter-spacing:1.2pt;text-transform:uppercase;color:#8A9490;'>"+esc(p[0])+"</td>"+
-        "<td style='padding:8pt 8pt;border-bottom:0.75pt solid #EDEEEC;font-size:10.5pt;font-weight:600;'>"+esc(p[1])+"</td></tr>").join("")+
-    "</table>"+
-
-    (uf>0?sec("Moneda y ajuste")+
-      "<p style='font-size:10.5pt;line-height:1.75;text-align:justify;margin:0 0 0 14pt;'>Los honorarios se expresan en UF. La equivalencia en pesos indicada en esta cotización es referencial y fue calculada con la UF del "+esc(form.ufFecha||"día de emisión")+" ("+esc("$ "+form.ufBase)+"). El monto final en pesos se determinará utilizando el valor de la UF vigente a la fecha de pago.</p>":"")+
+    (hay(cot.requiere)?sec("Documentación que debe aportar el cliente")+
+      "<p style='font-size:9.5pt;color:#6C746F;margin:-3pt 0 6pt 14pt;line-height:1.5;'>Para iniciar el trabajo se requieren los siguientes antecedentes. El plazo de entrega comienza a contarse desde su recepción completa.</p>"+
+      "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;'>"+
+      String(cot.requiere).split("·").map(x=>x.trim()).filter(Boolean).map((x,i)=>
+        "<tr><td width='34' valign='top' style='padding:5pt 0 5pt 14pt;border-bottom:0.75pt solid #EDEEEC;font-size:11pt;color:#C6A66A;'>&#9744;</td>"+
+        "<td style='padding:5pt 8pt 5pt 6pt;border-bottom:0.75pt solid #EDEEEC;font-size:10.5pt;line-height:1.55;'>"+esc(x)+"</td></tr>").join("")+
+      "</table>":"")+
 
     (hay(cot.notas)?sec("Observaciones")+
       "<p style='font-size:10.5pt;line-height:1.75;text-align:justify;margin:0 0 0 14pt;'>"+esc(cot.notas)+"</p>":"")+
 
-    // ── Aceptación ──
-    sec("Aceptación de la propuesta")+
-    "<p style='font-size:10pt;color:#6C746F;margin:0 0 12pt 14pt;'>Para aceptar esta cotización, complete y devuelva firmados los datos siguientes.</p>"+
-    "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;'>"+
-      "<tr>"+["Nombre / razón social","RUT"].map((t,i)=>"<td width='50%' style='padding:18pt 14pt 5pt 0;border-bottom:0.75pt solid #B9BEB9;font-size:8pt;letter-spacing:1.1pt;text-transform:uppercase;color:#8A9490;'>"+t+"</td>").join("")+"</tr>"+
-      "<tr>"+["Firma","Fecha"].map(t=>"<td style='padding:20pt 14pt 5pt 0;border-bottom:0.75pt solid #B9BEB9;font-size:8pt;letter-spacing:1.1pt;text-transform:uppercase;color:#8A9490;'>"+t+"</td>").join("")+"</tr>"+
-    "</table>"+
-
-    "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;margin-top:20pt;page-break-inside:avoid;'><tr>"+
+    // ── Cierre: firma del tasador y datos de contacto ──
+    "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;margin-top:26pt;'><tr>"+
       "<td valign='bottom'>"+
-        (form.firmaImg?"<img src='"+form.firmaImg+"' style='height:1.5cm;'/><br/>":"")+
-        "<div style='font-size:10.5pt;font-weight:700;color:#222724;'>"+esc(form.tasador||"Farm Brokers Chile")+"</div>"+
-        "<div style='font-size:9pt;color:#6C746F;line-height:1.6;'>Farm Brokers Chile<br/>Tasaciones, Estudios y Venta de Campos &nbsp;·&nbsp; www.farmbrokers.cl"+
-        (hay(form.email)?"<br/>"+esc(form.email):"")+"</div>"+
+        (form.firmaImg?"<img src='"+form.firmaImg+"' style='height:1.4cm;'/><br/>":"")+
+        "<div style='border-top:0.75pt solid #B9BEB9;width:7cm;padding-top:6pt;'>"+
+          "<div style='font-size:10.5pt;font-weight:700;color:#222724;'>"+esc(form.tasador||"Farm Brokers Chile")+"</div>"+
+          "<div style='font-size:9pt;color:#6C746F;line-height:1.6;'>Farm Brokers Chile · Tasaciones, Estudios y Venta de Campos<br/>"+
+          "www.farmbrokers.cl"+(hay(form.email)?" &nbsp;·&nbsp; "+esc(form.email):"")+"</div>"+
+        "</div>"+
       "</td></tr></table>"+
 
     "</body></html>";
@@ -2335,6 +2335,7 @@ export default function App(){
               <Fld label="Validez" value={cot.vigencia} onChange={v=>updCot("vigencia",v)}/>
             </G3>
             <Fld label="El servicio incluye (separa cada punto con · )" value={cot.incluye} onChange={v=>updCot("incluye",v)} multi/>
+            <Fld label="Documentación que debe aportar el cliente (separa cada punto con · )" value={cot.requiere} onChange={v=>updCot("requiere",v)} multi/>
             <Fld label="Observaciones (opcional)" value={cot.notas} onChange={v=>updCot("notas",v)} multi placeholder="Ej. El valor no incluye gastos de inscripción ni certificados que deban solicitarse a terceros."/>
 
             <div style={{display:"flex",gap:10,marginTop:18,flexWrap:"wrap"}}>
