@@ -435,6 +435,47 @@ async function nube(backendUrl,ruta,cuerpo){
   return d;
 }
 
+// Convierte un PDF a imagenes de pagina (para poder mostrarlo dentro del informe).
+// Usa pdf.js desde CDN, cargado solo la primera vez que se adjunta un PDF.
+let _pdfjsCargando=null;
+function cargarPdfJs(){
+  if(window.pdfjsLib)return Promise.resolve(window.pdfjsLib);
+  if(_pdfjsCargando)return _pdfjsCargando;
+  _pdfjsCargando=new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    s.onload=()=>{
+      try{window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";}catch(e){}
+      res(window.pdfjsLib);
+    };
+    s.onerror=()=>rej(new Error("No se pudo cargar el lector de PDF"));
+    document.head.appendChild(s);
+  });
+  return _pdfjsCargando;
+}
+async function pdfAImagenes(dataUrl,maxPag){
+  const lib=await cargarPdfJs();
+  const b64=String(dataUrl).split(",")[1]||"";
+  const bin=atob(b64), arr=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+  const doc=await lib.getDocument({data:arr}).promise;
+  const paginas=[];
+  const n=Math.min(doc.numPages,maxPag||6);
+  for(let p=1;p<=n;p++){
+    const pg=await doc.getPage(p);
+    const vp0=pg.getViewport({scale:1});
+    const escala=Math.min(1400/vp0.width,2.2);
+    const vp=pg.getViewport({scale:escala});
+    const cv=document.createElement("canvas");
+    cv.width=Math.round(vp.width); cv.height=Math.round(vp.height);
+    const cx=cv.getContext("2d");
+    cx.fillStyle="#fff"; cx.fillRect(0,0,cv.width,cv.height);
+    await pg.render({canvasContext:cx,viewport:vp}).promise;
+    paginas.push(cv.toDataURL("image/jpeg",0.88));
+  }
+  return {paginas,totalPaginas:doc.numPages};
+}
+
 function PgFB({title,children,num,sub}){
   return <div style={{padding:"0",display:"flex",flexDirection:"column",fontFamily:FONT,background:"#fff"}}>
     {title?<Banda n={num} titulo={title} sub={sub}/>:null}
@@ -3207,7 +3248,9 @@ export default function App(){
                       <span style={{fontSize:18}}>{/pdf/i.test(d.tipo||"")?"📄":"🖼️"}</span>
                       <div style={{flex:1}}>
                         <input value={d.nombre||""} onChange={e=>guardar(docs.map((x,j)=>j===i?{...x,nombre:e.target.value}:x))} style={{...iS,margin:0,padding:"6px 9px",fontSize:12.5}}/>
-                        <div style={{fontSize:10.5,color:"#999",marginTop:2}}>{d.archivo} · {(d.bytes/1024).toFixed(0)} KB</div>
+                        <div style={{fontSize:10.5,color:"#999",marginTop:2}}>{d.archivo} · {(d.bytes/1024).toFixed(0)} KB
+                          {d.paginas?" · "+d.paginas.length+" pág. se reproducirán en el informe"+(d.totalPaginas>d.paginas.length?" (de "+d.totalPaginas+")":""):""}
+                          {d.errorPag?" · solo descargable":""}</div>
                       </div>
                       <a href={d.url} download={d.archivo} style={{...bS,fontSize:11,padding:"5px 10px",textDecoration:"none"}}>Descargar</a>
                       <button onClick={()=>{if(confirm("¿Quitar \""+(d.nombre||d.archivo)+"\"?"))guardar(docs.filter((_,j)=>j!==i));}} style={{border:"1px solid #c66",background:"#fff",color:"#c66",borderRadius:6,padding:"5px 9px",fontSize:12,cursor:"pointer"}}>✕</button>
@@ -3220,11 +3263,27 @@ export default function App(){
                       if(!files.length)return;
                       const grandes=files.filter(f=>f.size>8*1024*1024);
                       if(grandes.length){alert("Estos archivos superan los 8 MB y harian muy pesada la tasación:\n\n"+grandes.map(f=>f.name).join("\n")+"\n\nComprímelos o súbelos por separado.");}
+                      setGenMsg("Procesando documentos...");
                       Promise.all(files.filter(f=>f.size<=8*1024*1024).map(f=>new Promise(res=>{
                         const r=new FileReader();
-                        r.onload=ev=>res({nombre:f.name.replace(/\.[^.]+$/,""),archivo:f.name,tipo:f.type,bytes:f.size,url:ev.target.result,fecha:new Date().toISOString()});
+                        r.onload=async ev=>{
+                          const base={nombre:f.name.replace(/\.[^.]+$/,""),archivo:f.name,tipo:f.type,bytes:f.size,url:ev.target.result,fecha:new Date().toISOString()};
+                          // Los PDF se convierten a imagen para poder reproducirlos en el informe
+                          if(/pdf/i.test(f.type)||/\.pdf$/i.test(f.name)){
+                            try{
+                              const r2=await pdfAImagenes(ev.target.result,6);
+                              base.paginas=r2.paginas; base.totalPaginas=r2.totalPaginas;
+                            }catch(err){ base.errorPag="No se pudieron generar las imagenes: "+err.message; }
+                          }
+                          res(base);
+                        };
                         r.readAsDataURL(f);
-                      }))).then(nuevos=>{if(nuevos.length)guardar([...docs,...nuevos]);});
+                      }))).then(nuevos=>{
+                        setGenMsg("");
+                        if(nuevos.length)guardar([...docs,...nuevos]);
+                        const fallidos=nuevos.filter(x=>x.errorPag);
+                        if(fallidos.length)alert("Se adjuntaron los archivos, pero no se pudieron generar las imagenes de: "+fallidos.map(x=>x.archivo).join(", ")+"\n\nQuedaran como adjunto descargable, sin reproducirse dentro del informe.");
+                      });
                       e.target.value="";
                     }}/>
                   </label>
@@ -4169,6 +4228,40 @@ export default function App(){
                     : "El cuadro siguiente resume la composición del predio: superficie, clasificación de capacidad de uso de los suelos, uso actual catastrado, plantaciones y recursos hídricos."}</p>
                   <GTbl headers={heads} rows={filas} boldRows={bold}/>
                   <p style={{...TXT,fontSize:11,color:"#888",fontStyle:"italic"}}>Las superficies por clase de suelo y uso actual provienen de los catastros CIREN/CONAF y son referenciales; pueden no sumar exactamente la superficie SII del rol, por diferencias de metodología y de fecha de levantamiento entre ambas fuentes.</p>
+                </PgFB>;
+              })()}
+
+              {/* ── ANEXO: documentos de respaldo adjuntos a la tasacion ── */}
+              {(()=>{
+                let docs=[];try{docs=JSON.parse(report.documentos||"[]");}catch(e){docs=[];}
+                if(!docs.length)return null;
+                const esImg=d=>/^image\//i.test(d.tipo||"")||/\.(jpe?g|png|gif|webp)$/i.test(d.archivo||"");
+                return <PgFB num="10" title="Anexos" sub="Documentos de respaldo del encargo">
+                  <p style={TXT}>Se adjuntan los siguientes antecedentes, que respaldan la información contenida en este informe y forman parte integrante del mismo.</p>
+                  <GTbl headers={["N°","Documento","Archivo"]}
+                    rows={docs.map((d,i)=>[String(i+1).padStart(2,"0"),d.nombre||d.archivo,d.archivo])}/>
+                  {docs.map((d,i)=>{
+                    const imgs=esImg(d)?[d.url]:(d.paginas||[]);
+                    if(!imgs.length)return (
+                      <div key={i} style={{marginTop:14,border:"1px solid #E2E4E1",borderRadius:6,padding:"12px 14px",background:HUESO,display:"flex",gap:12,alignItems:"center"}}>
+                        <span style={{fontSize:22}}>📄</span>
+                        <div style={{flex:1}}>
+                          <div style={{fontWeight:600,fontSize:13,color:G}}>{d.nombre||d.archivo}</div>
+                          <div style={{fontSize:11,color:"#888"}}>{d.archivo} · se entrega como archivo adjunto</div>
+                        </div>
+                      </div>);
+                    return <div key={i} style={{marginTop:18}}>
+                      <Sub>{d.nombre||d.archivo}</Sub>
+                      {imgs.map((src,p)=>(
+                        <div key={p} style={{marginTop:p?12:4,pageBreakInside:"avoid"}}>
+                          <div style={{border:"1px solid #E2E4E1",borderRadius:6,padding:6,background:"#fff"}}>
+                            <img src={src} alt={(d.nombre||d.archivo)+" p"+(p+1)} style={{width:"100%",maxHeight:760,objectFit:"contain",display:"block"}}/>
+                          </div>
+                          {imgs.length>1?<p style={{fontStyle:"italic",fontSize:11,textAlign:"center",color:"#888",marginTop:4}}>{(d.nombre||d.archivo)} — página {p+1} de {d.totalPaginas||imgs.length}</p>:null}
+                        </div>
+                      ))}
+                    </div>;
+                  })}
                 </PgFB>;
               })()}
 
