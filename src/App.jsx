@@ -476,6 +476,82 @@ async function pdfAImagenes(dataUrl,maxPag){
   return {paginas,totalPaginas:doc.numPages};
 }
 
+// ── Lectura del Certificado de Avaluo Fiscal Detallado (SII) ────────────────
+// El certificado trae texto, no es una imagen: se lee directamente y se extraen
+// los datos oficiales. Nada se infiere ni se inventa; si un dato no esta en el
+// documento, simplemente no se rellena.
+async function textoDePdf(dataUrl){
+  const lib=await cargarPdfJs();
+  const b64=String(dataUrl).split(",")[1]||"";
+  const bin=atob(b64), arr=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+  const doc=await lib.getDocument({data:arr}).promise;
+  let txt="";
+  for(let p=1;p<=doc.numPages;p++){
+    const t=await (await doc.getPage(p)).getTextContent();
+    txt+=" "+t.items.map(x=>x.str).join(" ");
+  }
+  return txt.replace(/\s+/g," ").trim();
+}
+
+const ORD_SII={PRIMERA:"I",SEGUNDA:"II",TERCERA:"III",CUARTA:"IV",QUINTA:"V",SEXTA:"VI",SEPTIMA:"VII",OCTAVA:"VIII"};
+function leerCertificadoSII(txt){
+  const T=txt.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+  const num=s=>parseFloat(String(s||"").replace(/\./g,"").replace(",","."))||0;
+  const r={};
+  if(!/CERTIFICADO DE AVALUO FISCAL/.test(T))return null;
+
+  const mRol=/ROL DE AVALUO\s*:?\s*0*(\d+)\s*-\s*0*(\d+)/.exec(T);
+  if(mRol)r.rol=mRol[1]+"-"+mRol[2];
+  const mCom=/COMUNA\s*:?\s*([A-ZÑ\s]+?)\s+NUMERO DE ROL/.exec(T);
+  if(mCom)r.comuna=mCom[1].trim();
+  const mDir=/DIRECCION\s*:?\s*(.+?)\s+DESTINO DEL BIEN/.exec(T);
+  if(mDir)r.direccion=mDir[1].trim();
+  const mDest=/DESTINO DEL BIEN RAIZ\s*:?\s*([A-ZÑ\s]+?)\s+PROPIETARIOS/.exec(T);
+  if(mDest)r.destino=mDest[1].trim();
+  const mSem=/AVALUOS EN PESOS DEL\s+(.+?)\s+COMUNA/.exec(T);
+  if(mSem)r.semestre=mSem[1].trim();
+  const mFol=/FOLIO\s*:?\s*([A-Z0-9]+)/.exec(T);
+  if(mFol)r.folio=mFol[1];
+  const mEmi=/FECHA DE EMISION\s*:?\s*(.+?)\s+ESTE CERTIFICADO/.exec(T);
+  if(mEmi)r.emision=mEmi[1].trim();
+
+  const mSup=/SUPERFICIE SUELO\s*\(HA\)\s*([\d.,]+)/.exec(T);
+  if(mSup)r.superficieHa=num(mSup[1]);
+  const mCon=/SUPERFICIE CONSTRUCCIONES\s*\(M\s*[²2]?\s*\)\s*([\d.,]+)/.exec(T);
+  if(mCon)r.construccionesM2=num(mCon[1]);
+  const mAvS=/AVALUO SUELO\s*:?\s*\$?\s*([\d.]+)/.exec(T);
+  if(mAvS)r.avaluoSuelo=num(mAvS[1]);
+  const mAvT=/AVALUO TOTAL\s*:?\s*\$?\s*([\d.]+)/.exec(T);
+  if(mAvT)r.avaluoTotal=num(mAvT[1]);
+  const mAvE=/AVALUO EXENTO DE IMPUESTO\s*:?\s*\$?\s*([\d.]+)/.exec(T);
+  if(mAvE)r.avaluoExento=num(mAvE[1]);
+
+  // Propietarios (nombre, RUT y porcentaje de derechos)
+  r.propietarios=[];
+  const rxP=/([A-ZÑ][A-ZÑ\s]{5,60}?)\s+(\d{1,3}(?:\.\d{3})*-[\dK])\s+([\d,]+)\s*%/g;
+  let mp;
+  while((mp=rxP.exec(T))!==null){
+    // Se limpian restos del encabezado de la tabla que quedan pegados al primer nombre
+    const nom=mp[1].replace(/^.*?(RAZON SOCIAL|DE DERECHO|RUN O RUT)\s+/,"").trim();
+    if(nom.length>4)r.propietarios.push({nombre:nom,rut:mp[2],pct:mp[3]});
+  }
+
+  // Anexo: lineas de suelo -> clasificacion fiscal por clase, riego/secano
+  const riego={},secano={};
+  const rxL=new RegExp("(PRIMERA|SEGUNDA|TERCERA|CUARTA|QUINTA|SEXTA|SEPTIMA|OCTAVA)\\s+DE\\s+(RIEGO|SECANO)\\s+\\d+\\s+\\d+\\s+([\\d.]*,?\\d+)","g");
+  let ml;
+  while((ml=rxL.exec(T))!==null){
+    const cl=ORD_SII[ml[1]], ha=num(ml[3]);
+    if(!cl||ha<=0)continue;
+    const dest=ml[2]==="RIEGO"?riego:secano;
+    dest[cl]=Math.round(((dest[cl]||0)+ha)*100)/100;
+  }
+  const tot=Object.values(riego).concat(Object.values(secano)).reduce((a,b)=>a+b,0);
+  if(tot>0)r.clasesFiscal={riego,secano,total:Math.round(tot*100)/100};
+  return r;
+}
+
 function PgFB({title,children,num,sub}){
   return <div style={{padding:"0",display:"flex",flexDirection:"column",fontFamily:FONT,background:"#fff"}}>
     {title?<Banda n={num} titulo={title} sub={sub}/>:null}
@@ -1746,6 +1822,47 @@ export default function App(){
         fx.fillStyle="#1e5631";
         fx.fillText(txt,pad*2,pad+fT*1.02);
       }
+      // ── Leyenda de colores, tomada del propio servicio de CIREN ──
+      // Se pide al backend porque el servicio no permite consultarlo desde el navegador.
+      // Si no responde, el plano se entrega igual, solo sin el recuadro de leyenda.
+      try{
+        if(form.backendUrl){
+          const rl=await fetch(form.backendUrl.replace(/\/$/,"")+"/leyenda-ciren",{
+            method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({servicio:"ESTUDIO_AGROLOGICO_SUELOS",capaId})});
+          const jl=await rl.json();
+          const ent=(jl.entradas||[]).filter(x=>x.img).slice(0,10);
+          if(ent.length){
+            const fe=Math.max(11,Math.round(fin.width/78));
+            const alto=Math.round(fe*1.45), sw=Math.round(fe*1.25);
+            const pad=Math.round(fe*0.7);
+            fx.font=fe+"px Arial";
+            const anchoTxt=Math.max(...ent.map(e=>fx.measureText(e.etiqueta).width));
+            const titulo="Capacidad de uso de suelo (CIREN)";
+            fx.font="600 "+fe+"px Arial";
+            const anchoCaja=Math.max(anchoTxt+sw+pad*3, fx.measureText(titulo).width+pad*2);
+            const altoCaja=alto*(ent.length+1)+pad*2;
+            const x0c=pad, y0c=fin.height-altoCaja-pad;
+            fx.fillStyle="rgba(255,255,255,0.90)";
+            fx.fillRect(x0c,y0c,anchoCaja,altoCaja);
+            fx.strokeStyle="rgba(0,0,0,0.18)"; fx.lineWidth=1; fx.strokeRect(x0c,y0c,anchoCaja,altoCaja);
+            fx.fillStyle="#33463B"; fx.font="600 "+fe+"px Arial";
+            fx.fillText(titulo,x0c+pad,y0c+pad+fe);
+            const imgs=await Promise.all(ent.map(e=>new Promise(res=>{
+              const im=new Image(); im.onload=()=>res(im); im.onerror=()=>res(null);
+              im.src="data:"+(e.tipo||"image/png")+";base64,"+e.img;
+            })));
+            fx.font=fe+"px Arial";
+            ent.forEach((e,k)=>{
+              const y=y0c+pad+alto*(k+1)+fe*0.2;
+              if(imgs[k])fx.drawImage(imgs[k],x0c+pad,y-sw*0.78,sw,sw);
+              fx.fillStyle="#333";
+              fx.fillText(e.etiqueta,x0c+pad+sw+pad*0.6,y);
+            });
+          }
+        }
+      }catch(e){}
+
       const fL=Math.max(10,Math.round(fin.width/95));
       const ley="Capacidad de uso de suelo CIREN"+(capaFrut?" · Catastro frutícola":"")+" · Roles SII — referencial";
       fx.font=fL+"px Arial";
@@ -3244,7 +3361,8 @@ export default function App(){
                 const guardar=(arr)=>upd("documentos",arr.length?JSON.stringify(arr):"");
                 return <div>
                   {docs.map((d,i)=>(
-                    <div key={i} style={{display:"flex",gap:10,alignItems:"center",borderTop:"1px solid #eee",padding:"8px 0"}}>
+                    <div key={i} style={{borderTop:"1px solid #eee",padding:"8px 0"}}>
+                     <div style={{display:"flex",gap:10,alignItems:"center"}}>
                       <span style={{fontSize:18}}>{/pdf/i.test(d.tipo||"")?"📄":"🖼️"}</span>
                       <div style={{flex:1}}>
                         <input value={d.nombre||""} onChange={e=>guardar(docs.map((x,j)=>j===i?{...x,nombre:e.target.value}:x))} style={{...iS,margin:0,padding:"6px 9px",fontSize:12.5}}/>
@@ -3252,8 +3370,67 @@ export default function App(){
                           {d.paginas?" · "+d.paginas.length+" pág. se reproducirán en el informe"+(d.totalPaginas>d.paginas.length?" (de "+d.totalPaginas+")":""):""}
                           {d.errorPag?" · solo descargable":""}</div>
                       </div>
+                      {(!d.cert&&/pdf/i.test((d.tipo||"")+(d.archivo||"")))?
+                        <button onClick={async()=>{
+                          try{
+                            setGenMsg("Leyendo el documento...");
+                            const t=await textoDePdf(d.url);
+                            const cert=leerCertificadoSII(t);
+                            setGenMsg("");
+                            if(!cert){alert("Este PDF no es un Certificado de Avalúo Fiscal Detallado del SII, o su texto no se pudo leer (puede ser un escaneo sin texto).\n\nSeguirá adjunto igual, pero los datos habrá que ingresarlos a mano.");return;}
+                            const act={...cert};
+                            let sinPag=!d.paginas;
+                            let pags=d.paginas,totp=d.totalPaginas;
+                            if(sinPag){try{const r2=await pdfAImagenes(d.url,6);pags=r2.paginas;totp=r2.totalPaginas;}catch(e){}}
+                            guardar(docs.map((x,j)=>j===i?{...x,cert:act,paginas:pags,totalPaginas:totp,
+                              nombre:"Certificado de Avalúo Fiscal Detallado"+(act.rol?" — Rol "+act.rol:"")}:x));
+                          }catch(err){setGenMsg("");alert("No se pudo leer el documento: "+err.message);}
+                        }} style={{...bP,fontSize:11,padding:"5px 10px"}}>🔍 Leer datos</button>:null}
                       <a href={d.url} download={d.archivo} style={{...bS,fontSize:11,padding:"5px 10px",textDecoration:"none"}}>Descargar</a>
                       <button onClick={()=>{if(confirm("¿Quitar \""+(d.nombre||d.archivo)+"\"?"))guardar(docs.filter((_,j)=>j!==i));}} style={{border:"1px solid #c66",background:"#fff",color:"#c66",borderRadius:6,padding:"5px 9px",fontSize:12,cursor:"pointer"}}>✕</button>
+                     </div>
+                      {d.cert?(()=>{
+                        const ct=d.cert;
+                        const $=v=>"$ "+Math.round(v||0).toLocaleString("es-CL");
+                        const ri=(form.roles||[]).findIndex(r=>String(r.rol||"").replace(/^0+/,"")===String(ct.rol||"").replace(/^0+/,""));
+                        return <div style={{background:"#F1F6F1",border:"1px solid "+G,borderRadius:8,padding:"11px 13px",marginTop:8}}>
+                          <div style={{fontSize:12,fontWeight:700,color:G,marginBottom:5}}>✓ Certificado leído — datos oficiales del SII</div>
+                          <div style={{fontSize:11.5,color:"#444",lineHeight:1.75}}>
+                            Rol <b>{ct.rol}</b> · {capTxt(ct.comuna||"")} · {ct.destino?capTxt(ct.destino):""}<br/>
+                            {ct.direccion?<>Dirección: <b>{capTxt(ct.direccion)}</b><br/></>:null}
+                            Superficie suelo: <b>{(ct.superficieHa||0).toFixed(2).replace(".",",")} ha</b>
+                            {ct.construccionesM2>0?<> · Construcciones: <b>{ct.construccionesM2} m²</b></>:null}<br/>
+                            Avalúo total: <b>{$(ct.avaluoTotal)}</b> {ct.semestre?<span style={{color:"#888"}}>({capTxt(ct.semestre)})</span>:null}
+                            {ct.avaluoExento>0?<> · Exento: {$(ct.avaluoExento)}</>:null}<br/>
+                            {(ct.propietarios||[]).length?<>Propietarios: <b>{ct.propietarios.map(p=>capTxt(p.nombre)+" ("+p.pct+"%)").join(" · ")}</b><br/></>:null}
+                            {ct.clasesFiscal?<>Clasificación fiscal: <b>{[...Object.entries(ct.clasesFiscal.riego||{}).map(([k,v])=>"Clase "+k+" riego "+String(v).replace(".",",")+" ha"),
+                              ...Object.entries(ct.clasesFiscal.secano||{}).map(([k,v])=>"Clase "+k+" secano "+String(v).replace(".",",")+" ha")].join(" · ")}</b> (total {String(ct.clasesFiscal.total).replace(".",",")} ha)</>:null}
+                            {ct.folio?<><br/><span style={{color:"#888",fontSize:10.5}}>Folio {ct.folio}{ct.emision?" · emitido el "+capTxt(ct.emision):""}</span></>:null}
+                          </div>
+                          {ri<0?<div style={{fontSize:11.5,color:"#9B4B43",marginTop:7}}>⚠ El rol {ct.rol} de este certificado no está entre los roles del Paso 1. Agrégalo primero si corresponde a este predio.</div>:null}
+                          <button onClick={()=>{
+                            const cambios=[];
+                            if(ri>=0){
+                              if(ct.superficieHa>0){updRolDatos(ri,"superfSII",String(ct.superficieHa).replace(".",","));cambios.push("superficie SII "+String(ct.superficieHa).replace(".",",")+" ha");}
+                              if(ct.avaluoTotal>0){updRolDatos(ri,"avaluoFiscal",fmtMiles(String(ct.avaluoTotal)));cambios.push("avalúo fiscal");}
+                              if(ct.semestre)updRolDatos(ri,"avaluoFecha",capTxt(ct.semestre));
+                              if(ct.destino)updRolDatos(ri,"destino",capTxt(ct.destino));
+                              if((ct.propietarios||[]).length){
+                                updRolDatos(ri,"propietario",ct.propietarios.map(p=>capTxt(p.nombre)+" ("+p.pct+"%)").join(", "));
+                                updRolDatos(ri,"rut",ct.propietarios.map(p=>p.rut).join(", "));
+                                updRolDatos(ri,"propietarioVerificado","si");
+                                updRolDatos(ri,"propietarioFuenteNombre","Certificado de Avalúo Fiscal Detallado, SII"+(ct.folio?" (folio "+ct.folio+")":""));
+                                if(ct.emision)updRolDatos(ri,"propietarioFechaDoc",capTxt(ct.emision));
+                                cambios.push("propietarios");
+                              }
+                            }
+                            if(ct.clasesFiscal){upd("clasesSIIfiscal",JSON.stringify(ct.clasesFiscal));cambios.push("clasificación fiscal");}
+                            if(ct.direccion&&!String(form.predioNombre||"").trim()){upd("predioNombre",capTxt(ct.direccion));cambios.push("nombre del predio");}
+                            setAvisoGuardado(cambios.length?("✓ Aplicado desde el certificado: "+cambios.join(", ")+". Revísalo antes de generar el informe."):"No había datos nuevos que aplicar.");
+                            setTimeout(()=>setAvisoGuardado(""),8000);
+                          }} style={{...bP,fontSize:12,padding:"7px 14px",marginTop:9}}>↴ Aplicar estos datos a la tasación</button>
+                        </div>;
+                      })():null}
                     </div>
                   ))}
                   <label style={{display:"inline-block",border:"1px dashed "+G,color:G,borderRadius:6,padding:"9px 16px",fontSize:12.5,cursor:"pointer",marginTop:10}}>
@@ -3274,6 +3451,11 @@ export default function App(){
                               const r2=await pdfAImagenes(ev.target.result,6);
                               base.paginas=r2.paginas; base.totalPaginas=r2.totalPaginas;
                             }catch(err){ base.errorPag="No se pudieron generar las imagenes: "+err.message; }
+                            try{
+                              const t=await textoDePdf(ev.target.result);
+                              const cert=leerCertificadoSII(t);
+                              if(cert){ base.cert=cert; base.nombre="Certificado de Avalúo Fiscal Detallado"+(cert.rol?" — Rol "+cert.rol:""); }
+                            }catch(err){}
                           }
                           res(base);
                         };
