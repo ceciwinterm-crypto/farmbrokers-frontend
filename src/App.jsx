@@ -1918,7 +1918,8 @@ export default function App(){
           const src = ch.getAttribute('src') || '';
           if (/^data:image/i.test(src)) {
             const alt = (ch.getAttribute('alt') || '').toLowerCase();
-            if (!alt.includes('farm brokers')) bloques.push({ t: 'img', src, alto: /h=\d{3,}|satelital|aerea/i.test(alt) ? 'alto' : '' });
+            if (!alt.includes('farm brokers')) bloques.push({ t: 'img', src,
+              alto: ch.getAttribute('data-doc') ? 'doc' : (/h=\d{3,}|satelital|aerea/i.test(alt) ? 'alto' : '') });
           }
           continue;
         }
