@@ -2561,7 +2561,15 @@ export default function App(){
                         <div style={{fontWeight:700,color:G,fontSize:13}}>☁️ Respaldo en la nube</div>
                         <button onClick={cargarNube} style={{...bS,fontSize:11,padding:"5px 10px"}}>↻ Actualizar</button>
                       </div>
-                      {nubeMsg?<div style={{fontSize:11.5,color:nubeMsg.startsWith("⚠")||nubeMsg.startsWith("No se")?"#9B4B43":"#666",marginBottom:8,lineHeight:1.5}}>{nubeMsg}</div>:null}
+                      {nubeMsg?<div style={{fontSize:11.5,color:nubeMsg.startsWith("⚠")||nubeMsg.startsWith("No se")||nubeMsg.startsWith("Configura")?"#9B4B43":"#666",marginBottom:8,lineHeight:1.5}}>{nubeMsg}</div>:null}
+                      {!leerClave()?<div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:10,padding:"9px 11px",background:"#fff",border:"1px solid "+ORO,borderRadius:6}}>
+                        <input type="password" value={claveInput} onChange={e=>setClaveInput(e.target.value)} placeholder="Clave de respaldo" style={{...iS,flex:1,minWidth:170,margin:0,padding:"7px 10px",fontSize:12.5}}/>
+                        <button onClick={async()=>{
+                          if(!claveInput.trim()){alert("Escribe la clave que configuraste en Railway (variable FB_CLAVE).");return;}
+                          guardarClave(claveInput.trim());
+                          await cargarNube();
+                        }} style={{...bP,fontSize:12,padding:"8px 14px"}}>Conectar</button>
+                      </div>:null}
                       {listaNube&&listaNube.length>0?listaNube.map(t=>{
                         const yaLocal=listaTas.some(x=>x.id===t.id);
                         return <div key={t.id} style={{display:"flex",gap:10,alignItems:"center",borderTop:"1px solid #E2E4E1",padding:"8px 0"}}>
@@ -2659,7 +2667,7 @@ export default function App(){
       <div className="stepsbar" style={{background:"#fff",borderBottom:"3px solid "+G,padding:"0 24px"}}>
         <div style={{display:"flex",maxWidth:880,margin:"0 auto"}}>
           {["Inicio","Datos del Predio","Tasacion","Informe Final"].map((s,i)=>(
-            <div key={i} onClick={()=>i<=step&&setStep(i)}
+            <div key={i} onClick={()=>{if(i<=step){setShowTas(false);setShowCot(false);setStep(i);window.scrollTo(0,0);}}}
               style={{flex:1,padding:"13px 0",textAlign:"center",borderBottom:step===i?"3px solid "+ORO:"3px solid transparent",marginBottom:-3,cursor:i<=step?"pointer":"default",color:step===i?G:step>i?GL:"#aaa",fontWeight:step===i?700:400,fontSize:13}}>
               <span style={{display:"inline-block",width:20,height:20,borderRadius:"50%",background:step>=i?G:"#ddd",color:"#fff",fontSize:11,lineHeight:"20px",marginRight:6,fontWeight:700}}>{i+1}</span>{s}
             </div>
@@ -3792,6 +3800,7 @@ export default function App(){
                   {Object.entries(TIPOGRAFIAS).map(([k,v])=><option key={k} value={k}>{v.n}</option>)}
                 </select>
                 <button onClick={()=>setStep(2)} style={bS}>← Editar</button>
+                <button onClick={()=>{setStep(0);window.scrollTo(0,0);}} style={bS} title="Volver a la pantalla de Inicio (configuración y respaldo)">⌂ Inicio</button>
                 <button onClick={exportarWord} style={bS}>📄 Word</button>
                 <button onClick={exportarKMZ} style={bS} title="Poligono de los roles para Google Earth">🌍 KMZ</button>
                 <button onClick={()=>window.print()} style={{...bP,background:ORO}}>🖨️ Imprimir / PDF</button>
