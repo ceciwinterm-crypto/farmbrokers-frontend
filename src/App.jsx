@@ -2438,7 +2438,9 @@ export default function App(){
         {/* UF en tiempo real en el header */}
         <div style={{textAlign:"right",display:"flex",gap:14,alignItems:"center"}}>
 
-                {avisoGuardado?<div style={{position:"fixed",top:74,right:20,zIndex:99,background:"#1e5631",color:"#fff",padding:"10px 18px",borderRadius:8,fontSize:13,boxShadow:"0 4px 14px rgba(0,0,0,0.25)"}}>{avisoGuardado}</div>:null}
+                {/* El aviso flota sobre la barra de pasos: sin pointerEvents:"none" se comia los
+            clics de "Inicio" y "Datos del Predio" mientras estaba visible. */}
+        {avisoGuardado?<div style={{position:"fixed",top:74,right:20,zIndex:99,pointerEvents:"none",maxWidth:"min(420px,60vw)",background:"#1e5631",color:"#fff",padding:"10px 18px",borderRadius:8,fontSize:13,lineHeight:1.5,boxShadow:"0 4px 14px rgba(0,0,0,0.25)"}}>{avisoGuardado}</div>:null}
                 {showCot?<div onClick={()=>setShowCot(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:98,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",color:TINTA,borderRadius:12,padding:24,width:"min(760px,94vw)",maxHeight:"88vh",overflow:"auto"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
@@ -2664,7 +2666,7 @@ export default function App(){
         </div>
       </header>
 
-      <div className="stepsbar" style={{background:"#fff",borderBottom:"3px solid "+G,padding:"0 24px"}}>
+      <div className="stepsbar" style={{background:"#fff",borderBottom:"3px solid "+G,padding:"0 24px",position:"relative",zIndex:100}}>
         <div style={{display:"flex",maxWidth:880,margin:"0 auto"}}>
           {["Inicio","Datos del Predio","Tasacion","Informe Final"].map((s,i)=>(
             <div key={i} onClick={()=>{if(i<=step){setShowTas(false);setShowCot(false);setStep(i);window.scrollTo(0,0);}}}
