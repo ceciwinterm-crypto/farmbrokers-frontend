@@ -2017,6 +2017,14 @@ export default function App(){
         solicitante:report.solicitante?capTxt(report.solicitante):"",
         superficie:report.superfSIITotal>0?(report.superfSIITotal.toFixed(2).replace(".",",")+" ha"):"",
         logoBlanco:LOGO_WHITE,
+        // Imagen de portada: la primera foto de terreno; si no hay, la vista aerea del predio
+        fotoPortada:(()=>{
+          const ims=report.imagenes||[];
+          const foto=ims.find(im=>im&&im.url&&!im.esSatelital);
+          if(foto)return foto.url;
+          const aerea=ims.find(im=>im&&im.url);
+          return (aerea&&aerea.url)||report.imagenSatelital||null;
+        })(),
       };
       const resp=await fetch(form.backendUrl.replace(/\/$/,"")+"/generar-word",{
         method:"POST",headers:{"Content-Type":"application/json"},
