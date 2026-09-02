@@ -1493,10 +1493,12 @@ export default function App(){
         if(clases[cl]>0){upd("c"+(idx+1),String(clases[cl]).replace(".",","));rellenadas.push("Clase "+cl+": "+clases[cl]+" ha");}
       });
       const serieTxt=seriesSet.join(", ");
-      if(serieTxt)upd("seriesSuelo",serieTxt);
       const car=data.caracteristicas||{};
-      // Datos de catastro: se actualizan SIEMPRE al presionar Suelos Auto (puedes editarlos despues)
-      const llenar=(campo,valor)=>{if(valor)upd(campo,valor);};
+      // Las caracteristicas se REEMPLAZAN por completo con lo que trae el catastro de esta
+      // comuna. Antes, si el catastro no traia un dato, quedaba el de la tasacion anterior:
+      // un predio de Marchihue terminaba con "Serie Valdivia de Paine" en el informe.
+      const llenar=(campo,valor)=>upd(campo,valor?String(valor):"");
+      upd("seriesSuelo",serieTxt||"");
       llenar("textura",car.textura);
       llenar("profundidad",car.profundidad);
       llenar("drenaje",car.drenaje);
@@ -1508,6 +1510,10 @@ export default function App(){
       llenar("capacidadUso",Object.keys(clases).sort((x,y)=>ROM.indexOf(x)-ROM.indexOf(y)).join("-"));
       const NOMBRES={textura:"Textura",profundidad:"Profundidad",drenaje:"Drenaje",pendiente:"Pendiente",erosion:"Erosion",pedregosidad:"Pedregosidad",ph:"pH",aptitud:"Aptitud"};
       const faltantes=Object.keys(NOMBRES).filter(k=>!car[k]||!String(car[k]).trim());
+      if(faltantes.length===Object.keys(NOMBRES).length&&!serieTxt){
+        setAvisoGuardado("ℹ Esta comuna no tiene caracterización de suelos publicada (serie, textura, profundidad, pH...). Los campos quedaron vacíos: si conoces el suelo del predio, ingrésalos a mano.");
+        setTimeout(()=>setAvisoGuardado(""),10000);
+      }
       let carTxt="";
       const obtenidas=Object.keys(NOMBRES).filter(k=>car[k]&&String(car[k]).trim());
       if(obtenidas.length)carTxt=" Caracteristicas CIREN → "+obtenidas.map(k=>NOMBRES[k]+": "+car[k]).join(" | ")+".";
