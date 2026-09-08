@@ -1528,6 +1528,13 @@ export default function App(){
         if(ri>=0)updRolDatos(ri,"superfCIREN",String(x.d.superficieHa).replace(".",","));
         // Clases de suelo del rol (para la tabla por rol del informe): siempre se sobreescriben
         if(ri>=0)updRolDatos(ri,"clasesCIREN",JSON.stringify(x.d.clases||{}));
+        // El nombre del predio tambien viene en el catastro: se usa si aun no hay uno
+        // (antes solo lo traia SimpleAPI, y cuando falla el informe no se podia generar).
+        if(x.d.nombrePredio&&String(x.d.nombrePredio).trim()){
+          const nomC=capTxt(String(x.d.nombrePredio).trim());
+          if(ri>=0&&!String((form.roles[ri].datos||{}).nombrePano||"").trim())updRolDatos(ri,"nombrePano",nomC);
+          if(!String(form.predioNombre||"").trim())upd("predioNombre",nomC);
+        }
         if(ri>=0&&x.d.clasesSIIfiscal)updRolDatos(ri,"clasesSIIRol",JSON.stringify(x.d.clasesSIIfiscal));
         // Uso actual CONAF y serie de suelo del rol (para agrupar el informe por paño)
         if(ri>=0)updRolDatos(ri,"usosRol",JSON.stringify(x.d.usos||{}));
