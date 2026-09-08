@@ -235,10 +235,11 @@ function calcularAptitudProductiva(form){
     const parcial=!okSuelo&&claseMasFavorable<=c.claseMax&&pctBueno>=0.15;
     const okHelada=!tieneClima||heladas<=c.heladaAlerta;
     const okPrecip=!tieneClima||precip>=c.precipMin;
+    const okTemp=!tieneClima||tminJulio===null||tminJulio>=c.tminJulioMax;
     let aptitud;
     if(!okSuelo&&parcial)aptitud="Parcial — solo en los sectores de mejor clase";
     else if(!okSuelo)aptitud="No apta (limitación de suelo)";
-    else if(!okHelada||!okPrecip)aptitud="Marginal — riesgo climático";
+    else if(!okHelada||!okPrecip||!okTemp)aptitud="Marginal — riesgo climático";
     else aptitud="Apta";
     return {...c,aptitud};
   });
@@ -2365,7 +2366,7 @@ export default function App(){
     const CONECT=["De","Del","La","Las","Los","El","Y"];
     const comuna=capTxt((roles[0]||{}).comuna||"").split(" ").map((w,i)=>i>0&&CONECT.includes(w)?w.toLowerCase():w).join(" ");
     const region=regionTxt(report.region);
-    const REGN={"O’Higgins":"06","Maule":"07","Ñuble":"16","Biobío":"08","La Araucanía":"09","Los Ríos":"14","Los Lagos":"10","Valparaíso":"05","Coquimbo":"04","Atacama":"03","Metropolitana de Santiago":"RM","Aysén":"11","Tarapacá":"01","Antofagasta":"02","Arica y Parinacota":"15","Magallanes":"12"};
+    const REGN={"O’Higgins":"06","Maule":"07","Ñuble":"16","Biobío":"08","La Araucanía":"09","Los Ríos":"14","Los Lagos":"10","Valparaíso":"05","Coquimbo":"04","Atacama":"03","Metropolitana de Santiago":"RM","Aysén":"11","Tarapacá":"01","Antofagasta":"02","Arica y Parinacota":"15","Magallanes y de la Antártica Chilena":"12"};
     const palC=comuna.split(" ").filter(w=>w&&!CONECT.includes(w)&&!CONECT.includes(capTxt(w)));
     const sigla=(palC.length>1?palC.map(w=>w[0]).join("").substring(0,2):(palC[0]||comuna).substring(0,2)).toUpperCase()
       .normalize("NFD").replace(/[\u0300-\u036f]/g,"");
@@ -3748,7 +3749,7 @@ export default function App(){
                   const F=v=>"$ "+Math.round(v).toLocaleString("es-CL");
                   const o=valPrev.otros;
                   const resid=valPrev.modo==="residual";
-                  const totalFinal=valPrev.residual+(resid?o.total:0);
+                  const totalFinal=valPrev.residual+o.total;
                   return <div>
                     <div style={{fontSize:12,color:"#444",lineHeight:1.8,borderTop:"1px solid #E2E4E1",paddingTop:8}}>
                       <b>{valPrev.n}</b> comparable(s) · mediana <b>{F(valPrev.mediana)}/ha</b> · rango {F(valPrev.min)} – {F(valPrev.max)}<br/>
@@ -4298,7 +4299,7 @@ export default function App(){
                 {(()=>{
                   let rh=[];try{rh=JSON.parse(report.recursosHidricos||"[]").filter(r=>String(r.nombre||"").trim());}catch(e){rh=[];}
                   if(!rh.length&&report.cn1){rh=[{tipo:"Canal",nombre:report.cn1,origen:report.co1,derechos:report.ca1,caudal:report.cq1,valor:""},report.cn2?{tipo:"Canal",nombre:report.cn2,origen:report.co2,derechos:report.ca2,caudal:report.cq2,valor:""}:null].filter(Boolean);}
-                  if(!rh.length)return null;
+                  if(!rh.length){window.__rhValor=0;return null;}
                   const numRH=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
                   const totalRH=rh.reduce((s,r)=>s+numRH(r.valor),0);
                   window.__rhValor=totalRH;
@@ -4344,7 +4345,7 @@ export default function App(){
                         conValorC?["Subtotal Construcciones",cs.reduce((s,c)=>s+mC(c.m2),0).toFixed(1),"","","$ "+Math.round(subC).toLocaleString("es-CL")]:null]}/>:null}
                     {(()=>{
                       let mq=[];try{mq=JSON.parse(report.maquinariaLista||"[]").filter(x=>String(x.nombre||"").trim());}catch(e){mq=[];}
-                      if(!mq.length)return null;
+                      if(!mq.length){window.__maqValor=0;return null;}
                       const cM=v=>parseFloat(String(v||"0").replace(",","."))||0;
                       const tot=mq.reduce((s,r)=>s+cM(r.cantidad)*nC(r.vu),0);
                       window.__maqValor=tot;
@@ -4399,7 +4400,8 @@ export default function App(){
                   let plsV=[];try{plsV=JSON.parse(report.plantacionesCIREN||"[]").filter(p=>String(p.especie||"").trim());}catch(e){plsV=[];}
                   const numP=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
                   const hasP=v=>parseFloat(String(v||"0").replace(",","."))||0;
-                  window.__plsValor=plsV.map(p=>({rotulo:capTxt(p.especie)+(p.variedad?" var. "+p.variedad:"")+(p.anio?" ("+p.anio+")":""),has:hasP(p.has),vha:numP(p.vha)}));
+                  const fPv=factorPlant(report);
+                  window.__plsValor=plsV.map(p=>({rotulo:capTxt(p.especie)+(p.variedad?" var. "+p.variedad:"")+(p.anio?" ("+p.anio+")":""),has:hasP(p.has)*fPv,vha:numP(p.vha)}));
                   return null;})()}
                 <GTbl boldLast={5} headers={["Componente","Has","$ x ha","Valor"]} rows={[
                   ...[1,2,3,4,5,6,7,8].filter(n=>parseFloat((report["c"+n]||"0").replace(",","."))>0).map(n=>{
