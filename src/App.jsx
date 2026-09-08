@@ -1546,7 +1546,10 @@ export default function App(){
         if(clases[cl]>0){upd("c"+(idx+1),String(clases[cl]).replace(".",","));rellenadas.push("Clase "+cl+": "+clases[cl]+" ha");}
       });
       // ── Validacion previa: ¿el poligono corresponde de verdad a este predio? ──
-      const chk=chequeoSuperficies({...form,prediosGeo:JSON.stringify(geosRol.map(x=>({rol:x.rol,comuna:x.comuna,g:x.g})))});
+      // Los poligonos vienen en oks; geosRol se arma mas abajo, asi que aqui se
+      // construye la lista minima que necesita el chequeo.
+      const geosChk=oks.map(x=>({rol:x.rol,comuna:x.comuna,g:(x.d||{}).predioGeo})).filter(x=>x.g);
+      const chk=chequeoSuperficies({...form,prediosGeo:JSON.stringify(geosChk)});
       if(chk.hay){
         const seguir=window.confirm(
           "⚠ ALERTA DE SUPERFICIE\n\n"+
