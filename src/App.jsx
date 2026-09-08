@@ -5,7 +5,7 @@ const G = "#33463B";
 // ── Almacen local de tasaciones (IndexedDB: soporta imagenes y muchas tasaciones) ──
 const abrirDB=()=>new Promise((res,rej)=>{const r=indexedDB.open("farmbrokers",1);r.onupgradeneeded=()=>{r.result.createObjectStore("tasaciones",{keyPath:"id"});};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});
 const dbGuardar=async(reg)=>{const db=await abrirDB();return new Promise((res,rej)=>{const tx=db.transaction("tasaciones","readwrite");tx.objectStore("tasaciones").put(reg);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});};
-const dbListar=async()=>{const db=await abrirDB();return new Promise((res,rej)=>{const rq=db.transaction("tasaciones").objectStore("tasaciones").getAll();rq.onsuccess=()=>res(rq.result||[]);rq.onerror=()=>rej(rq.error);});};
+const dbListar=async()=>{const db=awqait abrirDB();return new Promise((res,rej)=>{const rq=db.transaction("tasaciones").objectStore("tasaciones").getAll();rq.onsuccess=()=>res(rq.result||[]);rq.onerror=()=>rej(rq.error);});};
 const dbBorrar=async(id)=>{const db=await abrirDB();return new Promise((res,rej)=>{const tx=db.transaction("tasaciones","readwrite");tx.objectStore("tasaciones").delete(id);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});};
 const proximoCorrelativo=()=>{const y=new Date().getFullYear();const k="fb_correlativo_"+y;const n=(parseInt(localStorage.getItem(k)||"0",10)||0)+1;localStorage.setItem(k,String(n));return "T-"+y+"-"+String(n).padStart(3,"0");};
 const GL = "#4A6152";
