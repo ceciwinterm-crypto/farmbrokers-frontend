@@ -5,7 +5,7 @@ const G = "#33463B";
 // ── Almacen local de tasaciones (IndexedDB: soporta imagenes y muchas tasaciones) ──
 const abrirDB=()=>new Promise((res,rej)=>{const r=indexedDB.open("farmbrokers",1);r.onupgradeneeded=()=>{r.result.createObjectStore("tasaciones",{keyPath:"id"});};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});
 const dbGuardar=async(reg)=>{const db=await abrirDB();return new Promise((res,rej)=>{const tx=db.transaction("tasaciones","readwrite");tx.objectStore("tasaciones").put(reg);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});};
-const dbListar=async()=>{const db=awqait abrirDB();return new Promise((res,rej)=>{const rq=db.transaction("tasaciones").objectStore("tasaciones").getAll();rq.onsuccess=()=>res(rq.result||[]);rq.onerror=()=>rej(rq.error);});};
+const dbListar=async()=>{const db=await abrirDB();return new Promise((res,rej)=>{const rq=db.transaction("tasaciones").objectStore("tasaciones").getAll();rq.onsuccess=()=>res(rq.result||[]);rq.onerror=()=>rej(rq.error);});};
 const dbBorrar=async(id)=>{const db=await abrirDB();return new Promise((res,rej)=>{const tx=db.transaction("tasaciones","readwrite");tx.objectStore("tasaciones").delete(id);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});};
 const proximoCorrelativo=()=>{const y=new Date().getFullYear();const k="fb_correlativo_"+y;const n=(parseInt(localStorage.getItem(k)||"0",10)||0)+1;localStorage.setItem(k,String(n));return "T-"+y+"-"+String(n).padStart(3,"0");};
 const GL = "#4A6152";
@@ -423,6 +423,28 @@ function sugerirValorSuelos(datos,ajustePct,modo){
 // La clave se guarda solo en este navegador; nunca viaja dentro de la tasacion.
 const leerClave=()=>{try{return localStorage.getItem("fb_clave")||"";}catch(e){return "";}};
 const guardarClave=(v)=>{try{localStorage.setItem("fb_clave",v||"");}catch(e){}};
+const guardarBackend=(v)=>{try{localStorage.setItem("fb_backend",v||"");}catch(e){}};
+
+// El backend exige la clave en todas sus rutas (no solo en las de respaldo).
+// En vez de repetirla en las 14 llamadas, se agrega una sola vez aqui:
+// cualquier peticion dirigida al backend la lleva automaticamente.
+if(typeof window!=="undefined"&&!window.__fbFetchParcheado){
+  window.__fbFetchParcheado=true;
+  const fetchOriginal=window.fetch.bind(window);
+  window.fetch=(url,opts)=>{
+    try{
+      const u=typeof url==="string"?url:((url&&url.url)||"");
+      const back=(()=>{try{return localStorage.getItem("fb_backend")||"";}catch(e){return "";}})();
+      const clave=leerClave();
+      if(back&&clave&&u.startsWith(back.replace(/\/$/,""))){
+        const o={...(opts||{})};
+        o.headers={...(o.headers||{}),"X-FB-Clave":clave};
+        return fetchOriginal(url,o);
+      }
+    }catch(e){}
+    return fetchOriginal(url,opts);
+  };
+}
 async function nube(backendUrl,ruta,cuerpo){
   if(!backendUrl)throw new Error("Falta configurar la URL del servidor.");
   const clave=leerClave();
@@ -552,6 +574,34 @@ function leerCertificadoSII(txt){
   return r;
 }
 
+// ── Control de coherencia de superficies ────────────────────────────────────
+// Si la superficie del poligono cartografico no se parece a la registrada en el
+// SII o en los titulos, es señal de que el poligono NO corresponde al predio
+// (roles repetidos entre comunas, predios subdivididos, catastro desactualizado).
+// En ese caso todo lo que se calcula sobre el poligono —clases de suelo, uso,
+// aptitud— describe otro terreno, y no debe usarse sin validar.
+function chequeoSuperficies(f){
+  const n=v=>parseFloat(String(v||"0").replace(/\./g,"").replace(",","."))||0;
+  const roles=(f.roles||[]).filter(r=>String(r.rol||"").trim());
+  const sii=roles.reduce((s,r)=>s+n((r.datos||{}).superfSII),0);
+  const tit=roles.reduce((s,r)=>s+n((r.datos||{}).superfTit),0);
+  const ge =roles.reduce((s,r)=>s+n((r.datos||{}).superfGE),0);
+  let ciren=0;
+  try{ciren=(JSON.parse(f.prediosGeo||"[]")).reduce((s,x)=>s+areaHaGeo(geomDe(x)||{}),0);}catch(e){}
+  const espacial=ciren>0?ciren:ge;               // lo que dice la cartografia
+  const registral=sii>0?sii:tit;                 // lo que dicen SII / titulos
+  if(!espacial||!registral)return {hay:false};
+  const dif=Math.abs(espacial-registral);
+  const pct=dif/Math.max(espacial,registral)*100;
+  return {
+    hay:pct>25, grave:pct>50, pct:Math.round(pct*10)/10,
+    sii,tit,ge,ciren,espacial,registral,
+    texto:"SII: "+(sii>0?sii.toFixed(2).replace(".",","):"—")+" ha"+
+          (tit>0?"  |  Títulos: "+tit.toFixed(2).replace(".",",")+" ha":"")+
+          "  |  Cartografía (CIREN/Google Earth): "+espacial.toFixed(2).replace(".",",")+" ha"
+  };
+}
+
 function PgFB({title,children,num,sub}){
   return <div style={{padding:"0",display:"flex",flexDirection:"column",fontFamily:FONT,background:"#fff"}}>
     {title?<Banda n={num} titulo={title} sub={sub}/>:null}
@@ -639,7 +689,7 @@ const EMPTY = {
   seriesSuelo:"",pendiente:"",profundidad:"",erosion:"",pedregosidad:"",
   drenaje:"",textura:"",ph:"",aptitud:"",capacidadUso:"",
   cn1:"",co1:"",ca1:"",cq1:"",cn2:"",co2:"",ca2:"",cq2:"",recursosHidricos:"",
-  construcciones:"No posee construcciones ni instalaciones de ningun tipo.",construccionesLista:"",maquinariaLista:"",documentos:"",metodologiaTxt:"",deslindeN:"",deslindeS:"",deslindeO:"",deslindeP:"",
+  construcciones:"No posee construcciones ni instalaciones de ningun tipo.",construccionesLista:"",maquinariaLista:"",documentos:"",alertaSuperficie:"",metodologiaTxt:"",deslindeN:"",deslindeS:"",deslindeO:"",deslindeP:"",
   plantacionDesc:"",plantacionHas:"0",plantacionValorHa:"0",
   refs:[{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""}],
   valorComercial:"",valorComercialUF:"",valorFacilVenta:"",valorFacilVentaUF:"",
@@ -670,6 +720,9 @@ export default function App(){
   const [showTas,setShowTas]=useState(false);
   const [idTasacionActual,setIdTasacionActual]=useState(null);
   useEffect(()=>{if(window.__cargarReportePrueba){setReport(window.__cargarReportePrueba);setStep(3);}},[]);
+  // La URL del backend se recuerda aparte para que el parche de fetch pueda
+  // reconocerla y agregar la clave a todas las llamadas.
+  useEffect(()=>{if(form.backendUrl)guardarBackend(form.backendUrl);},[form.backendUrl]);
 
   // Si hay comuna en el rol 0 pero falta la región (tasación cargada, duplicada o comuna
   // escrita antes), se completa sola desde la comuna. Evita el error "region vacia" en Suelos Auto.
@@ -1492,6 +1545,32 @@ export default function App(){
       ROM.forEach((cl,idx)=>{
         if(clases[cl]>0){upd("c"+(idx+1),String(clases[cl]).replace(".",","));rellenadas.push("Clase "+cl+": "+clases[cl]+" ha");}
       });
+      // ── Validacion previa: ¿el poligono corresponde de verdad a este predio? ──
+      const chk=chequeoSuperficies({...form,prediosGeo:JSON.stringify(geosRol.map(x=>({rol:x.rol,comuna:x.comuna,g:x.g})))});
+      if(chk.hay){
+        const seguir=window.confirm(
+          "⚠ ALERTA DE SUPERFICIE\n\n"+
+          "La superficie obtenida desde fuentes cartográficas NO coincide con la registrada en el SII o en los títulos:\n\n"+
+          chk.texto+"\n\nDiferencia: "+chk.pct+"%\n\n"+
+          (chk.grave
+            ? "Una diferencia de esta magnitud indica que el polígono del catastro probablemente NO corresponde a este predio (roles que se repiten entre comunas, predios subdivididos o catastro desactualizado).\n\n"
+            : "")+
+          "Si el polígono no es el correcto, las clases de suelo, el uso actual y la aptitud productiva describirían OTRO terreno.\n\n"+
+          "Aceptar = aplicar igualmente los antecedentes espaciales (revísalos antes de firmar).\n"+
+          "Cancelar = no aplicarlos y validar primero el polígono."
+        );
+        if(!seguir){
+          upd("alertaSuperficie",JSON.stringify({pct:chk.pct,texto:chk.texto,grave:chk.grave,descartado:true}));
+          setLoading(false);setGenMsg("");
+          setAvisoGuardado("⚠ Antecedentes espaciales NO aplicados: valida el polígono del predio antes de continuar.");
+          setTimeout(()=>setAvisoGuardado(""),10000);
+          return;
+        }
+        upd("alertaSuperficie",JSON.stringify({pct:chk.pct,texto:chk.texto,grave:chk.grave,descartado:false}));
+      } else {
+        upd("alertaSuperficie","");
+      }
+
       const serieTxt=seriesSet.join(", ");
       const car=data.caracteristicas||{};
       // Las caracteristicas se REEMPLAZAN por completo con lo que trae el catastro de esta
@@ -2733,7 +2812,7 @@ export default function App(){
                 Pega aqui la URL de tu backend en Railway. Si aun no lo tienes desplegado, revisa el archivo "INSTRUCCIONES_DESPLIEGUE.md" que te entregamos.
               </div>
               <div style={{display:"flex",gap:8}}>
-                <input value={form.backendUrl} onChange={e=>upd("backendUrl",e.target.value)} placeholder="https://tu-backend.up.railway.app" style={{...iS,flex:1}}/>
+                <input value={form.backendUrl} onChange={e=>{upd("backendUrl",e.target.value);guardarBackend(e.target.value);}} placeholder="https://tu-backend.up.railway.app" style={{...iS,flex:1}}/>
               </div>
               {form.backendUrl&&<div style={{fontSize:11,color:G,marginTop:6}}>Servidor configurado. Los informes se generaran usando este backend.</div>}
             </div>
@@ -2860,8 +2939,8 @@ export default function App(){
                     <Fld warn label="RUT" value={r.datos.rut} onChange={v=>{updRolDatos(i,"rut",v);updRolDatos(i,"rutFuenteUrl","");}} placeholder="16.661.046-K"/>
                     <Fld warn label="Avaluo Fiscal ($)" value={r.datos.avaluoFiscal} onChange={v=>updRolDatos(i,"avaluoFiscal",fmtMiles(v))} placeholder="243.691.524"/>
                     <Fld label="Fecha Avaluo" value={r.datos.avaluoFecha} onChange={v=>updRolDatos(i,"avaluoFecha",v)} placeholder="29/09/2025"/>
-                    <Fld label="Superficie SII (ha)" value={r.datos.superfSII} onChange={v=>updRolDatos(i,"superfSII",v)} placeholder="8,23"/>
-                    <Fld label="Superficie Titulos (ha)" value={r.datos.superfTit||""} onChange={v=>updRolDatos(i,"superfTit",v)} placeholder="8,20"/>
+                    <Fld label="Superficie SII (ha)" value={r.datos.superfSII} onChange={v=>updRolDatos(i,"superfSII",v)} placeholder="según certificado de avalúo"/>
+                    <Fld label="Superficie Titulos (ha)" value={r.datos.superfTit||""} onChange={v=>updRolDatos(i,"superfTit",v)} placeholder="según inscripción"/>
                     <Fld label="Superficie Google Earth (ha)" value={r.datos.superfGE||""} onChange={v=>updRolDatos(i,"superfGE",v)} placeholder="8,30"/>
                     <Fld label="Destino / Uso" value={r.datos.destino} onChange={v=>updRolDatos(i,"destino",v)} placeholder="AGRICOLA"/>
                     <Fld label="Latitud (rol)" value={r.datos.lat||""} onChange={v=>setCoordRol(i,"lat",v)} placeholder="-38.463920"/>
@@ -3015,6 +3094,20 @@ export default function App(){
                   <Fld key={n} label={"Clase "+["I","II","III","IV","V","VI","VII","VIII"][n-1]+" (ha)"} value={form["c"+n]} onChange={v=>upd("c"+n,v)} placeholder="0"/>
                 ))}
               </div>
+              {(()=>{
+                const chk=chequeoSuperficies(form);
+                if(!chk.hay)return null;
+                return <div style={{background:"#FDF0EE",border:"2px solid #9B4B43",borderRadius:8,padding:"12px 15px",margin:"10px 0"}}>
+                  <div style={{fontWeight:700,color:"#9B4B43",fontSize:13,marginBottom:5}}>⚠ ALERTA DE SUPERFICIE — diferencia del {chk.pct}%</div>
+                  <div style={{fontSize:12,color:"#444",lineHeight:1.7}}>
+                    {chk.texto}<br/>
+                    {chk.grave
+                      ? <>Una diferencia de esta magnitud indica que <b>el polígono del catastro probablemente no corresponde a este predio</b>. Las clases de suelo, el uso actual y la aptitud productiva que aparecen abajo estarían describiendo otro terreno.</>
+                      : <>Conviene aclarar esta diferencia mediante estudio de títulos o levantamiento topográfico antes de emitir el informe.</>}
+                    <br/><b>No uses estos antecedentes espaciales hasta validar el polígono correcto del predio.</b>
+                  </div>
+                </div>;
+              })()}
               <div style={{fontSize:11,color:"#888",marginTop:6}}>Clases I a IV: suelos arables (riego/cultivo). Clases V a VIII: no arables (ganaderia, forestal, proteccion).</div>
               {(()=>{
                 let sf=null;try{sf=JSON.parse(form.clasesSIIfiscal||"null");}catch(e){sf=null;}
@@ -3961,6 +4054,18 @@ export default function App(){
               </PgFB>
 
               <PgFB num="05" title="Antecedentes Técnicos" sub="Suelos, capacidad de uso y aptitud productiva">
+                {(()=>{
+                  const chk=chequeoSuperficies(report);
+                  if(!chk.hay)return null;
+                  return <div style={{border:"1.5px solid #9B4B43",borderRadius:6,padding:"11px 14px",margin:"10px 0",background:"#FDF7F6"}}>
+                    <div style={{fontWeight:700,color:"#9B4B43",fontSize:12.5,marginBottom:4}}>ADVERTENCIA SOBRE LA SUPERFICIE</div>
+                    <p style={{...TXT,margin:0,fontSize:12.5}}>
+                      Las superficies informadas por las distintas fuentes presentan una diferencia de {String(chk.pct).replace(".",",")}% ({chk.texto}).
+                      {chk.grave?" Una diferencia de esta magnitud sugiere que el polígono cartográfico disponible podría no corresponder íntegramente al predio tasado.":""}
+                      {" "}Los antecedentes espaciales de este capítulo (clases de capacidad de uso, uso actual del suelo y aptitud productiva) se han obtenido de dicho polígono y tienen, en consecuencia, carácter referencial. Se recomienda validar la cabida mediante estudio de títulos y levantamiento topográfico antes de perfeccionar cualquier transacción.
+                    </p>
+                  </div>;
+                })()}
                 <Sub>Superficie:</Sub>
                 {(()=>{
                   const ha=v=>parseFloat(String(v||"0").replace(",","."))||0;
