@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 // ⚠️ Cambia esta dirección por la URL de tu backend en Railway (la misma que usa la plataforma)
-const API_BASE = 'https://farmbrokers-backend-production.up.railway.app';}
+const API_BASE = 'https://farmbrokers-backend-production.up.railway.app';
 const SHEETJS = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 
 const REG_NOMBRE = { XV: 'Arica', I: 'Tarapacá', II: 'Antofagasta', III: 'Atacama', IV: 'Coquimbo', V: 'Valparaíso', RM: 'Metropolitana', VI: "O'Higgins",
