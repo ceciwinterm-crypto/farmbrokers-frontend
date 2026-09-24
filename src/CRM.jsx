@@ -9,7 +9,7 @@ const SHEETJS = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.mi
 
 const REG_NOMBRE = { XV: 'Arica', I: 'Tarapacá', II: 'Antofagasta', III: 'Atacama', IV: 'Coquimbo', V: 'Valparaíso', RM: 'Metropolitana', VI: "O'Higgins",
   VII: 'Maule', XVI: 'Ñuble', VIII: 'Biobío', IX: 'Araucanía', XIV: 'Los Ríos', X: 'Los Lagos', XI: 'Aysén', XII: 'Magallanes' };
-const TIPOS = { agricola: 'Agrícola', loteo: 'Loteo / parcelas', urbano: 'Urbano', forestal: 'Forestal', conservacion: 'Conservación', energia: 'Energía' };
+const TIPOS = { agricola: 'Agrícola', loteo: 'Loteo', forestal: 'Forestal', conservacion: 'Conservación', urbano: 'Urbano', agroindustrial: 'Agroindustrial', derechos_agua: 'Derechos de agua', energia: 'Energía' };
 const CERRADAS_TAS = ['Pagada', 'Perdida'];
 
 const hoyISO = () => new Date().toLocaleDateString('en-CA');
@@ -92,7 +92,7 @@ export default function CRM() {
   const api = useApi(clave, usuario);
 
   const cargar = async () => {
-    try { setError(''); setDatos(await api('/')); }
+    try { setError(''); const d = await api('/'); if (d.tipos) Object.assign(TIPOS, d.tipos); setDatos(d); }
     catch (e) { setError(e.message); if (/clave/i.test(e.message)) { setClave(''); guardarLocal('fbcrm_clave', ''); } }
   };
   useEffect(() => { if (clave && usuario) cargar(); }, [clave, usuario]);
@@ -319,11 +319,36 @@ function ListaCampos({ ctx, importar }) {
   const { datos, abrir, usuario } = ctx;
   const [filtro, setFiltro] = useState('activos');
   const [q, setQ] = useState('');
+  const [orden, setOrden] = useState('region');
+  const [fRegion, setFRegion] = useState('');
+  const [fTipo, setFTipo] = useState('');
   const FILTROS = { activos: ['Activos', datos.activas], captacion: ['Captación', ['Prospección', 'Captación', 'Documentación']], publicados: ['Publicados', ['Mandato firmado', 'Publicado', 'En negociación']], cerrados: ['Cerrados', ['Vendido', 'Arrendado', 'Suspendido', 'Retirado de la web', 'Descartado']], todos: ['Todos', datos.etapas.campos] };
   const nq = q.toLowerCase();
-  const lista = datos.campos.filter((c) => FILTROS[filtro][1].includes(c.etapa) &&
-    (!nq || [c.nombre, c.sector, c.codigo, c.rol, c.plantaciones, c.aptitud, c.propietario, REG_NOMBRE[c.region]].join(' ').toLowerCase().includes(nq)));
-  const etapas = datos.etapas.campos.filter((e) => FILTROS[filtro][1].includes(e));
+  const enEtapa = datos.campos.filter((c) => FILTROS[filtro][1].includes(c.etapa));
+  const idxR = (r) => { const i = datos.regiones.indexOf(r); return i < 0 ? 99 : i; };
+  const cmp = (a, b) => String(a || '').localeCompare(String(b || ''), 'es', { sensitivity: 'base' });
+  const lista = enEtapa.filter((c) => (!fRegion || (c.region || '') === fRegion) && (!fTipo || c.tipo === fTipo) &&
+    (!nq || [c.nombre, c.sector, c.codigo, c.rol, c.plantaciones, c.aptitud, c.propietario, REG_NOMBRE[c.region], TIPOS[c.tipo]].join(' ').toLowerCase().includes(nq)));
+  const porRegion = (a, b) => idxR(a.region) - idxR(b.region) || cmp(a.sector, b.sector) || cmp(a.nombre, b.nombre);
+  const ordenes = {
+    region: porRegion,
+    etapa: (a, b) => datos.etapas.campos.indexOf(a.etapa) - datos.etapas.campos.indexOf(b.etapa) || porRegion(a, b),
+    tipo: (a, b) => cmp(TIPOS[a.tipo], TIPOS[b.tipo]) || porRegion(a, b),
+    nombre: (a, b) => cmp(a.nombre, b.nombre),
+    hectareas: (a, b) => (b.hectareas || 0) - (a.hectareas || 0),
+  };
+  const ordenados = [...lista].sort(ordenes[orden]);
+  const grupos = [];
+  const claveGrupo = (c) => (orden === 'region' ? c.region || '' : orden === 'etapa' ? c.etapa : orden === 'tipo' ? c.tipo : '_');
+  for (const c of ordenados) {
+    const k = claveGrupo(c);
+    if (!grupos.length || grupos[grupos.length - 1].k !== k) grupos.push({ k, items: [] });
+    grupos[grupos.length - 1].items.push(c);
+  }
+  const tituloGrupo = (k) => (orden === 'region' ? (k ? `${REG_NOMBRE[k] || k}` : 'Sin región') : orden === 'etapa' ? k : orden === 'tipo' ? TIPOS[k] || k || 'Sin tipo' : '');
+  const regionesHay = [...new Set(enEtapa.map((c) => c.region || ''))].sort((a, b) => idxR(a) - idxR(b));
+  const tiposHay = [...new Set(enEtapa.map((c) => c.tipo))].sort((a, b) => cmp(TIPOS[a], TIPOS[b]));
+  const hayFiltros = fRegion || fTipo || q;
   return (
     <section>
       <SyncWeb ctx={ctx} />
@@ -334,33 +359,43 @@ function ListaCampos({ ctx, importar }) {
           <button className="fbcrm-primario" onClick={() => abrir('campos', { etapa: 'Captación', tipo: 'agricola', responsable: usuario })}>Nuevo campo</button>
         </div>
       </div>
-      <input className="fbcrm-buscar" placeholder="Buscar por nombre, comuna, código, rol, plantación o propietario" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="fbcrm-filtros">
+        <input className="fbcrm-buscar" placeholder="Buscar por nombre, comuna, código, rol, plantación o propietario" value={q} onChange={(e) => setQ(e.target.value)} />
+        <label><span>Región</span><select value={fRegion} onChange={(e) => setFRegion(e.target.value)}><option value="">Todas</option>{regionesHay.map((r) => <option key={r || 'sin'} value={r}>{r ? REG_NOMBRE[r] || r : 'Sin región'}</option>)}</select></label>
+        <label><span>Tipo</span><select value={fTipo} onChange={(e) => setFTipo(e.target.value)}><option value="">Todos</option>{tiposHay.map((t) => <option key={t} value={t}>{TIPOS[t] || t}</option>)}</select></label>
+        <label><span>Ordenar</span><select value={orden} onChange={(e) => setOrden(e.target.value)}>
+          <option value="region">Región, de norte a sur</option><option value="etapa">Etapa</option><option value="tipo">Tipo de propiedad</option><option value="nombre">Nombre</option><option value="hectareas">Hectáreas, mayor a menor</option>
+        </select></label>
+      </div>
+      <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); }}>Quitar filtros</button></>}</p>
       {!lista.length && <p className="fbcrm-vacio">{datos.campos.length ? 'Ningún campo coincide con el filtro.' : 'Aún no hay campos. Importa la planilla o usa “Nuevo campo”.'}</p>}
-      {etapas.map((et) => {
-        const de = lista.filter((c) => c.etapa === et);
-        if (!de.length) return null;
-        return (
-          <div key={et} className="fbcrm-grupo">
-            <h2>{et} <span>{de.length}</span></h2>
-            {de.map((c) => {
-              const nM = (datos.matches[c.id] || []).filter((m) => m.nivel === 'fuerte').length;
-              return (
-                <button key={c.id} className="fbcrm-fila" onClick={() => abrir('campos', c)}>
-                  <span className={`fbcrm-ha ha-${c.tipo}`}><b>{c.hectareas ? fmtNum(Math.round(c.hectareas)) : '–'}</b><i>ha</i></span>
-                  <span className="fbcrm-cuerpo">
-                    <strong>{c.nombre}</strong>
-                    <small>{[c.sector, c.region && (REG_NOMBRE[c.region] || c.region), c.plantaciones || c.aptitud].filter(Boolean).join(', ')}</small>
-                  </span>
-                  <span className="fbcrm-der">
-                    <span className="fbcrm-valor">{fmtPrecio(c)}</span>
-                    {nM > 0 && <span className="fbcrm-badge">{nM} calzan</span>}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        );
-      })}
+      {lista.length > 0 && (
+        <div className="fbcrm-tabla">
+          <div className="fbcrm-tabla-cab" aria-hidden="true"><span>Campo</span><span>Región</span><span>Comuna</span><span>Tipo</span><span>Etapa</span><span className="der">Precio</span><span className="der">Calzan</span></div>
+          {grupos.map((g) => (
+            <div key={g.k} className="fbcrm-tabla-bloque">
+              {orden !== 'nombre' && orden !== 'hectareas' && <div className="fbcrm-tabla-grupo"><strong>{tituloGrupo(g.k)}</strong><span>{g.items.length}</span></div>}
+              {g.items.map((c) => {
+                const nM = (datos.matches[c.id] || []).filter((m) => m.nivel === 'fuerte').length;
+                return (
+                  <button key={c.id} className="fbcrm-tabla-fila" onClick={() => abrir('campos', c)}>
+                    <span className="tc-campo">
+                      <span className={`fbcrm-ha ha-${c.tipo}`}><b>{c.hectareas ? fmtNum(Math.round(c.hectareas)) : '–'}</b><i>ha</i></span>
+                      <span className="fbcrm-cuerpo"><strong>{c.nombre}</strong><small>{c.plantaciones || c.aptitud || c.codigo || ''}</small></span>
+                    </span>
+                    <span className="tc-region">{c.region ? REG_NOMBRE[c.region] || c.region : <em>Sin región</em>}</span>
+                    <span className="tc-comuna">{c.sector || <em>Sin comuna</em>}</span>
+                    <span className="tc-tipo"><span className={`fbcrm-tipo-tag tt-${c.tipo}`}>{TIPOS[c.tipo] || c.tipo}</span></span>
+                    <span className={`tc-etapa et-${(datos.activas.includes(c.etapa) ? 'activa' : ['Vendido', 'Arrendado'].includes(c.etapa) ? 'cerrada' : 'otra')}`}>{c.etapa}</span>
+                    <span className="tc-precio" title={fmtPrecio(c)}>{fmtPrecio(c) || '–'}</span>
+                    <span className="tc-match">{nM > 0 ? <span className="fbcrm-badge" title={`${nM} clientes calzan`}>{nM}</span> : ''}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -411,7 +446,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           <>
             <div className="fbcrm-form">
               <Campo label="Nombre" ancho><input value={f.nombre || ''} onChange={set('nombre')} placeholder="Ej. Fundo Mahuidanche" /></Campo>
-              <Campo label="Tipo"><select value={f.tipo || 'agricola'} onChange={set('tipo')}>{Object.entries(TIPOS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Campo>
+              <Campo label="Tipo de propiedad"><SelectTipo ctx={ctx} value={f.tipo || 'agricola'} onChange={(v) => setF((x) => ({ ...x, tipo: v }))} /></Campo>
               {esNuevo && <Campo label="Etapa"><select value={f.etapa} onChange={set('etapa')}>{datos.etapas.campos.map((e) => <option key={e}>{e}</option>)}</select></Campo>}
               <Campo label="Código"><input value={f.codigo || ''} onChange={set('codigo')} /></Campo>
               <Campo label="Rol SII"><input value={f.rol || ''} onChange={set('rol')} placeholder="28-95" /></Campo>
@@ -597,7 +632,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         <h3>Qué busca</h3>
         <div className="fbcrm-form">
           <Campo label="Requerimiento (como lo dijo el cliente)" ancho><textarea rows={2} value={f.requerimiento || ''} onChange={set('requerimiento')} /></Campo>
-          <Campo label="Tipo"><select value={f.tipo || ''} onChange={set('tipo')}><option value="">Cualquiera</option>{Object.entries(TIPOS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Campo>
+          <Campo label="Tipo de propiedad"><SelectTipo ctx={ctx} value={f.tipo || ''} vacio="Cualquiera" onChange={(v) => setF((x) => ({ ...x, tipo: v }))} /></Campo>
           <Campo label="Operación"><select value={f.operacion} onChange={set('operacion')}><option value="compra">Compra</option><option value="arriendo">Arriendo</option></select></Campo>
           <Campo label="Hectáreas mínimo"><input type="number" inputMode="decimal" value={f.haMin ?? ''} onChange={set('haMin')} /></Campo>
           <Campo label="Hectáreas máximo"><input type="number" inputMode="decimal" value={f.haMax ?? ''} onChange={set('haMax')} placeholder="Sin límite" /></Campo>
@@ -655,6 +690,7 @@ function ListaTasaciones({ ctx }) {
   const lista = datos.tasaciones.filter((t) => !nq || [t.titulo, t.cliente, t.rol, t.comuna, t.codigo].join(' ').toLowerCase().includes(nq));
   return (
     <section>
+      <TasacionesPlataforma ctx={ctx} />
       <div className="fbcrm-barra">
         <input className="fbcrm-buscar" placeholder="Buscar por cliente, rol, comuna o N° de tasación" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="fbcrm-primario" onClick={() => abrir('tasaciones', { etapa: 'Solicitud', responsable: usuario })}>Nueva tasación</button>
@@ -680,7 +716,7 @@ function ListaTasaciones({ ctx }) {
 }
 
 function FichaTasacion({ ctx, inicial, cerrar }) {
-  const { datos, api, guardar, cargar } = ctx;
+  const { datos, api, guardar, cargar, abrir } = ctx;
   const [f, setF] = useState(inicial);
   const [msg, setMsg] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -689,6 +725,12 @@ function FichaTasacion({ ctx, inicial, cerrar }) {
   const grabar = async (extra = {}) => {
     setOcupado(true); setMsg('');
     try { const r = await guardar('tasaciones', { ...f, ...extra }); setF(r); setMsg('Guardado.'); } catch (e) { setMsg(e.message); }
+    setOcupado(false);
+  };
+  const campoRel = f.campoId ? datos.campos.find((c) => c.id === f.campoId) : null;
+  const crearCampo = async () => {
+    setOcupado(true); setMsg('');
+    try { const r = await api(`/tasaciones/${f.id}/campo`, { method: 'POST' }); await cargar(); abrir('campos', r.campo); } catch (e) { setMsg(e.message); }
     setOcupado(false);
   };
   const eliminar = async () => {
@@ -717,6 +759,9 @@ function FichaTasacion({ ctx, inicial, cerrar }) {
         </div>
         <div className="fbcrm-acciones">
           <button className="fbcrm-primario" disabled={ocupado || !f.titulo} onClick={() => grabar()}>{esNuevo ? 'Crear tasación' : 'Guardar cambios'}</button>
+          {!esNuevo && (campoRel
+            ? <button onClick={() => abrir('campos', campoRel)}>Ver campo: {campoRel.nombre}</button>
+            : <button onClick={crearCampo} disabled={ocupado}>Crear campo desde esta tasación</button>)}
           {!esNuevo && <button className="fbcrm-peligro" onClick={eliminar}>Eliminar</button>}
         </div>
         {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
@@ -1788,6 +1833,73 @@ function SyncWeb({ ctx }) {
   );
 }
 
+// ════════════════════════════ Tipos de propiedad ════════════════════════════
+function SelectTipo({ ctx, value, onChange, vacio }) {
+  const agregar = async () => {
+    const n = window.prompt('Nombre del nuevo tipo de propiedad (por ejemplo: Viña, Hotel rural, Minero):');
+    if (!n || !n.trim()) return;
+    try { const r = await ctx.api('/tipos', { method: 'POST', body: { nombre: n.trim() } }); Object.assign(TIPOS, r.tipos); onChange(r.clave); ctx.cargar(); }
+    catch (e) { window.alert(e.message); }
+  };
+  return (
+    <select value={value || ''} onChange={(e) => (e.target.value === '__nuevo' ? agregar() : onChange(e.target.value))}>
+      {vacio && <option value="">{vacio}</option>}
+      {Object.entries(TIPOS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+      <option value="__nuevo">+ Agregar otro tipo…</option>
+    </select>
+  );
+}
+
+// ════════════════════════════ Tasaciones de la plataforma ════════════════════════════
+function TasacionesPlataforma({ ctx }) {
+  const { api, cargar, abrir, datos } = ctx;
+  const [lista, setLista] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [ocupado, setOcupado] = useState('');
+  const [todas, setTodas] = useState(false);
+  const traer = async () => { try { const r = await api('/plataforma/tasaciones'); setLista(r.tasaciones); } catch (e) { setMsg(e.message); setLista([]); } };
+  useEffect(() => { traer(); }, []);
+  const crear = async (t) => {
+    setOcupado(t.id); setMsg('');
+    try { const r = await api(`/plataforma/tasaciones/${t.id}/campo`, { method: 'POST' }); await cargar(); await traer(); abrir('campos', r.campo); }
+    catch (e) { setMsg(e.message); }
+    setOcupado('');
+  };
+  const ver = (t) => { const c = datos.campos.find((x) => x.id === t.campoId); if (c) abrir('campos', c); };
+  if (lista === null) return <div className="fbcrm-sync"><small className="fbcrm-nota-suave">Buscando tasaciones de la plataforma…</small></div>;
+  const sinCampo = lista.filter((t) => !t.campoId).length;
+  const visibles = todas ? lista : lista.slice(0, 8);
+  return (
+    <div className="fbcrm-sync fbcrm-plat">
+      <div className="fbcrm-sync-top">
+        <span className="fbcrm-sync-ico ico-tas"><Icono n="tasaciones" s={20} /></span>
+        <div className="fbcrm-sync-txt">
+          <strong>Tasaciones de la plataforma</strong>
+          <small>{lista.length ? `${plural(lista.length, 'tasación guardada', 'tasaciones guardadas')} en la nube${sinCampo ? `, ${sinCampo} sin campo en el CRM` : ''}.` : 'Cuando guardes una tasación en la nube desde la plataforma, aparecerá aquí.'}</small>
+        </div>
+        <button onClick={traer}>Actualizar</button>
+      </div>
+      {msg && <p className="fbcrm-sync-error">{msg}</p>}
+      {lista.length > 0 && (
+        <ul className="fbcrm-plat-lista">
+          {visibles.map((t) => (
+            <li key={t.id}>
+              <span className="fbcrm-cuerpo">
+                <strong>{t.predio || t.nombre}{t.numero && <span className="fbcrm-tag">{t.numero}</span>}</strong>
+                <small>{[t.comuna, t.region && REG_NOMBRE[t.region], t.hectareas && `${fmtNum(t.hectareas)} ha`, t.valorUF && `UF ${fmtNum(t.valorUF)}`, t.propietario].filter(Boolean).join(', ')}</small>
+              </span>
+              {t.campoId
+                ? <button className="fbcrm-mini" onClick={() => ver(t)}>Ver campo</button>
+                : <button className="fbcrm-mini fbcrm-primario" disabled={!!ocupado} onClick={() => crear(t)}>{ocupado === t.id ? 'Creando…' : 'Crear campo en el CRM'}</button>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {lista.length > 8 && <button className="fbcrm-plegable" onClick={() => setTodas(!todas)}>{todas ? 'Ver menos' : `Ver las ${lista.length}`}</button>}
+    </div>
+  );
+}
+
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap');
 .fbcrm,.fbcrm-imp{--hoja:#F3F6F2;--papel:#FFFFFF;--tinta:#17261D;--salvia:#5E6E64;--linea:#DCE3DC;--linea2:#E9EEE9;
@@ -2257,4 +2369,56 @@ const CSS = `
 .fbcrm-sync-nuevos li:last-child{border-bottom:0}
 .fbcrm-sync-nuevos .fbcrm-cuerpo{min-width:180px}
 .fbcrm-mini-link{font-size:.85rem;padding:5px 8px}
+
+/* Tabla de campos */
+.fbcrm-main{max-width:1180px}
+.fbcrm-filtros{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:8px}
+.fbcrm .fbcrm-filtros .fbcrm-buscar{flex:1 1 280px;margin:0}
+.fbcrm-filtros label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--salvia);font-weight:500;flex:0 1 190px}
+.fbcrm-conteo{font-size:.88rem;color:var(--salvia);margin:6px 2px 10px;display:flex;gap:10px;align-items:baseline}
+.fbcrm-tabla{background:var(--papel);border:1px solid var(--linea);border-radius:16px;overflow:hidden}
+.fbcrm-tabla-cab,.fbcrm .fbcrm-tabla-fila{display:grid;grid-template-columns:minmax(230px,2.3fr) minmax(110px,1.1fr) minmax(100px,1fr) minmax(110px,1fr) minmax(100px,.95fr) minmax(110px,.9fr) 58px;gap:14px;align-items:center;padding:10px 16px}
+.fbcrm-tabla-cab{font-size:.78rem;color:var(--salvia);font-weight:600;background:var(--hoja);border-bottom:1px solid var(--linea)}
+.fbcrm-tabla-cab .der,.tc-precio,.tc-match{text-align:right;justify-self:end}
+.fbcrm-tabla-grupo{display:flex;gap:8px;align-items:baseline;padding:14px 16px 6px;border-top:1px solid var(--linea2)}
+.fbcrm-tabla-bloque:first-of-type .fbcrm-tabla-grupo{border-top:0}
+.fbcrm-tabla-grupo strong{font-size:.92rem;color:var(--potrero-osc)}
+.fbcrm-tabla-grupo span{font-size:.82rem;color:var(--salvia)}
+.fbcrm .fbcrm-tabla-fila{width:100%;border:0;border-top:1px solid var(--linea2);border-radius:0;background:none;text-align:left;font-weight:400}
+.fbcrm .fbcrm-tabla-grupo+.fbcrm-tabla-fila{border-top:0}
+.fbcrm .fbcrm-tabla-fila:hover{background:#F8FBF8}
+.tc-campo{display:flex;gap:12px;align-items:center;min-width:0}
+.tc-campo .fbcrm-ha{width:50px;height:44px}
+.tc-region,.tc-comuna{font-size:.92rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tc-region em,.tc-comuna em{color:var(--salvia);font-style:normal;font-size:.85rem}
+.tc-etapa{font-size:.85rem;color:var(--salvia)}
+.tc-etapa.et-activa{color:var(--potrero-osc);font-weight:500}
+.tc-precio{font-size:.9rem;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;min-width:0}
+.fbcrm-tipo-tag{display:inline-block;font-size:.8rem;padding:3px 10px;border-radius:999px;background:var(--potrero-cl);color:var(--potrero-osc);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.fbcrm-tipo-tag.tt-loteo,.fbcrm-tipo-tag.tt-urbano{background:var(--trigo-cl);color:var(--trigo-osc)}
+.fbcrm-tipo-tag.tt-forestal,.fbcrm-tipo-tag.tt-conservacion{background:#E6EEE3;color:#3F5A33}
+.fbcrm-tipo-tag.tt-energia,.fbcrm-tipo-tag.tt-derechos_agua{background:var(--cielo-cl);color:var(--cielo)}
+.fbcrm-tipo-tag.tt-agroindustrial{background:#EFEAF3;color:#5B4A70}
+@media (max-width:980px){
+  .fbcrm-tabla-cab{display:none}
+  .fbcrm .fbcrm-tabla-fila{display:flex;flex-wrap:wrap;gap:6px 10px;padding:12px 14px 12px 76px}
+  .tc-campo{flex:0 0 calc(100% + 18px);margin-left:-62px;min-width:0}
+  .tc-match{flex:0 0 34px;order:2;text-align:right}
+  .tc-region,.tc-comuna,.tc-tipo,.tc-etapa,.tc-precio{order:3;font-size:.84rem;flex:0 0 auto;text-align:left;justify-self:auto}
+  .tc-region,.tc-comuna{color:var(--tinta)}
+  .fbcrm .fbcrm-tabla-fila .tc-comuna{order:3}
+  .fbcrm .fbcrm-tabla-fila .tc-region{order:4;margin-left:-10px}
+  .fbcrm .fbcrm-tabla-fila .tc-region::before{content:', '}
+  .fbcrm .fbcrm-tabla-fila .tc-tipo,.fbcrm .fbcrm-tabla-fila .tc-etapa,.fbcrm .fbcrm-tabla-fila .tc-precio{order:5}
+  .tc-etapa{background:var(--hoja);border-radius:999px;padding:2px 9px}
+  .tc-precio{font-weight:500}
+}
+/* Tasaciones de la plataforma */
+.fbcrm-sync-ico.ico-tas{background:var(--trigo-cl);color:var(--trigo-osc)}
+.fbcrm-plat-lista{list-style:none;margin:12px 0 0;padding:0;border-top:1px solid var(--linea2)}
+.fbcrm-plat-lista li{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--linea2);flex-wrap:wrap}
+.fbcrm-plat-lista li:last-child{border-bottom:0}
+.fbcrm-plat-lista .fbcrm-cuerpo{min-width:200px}
+.fbcrm-plat-lista strong{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.fbcrm-plat-lista .fbcrm-tag{font-weight:500}
 `;
