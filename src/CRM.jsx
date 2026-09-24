@@ -31,6 +31,7 @@ const ICONOS = {
   cerrar: <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />,
   salir: <><path d="M10 5H7a2.5 2.5 0 0 0-2.5 2.5v9A2.5 2.5 0 0 0 7 19h3" /><path d="M14 8l4 4-4 4M18 12H9.5" /></>,
   pdf: <path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14" />,
+  enlace: <><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" /><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" /></>,
 };
 function Icono({ n, s = 22 }) {
   return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">{ICONOS[n]}</svg>;
@@ -250,6 +251,12 @@ function Agenda({ ctx, irA, importar }) {
         </div>
       ))}
 
+      {datos.sync && (datos.sync.nuevos || []).length > 0 && (
+        <details className="fbcrm-aviso av-web">
+          <summary><strong>Nuevos en farmbrokers.cl</strong> <span>{datos.sync.nuevos.length === 1 ? '1 publicación de la web aún no está en el CRM' : `${datos.sync.nuevos.length} publicaciones de la web aún no están en el CRM`}</span></summary>
+          <div className="fbcrm-aviso-cuerpo"><button onClick={() => irA('campos')}>Revisar en Campos</button></div>
+        </details>
+      )}
       {novedades.length > 0 && (
         <details className="fbcrm-aviso av-prop" open>
           <summary><strong>Propietarios</strong> <span>{plural(novedades.length, 'campo')} con novedades desde el link</span></summary>
@@ -312,13 +319,14 @@ function ListaCampos({ ctx, importar }) {
   const { datos, abrir, usuario } = ctx;
   const [filtro, setFiltro] = useState('activos');
   const [q, setQ] = useState('');
-  const FILTROS = { activos: ['Activos', datos.activas], captacion: ['Captación', ['Prospección', 'Captación', 'Documentación']], publicados: ['Publicados', ['Mandato firmado', 'Publicado', 'En negociación']], cerrados: ['Cerrados', ['Vendido', 'Arrendado', 'Suspendido', 'Descartado']], todos: ['Todos', datos.etapas.campos] };
+  const FILTROS = { activos: ['Activos', datos.activas], captacion: ['Captación', ['Prospección', 'Captación', 'Documentación']], publicados: ['Publicados', ['Mandato firmado', 'Publicado', 'En negociación']], cerrados: ['Cerrados', ['Vendido', 'Arrendado', 'Suspendido', 'Retirado de la web', 'Descartado']], todos: ['Todos', datos.etapas.campos] };
   const nq = q.toLowerCase();
   const lista = datos.campos.filter((c) => FILTROS[filtro][1].includes(c.etapa) &&
     (!nq || [c.nombre, c.sector, c.codigo, c.rol, c.plantaciones, c.aptitud, c.propietario, REG_NOMBRE[c.region]].join(' ').toLowerCase().includes(nq)));
   const etapas = datos.etapas.campos.filter((e) => FILTROS[filtro][1].includes(e));
   return (
     <section>
+      <SyncWeb ctx={ctx} />
       <div className="fbcrm-barra">
         <div className="fbcrm-chips">{Object.entries(FILTROS).map(([k, [l]]) => <button key={k} className={filtro === k ? 'on' : ''} onClick={() => setFiltro(k)}>{l}</button>)}</div>
         <div className="fbcrm-chips">
@@ -423,6 +431,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
               <Campo label="Corredor"><input value={f.corredor || ''} onChange={set('corredor')} /></Campo>
               <Campo label="Asociado"><input value={f.asociado || ''} onChange={set('asociado')} /></Campo>
               <Campo label="Link web" ancho><input value={f.linkWeb || ''} onChange={set('linkWeb')} placeholder="https://farmbrokers.cl/propiedad/…" /></Campo>
+              <Campo label="Coordenadas (pega desde Google Maps)" ancho><input value={f.coordenadas || ''} onChange={set('coordenadas')} placeholder="-34.3963, -71.6152" /></Campo>
               <Campo label="Link portal" ancho><input value={f.linkPortal || ''} onChange={set('linkPortal')} /></Campo>
               <Campo label="Observaciones" ancho><textarea rows={3} value={f.observaciones || ''} onChange={set('observaciones')} /></Campo>
             </div>
@@ -884,7 +893,7 @@ const isoDe = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, 
 
 function accionesConFecha(datos) {
   return [
-    ...datos.campos.filter((c) => !['Vendido', 'Descartado'].includes(c.etapa)).map((x) => ({ col: 'campos', x, titulo: x.nombre, sub: x.etapa })),
+    ...datos.campos.filter((c) => !['Vendido', 'Descartado', 'Retirado de la web'].includes(c.etapa)).map((x) => ({ col: 'campos', x, titulo: x.nombre, sub: x.etapa })),
     ...datos.clientes.filter((c) => c.etapa === 'Activo').map((x) => ({ col: 'clientes', x, titulo: x.nombre, sub: 'Cliente' })),
     ...datos.tasaciones.filter((t) => !CERRADAS_TAS.includes(t.etapa)).map((x) => ({ col: 'tasaciones', x, titulo: x.titulo, sub: x.etapa })),
   ].filter((i) => i.x.proximaFecha).sort((a, b) => a.x.proximaFecha.localeCompare(b.x.proximaFecha));
@@ -975,7 +984,26 @@ function Calendario({ ctx }) {
 function Impresion({ ctx, imp, cerrar }) {
   const { datos, usuario } = ctx;
   const [variante, setVariante] = useState('cliente');
-  const campo = imp.tipo === 'campo' ? datos.campos.find((c) => c.id === imp.id) : null;
+  const campoBase = imp.tipo === 'campo' ? datos.campos.find((c) => c.id === imp.id) : null;
+  const [campoWeb, setCampoWeb] = useState(null);
+  const campo = campoWeb || campoBase;
+  const [estadoWeb, setEstadoWeb] = useState('');
+  const [fotosProp, setFotosProp] = useState([]);
+  const traerWeb = async () => {
+    setEstadoWeb('Trayendo fotos y datos desde farmbrokers.cl…');
+    try { const r = await ctx.api(`/campos/${imp.id}/web`, { method: 'POST' }); setCampoWeb(r); setEstadoWeb(''); ctx.cargar(); }
+    catch (e) { setEstadoWeb(e.message); }
+  };
+  useEffect(() => {
+    if (!campoBase) return;
+    const tieneLink = [campoBase.linkWeb, campoBase.linkPortal].some((u) => /^https:\/\/(www\.)?farmbrokers\.cl\/propiedad\//.test(String(u || '').trim()));
+    const viejo = !campoBase.web || Date.now() - new Date(campoBase.web.fecha).getTime() > 3 * 864e5;
+    if (tieneLink && viejo) traerWeb();
+    const fotos = (campoBase.archivos || []).filter((a) => a.tipo === 'foto').slice(0, 8);
+    Promise.all(fotos.map((a) => fetch(`${API_BASE}/api/crm/campos/${campoBase.id}/archivos/${a.id}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(usuario) } })
+      .then((r) => (r.ok ? r.blob() : null)).then((b) => (b ? URL.createObjectURL(b) : null)).catch(() => null)))
+      .then((u) => setFotosProp(u.filter(Boolean)));
+  }, []);
   const [mandato, setMandato] = useState(null);
   const [errorMandato, setErrorMandato] = useState('');
   useEffect(() => {
@@ -1004,13 +1032,16 @@ function Impresion({ ctx, imp, cerrar }) {
             <button className={variante === 'interna' ? 'on' : ''} onClick={() => setVariante('interna')}>Interna</button>
           </div>
         )}
-        <button className="fbcrm-primario" onClick={() => window.print()}>Guardar PDF</button>
+        {campo && <button onClick={traerWeb} disabled={!!estadoWeb && estadoWeb.startsWith('Trayendo')}>Actualizar desde farmbrokers.cl</button>}
+        <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>
+        {campo && variante === 'cliente' && <p className="fbcrm-imp-estado">{estadoWeb || resumenWeb(campo, fotosProp)}</p>}
         <p>Al presionar “Guardar PDF” se abre la ventana de impresión: elige <strong>Guardar como PDF</strong>. En iPhone, toca Compartir en esa ventana y luego Guardar en Archivos.</p>
       </div>
-      <article className={`fbcrm-doc ${imp.tipo === 'mandato' ? 'doc-mandato-hoja' : ''}`}>
+      <article className={`fbcrm-doc ${imp.tipo === 'mandato' ? 'doc-mandato-hoja' : ''} ${campo && variante === 'cliente' ? 'doc-ficha-hoja' : ''}`}>
         {imp.tipo === 'mandato'
           ? (mandato ? <DocMandato m={mandato} /> : <p>{errorMandato || 'Preparando el mandato…'}</p>)
-          : campo ? <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} /> : imp.tipo === 'campo' ? <p>El campo ya no existe.</p> : <DocInforme datos={datos} usuario={usuario} />}
+          : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} usuario={usuario} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
+            : imp.tipo === 'campo' ? <p>El campo ya no existe.</p> : <DocInforme datos={datos} usuario={usuario} />}
       </article>
     </div>
   );
@@ -1364,7 +1395,7 @@ export function FormularioPropietario({ token }) {
       <style>{CSS}</style>
       <div className="fbcrm-imp-barra no-print">
         <button onClick={() => setVerCopia(false)}>‹ Volver</button>
-        <button className="fbcrm-primario" onClick={() => window.print()}>Guardar PDF</button>
+        <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>
         <p>En la ventana de impresión elija <strong>Guardar como PDF</strong>. En iPhone, toque Compartir y luego Guardar en Archivos.</p>
       </div>
       <article className="fbcrm-doc doc-mandato-hoja"><DocMandato m={mandato} /></article>
@@ -1581,6 +1612,178 @@ export function FormularioPropietario({ token }) {
         )}
       </main>
       <footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 7193 90 40</footer>
+    </div>
+  );
+}
+
+// ════════════════════════════ Ficha para cliente (datos de farmbrokers.cl) ════════════════════════════
+async function imprimirConImagenes() {
+  const imgs = [...document.querySelectorAll('.fbcrm-doc img')];
+  await Promise.all(imgs.map((i) => (i.complete ? null : new Promise((r) => { i.addEventListener('load', r); i.addEventListener('error', r); setTimeout(r, 10000); }))));
+  window.print();
+}
+function coordsDe(campo) {
+  const m = String(campo.coordenadas || '').match(/(-\d{1,2}\.\d+)\s*,\s*(-\d{1,3}\.\d+)/);
+  if (m) return { lat: Number(m[1]), lng: Number(m[2]), aprox: false };
+  const w = campo.web && campo.web.coordenadas;
+  if (w) return { lat: w.lat, lng: w.lng, aprox: campo.web.fuenteUbicacion === 'comuna' };
+  return null;
+}
+function resumenWeb(campo, fotosProp) {
+  const w = campo.web, c = coordsDe(campo);
+  const partes = [];
+  if (w) partes.push(`Desde farmbrokers.cl: ${plural(w.fotos.length, 'foto')}${w.descripcion.length ? ', descripción' : ''}${w.detalle.precio ? ', precio' : ''}.`);
+  else partes.push(fotosProp.length ? `Sin publicación en farmbrokers.cl: se usan ${plural(fotosProp.length, 'foto')} del propietario.` : 'Sin link de farmbrokers.cl: agrega el link en los datos del campo para incluir fotos y descripción.');
+  partes.push(c ? (c.aprox ? 'Ubicación aproximada (centro de la comuna). Para el punto exacto, pega las coordenadas en los datos del campo.' : 'Ubicación exacta.') : 'Sin ubicación: pega las coordenadas en los datos del campo.');
+  return partes.join(' ');
+}
+const TILES = {
+  satelite: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
+  mapa: (z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
+};
+function MapaTiles({ lat, lng, z, w, h, fuente, aprox }) {
+  const n = 256 * 2 ** z, rad = (lat * Math.PI) / 180;
+  const cx = ((lng + 180) / 360) * n, cy = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n;
+  const x0 = cx - w / 2, y0 = cy - h / 2, max = 2 ** z;
+  const tiles = [];
+  for (let tx = Math.floor(x0 / 256); tx <= Math.floor((x0 + w) / 256); tx++)
+    for (let ty = Math.floor(y0 / 256); ty <= Math.floor((y0 + h) / 256); ty++)
+      if (ty >= 0 && ty < max) tiles.push(<img key={`${tx}-${ty}`} src={TILES[fuente](z, ((tx % max) + max) % max, ty)} alt="" style={{ left: tx * 256 - x0, top: ty * 256 - y0 }} />);
+  return (
+    <div className="doc-mapa" style={{ width: w, height: h }}>
+      {tiles}
+      {aprox && z >= 10 ? <span className="doc-mapa-zona" /> : (
+        <svg className="doc-mapa-pin" width="30" height="40" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 39C15 39 28 23.5 28 14A13 13 0 0 0 2 14c0 9.5 13 25 13 25z" fill="#B4452A" stroke="#fff" strokeWidth="2" /><circle cx="15" cy="14" r="5" fill="#fff" /></svg>
+      )}
+      <span className="doc-mapa-cred">{fuente === 'satelite' ? 'Imágenes © Esri, Maxar' : '© OpenStreetMap'}</span>
+    </div>
+  );
+}
+function ParrafoFicha({ t }) {
+  const m = t.match(/^[-–•]?\s*([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,24}):\s*(.+)$/);
+  if (m) return <p><strong>{m[1]}:</strong> {m[2]}</p>;
+  if (/^[-–•]\s*/.test(t)) return <p className="doc-ficha-item">{t.replace(/^[-–•]\s*/, '')}</p>;
+  return <p>{t}</p>;
+}
+function DocFichaCliente({ campo: c, fotosProp, usuario }) {
+  const w = c.web || null, d = (w && w.detalle) || {};
+  const fotos = w && w.fotos.length ? w.fotos : fotosProp;
+  const coord = coordsDe(c);
+  const titulo = (w && w.titulo) || c.nombre;
+  const ubic = (w && (w.direccion || [w.comuna, w.region].filter(Boolean).join(', '))) || [c.sector, REG_NOMBRE[c.region]].filter(Boolean).join(', ');
+  const precio = d.precio || fmtPrecio(c);
+  const datosClave = [
+    ['Superficie', d.superficie || (c.hectareas ? `${fmtNum(c.hectareas)} ha` : '')],
+    ['Agua', d.agua || c.agua],
+    ['Plantaciones', d.plantaciones || c.plantaciones],
+    ['Tipo', d.tipo || TIPOS[c.tipo]],
+  ].filter(([, v]) => v && String(v).length < 60);
+  const descripcion = w && w.descripcion.length ? w.descripcion : [c.aptitud && `Aptitud: ${c.aptitud}`, c.fuenteAgua && `Fuente de agua: ${c.fuenteAgua}`].filter(Boolean);
+  const idProp = d.id || c.codigo;
+  const link = (w && w.url) || c.linkWeb || '';
+  const gmaps = coord ? `https://maps.google.com/?q=${coord.lat.toFixed(5)},${coord.lng.toFixed(5)}` : '';
+  const galeria = fotos.slice(1, 6);
+  return (
+    <div className="doc-ficha">
+      <header className="doc-ficha-top">
+        <img src={LOGO_FB} alt="Farm Brokers Chile" className="doc-ficha-logo" />
+        <div><strong>Ficha de propiedad</strong>{idProp && <span>ID {idProp}</span>}</div>
+      </header>
+      {fotos[0] && <img src={fotos[0]} alt={titulo} className="doc-ficha-hero" />}
+      <div className="doc-ficha-titulo">
+        <div><h1>{titulo}</h1>{ubic && <p>{ubic}</p>}</div>
+        {precio && <div className="doc-ficha-precio"><small>Precio de venta</small><strong>{precio}</strong>{w && w.comision && <small>Comisión {w.comision}</small>}</div>}
+      </div>
+      {datosClave.length > 0 && (
+        <dl className="doc-ficha-datos">{datosClave.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+      )}
+      {descripcion.length > 0 && (
+        <section className="doc-ficha-desc"><h2>Descripción</h2>{descripcion.map((t, i) => <ParrafoFicha key={i} t={t} />)}</section>
+      )}
+      {(galeria.length > 0 || coord) && (
+        <div className="doc-ficha-p2">
+          {galeria.length > 0 && (
+            <section><h2>Galería</h2><div className={`doc-ficha-galeria n${galeria.length}`}>{galeria.map((f) => <img key={f} src={f} alt="" />)}</div></section>
+          )}
+          {coord && (
+            <section className="doc-ficha-ubic">
+              <h2>Ubicación</h2>
+              <div className="doc-ficha-mapas">
+                <MapaTiles lat={coord.lat} lng={coord.lng} z={coord.aprox ? 11 : 14} w={440} h={215} fuente="satelite" aprox={coord.aprox} />
+                <MapaTiles lat={coord.lat} lng={coord.lng} z={8} w={246} h={215} fuente="mapa" />
+              </div>
+              <p className="doc-ficha-nota">{coord.aprox ? `Ubicación aproximada en la comuna de ${(w && w.comuna) || c.sector}. La ubicación exacta se entrega en la visita.` : `Coordenadas ${coord.lat.toFixed(5)}, ${coord.lng.toFixed(5)}.`} {!coord.aprox && <>Ver en Google Maps: {gmaps}</>}</p>
+            </section>
+          )}
+        </div>
+      )}
+      <footer className="doc-ficha-pie">
+        <div><strong>{usuario}</strong><span>Farm Brokers Chile</span></div>
+        <div><span>+56 9 7193 9040</span><span>contacto@farmbrokers.cl</span></div>
+        <div><span>Estoril 120, of. 615, Las Condes</span>{link && <span>{link.replace(/^https?:\/\//, '')}</span>}</div>
+      </footer>
+      <p className="doc-ficha-legal">Información referencial, sujeta a verificación durante el proceso de compra.</p>
+    </div>
+  );
+}
+
+// ════════════════════════════ Enlace con farmbrokers.cl ════════════════════════════
+function resumenSync(r) {
+  if (!r) return '';
+  if (r.error) return r.error;
+  const p = [];
+  if (r.retirados && r.retirados.length) p.push(`${plural(r.retirados.length, 'campo')} ${r.retirados.length === 1 ? 'pasó' : 'pasaron'} a Retirado de la web (${r.retirados.join(', ')})`);
+  if (r.vendidos && r.vendidos.length) p.push(`${plural(r.vendidos.length, 'campo')} ${r.vendidos.length === 1 ? 'pasó' : 'pasaron'} a Vendido (${r.vendidos.join(', ')})`);
+  if (r.restaurados && r.restaurados.length) p.push(`${plural(r.restaurados.length, 'campo')} ${r.restaurados.length === 1 ? 'volvió' : 'volvieron'} a publicarse (${r.restaurados.join(', ')})`);
+  return p.length ? `${p.join('. ')}.` : 'Todo coincide con la web.';
+}
+function SyncWeb({ ctx }) {
+  const { datos, api, cargar, abrir } = ctx;
+  const s = datos.sync;
+  const [ocupado, setOcupado] = useState('');
+  const [msg, setMsg] = useState('');
+  const revisar = async () => {
+    setOcupado('todo'); setMsg('');
+    try { const r = await api('/sync', { method: 'POST' }); await cargar(); setMsg(resumenSync(r)); } catch (e) { setMsg(e.message); }
+    setOcupado('');
+  };
+  const agregar = async (n) => {
+    setOcupado(n.slug); setMsg('');
+    try { const r = await api('/sync/agregar', { method: 'POST', body: { slug: n.slug } }); await cargar(); abrir('campos', r); } catch (e) { setMsg(e.message); }
+    setOcupado('');
+  };
+  const ignorar = async (n) => {
+    try { await api('/sync/ignorar', { method: 'POST', body: { slug: n.slug } }); await cargar(); } catch (e) { setMsg(e.message); }
+  };
+  const nuevos = (s && s.nuevos) || [];
+  return (
+    <div className="fbcrm-sync">
+      <div className="fbcrm-sync-top">
+        <span className="fbcrm-sync-ico"><Icono n="enlace" s={20} /></span>
+        <div className="fbcrm-sync-txt">
+          <strong>Enlazado con farmbrokers.cl</strong>
+          <small>{s ? `Última revisión: ${fmtFechaHora(s.fecha)}${s.publicadas ? `, ${s.publicadas} publicaciones en la web` : ''}. Se revisa sola cada 6 horas.` : 'Todavía no se revisa. La revisión automática corre cada 6 horas.'}</small>
+        </div>
+        <button onClick={revisar} disabled={!!ocupado}>{ocupado === 'todo' ? 'Revisando…' : 'Revisar ahora'}</button>
+      </div>
+      {s && s.error && !msg && <p className="fbcrm-sync-error">{s.error}</p>}
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+      {nuevos.length > 0 && (
+        <details className="fbcrm-sync-nuevos">
+          <summary><strong>En la web, pero no en el CRM</strong> <span>{plural(nuevos.length, 'publicación', 'publicaciones')}</span></summary>
+          <p className="fbcrm-nota-suave">Agrégalas para seguirlas aquí. Si ya tienes el campo con otro nombre, pega el link en sus datos y presiona Ignorar.</p>
+          <ul>
+            {nuevos.map((n) => (
+              <li key={n.slug}>
+                <span className="fbcrm-cuerpo"><strong>{n.titulo}</strong><small>{[n.lugar, n.precio].filter(Boolean).join(', ') || n.url.replace(/^https:\/\//, '')}</small></span>
+                <a className="fbcrm-mini-link" href={n.url} target="_blank" rel="noreferrer">Ver</a>
+                <button className="fbcrm-mini" onClick={() => ignorar(n)}>Ignorar</button>
+                <button className="fbcrm-mini fbcrm-primario" disabled={!!ocupado} onClick={() => agregar(n)}>{ocupado === n.slug ? 'Agregando…' : 'Agregar'}</button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }
@@ -1987,4 +2190,71 @@ const CSS = `
 .doc-certificado p:last-child{margin:0}
 .doc-mandato-pie{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:34px;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:8.5pt;color:#222}
 @media print{.doc-mandato-hoja .doc-mandato-pie{position:fixed;bottom:0;left:0;right:0;margin:0}.doc-mandato-hoja{padding-bottom:10mm!important}.doc-borrador{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+/* Ficha para cliente */
+.fbcrm-imp-estado{color:var(--potrero-osc)!important;background:var(--potrero-cl);border-radius:10px;padding:8px 12px}
+.doc-ficha{color:#17261D}
+.doc-ficha h2{font-size:12pt;margin:0 0 10px;color:#1F4D31;font-weight:600;border:0;padding:0}
+.doc-ficha-top{display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:10px;margin-bottom:14px;border-bottom:1px solid #DCE3DC}
+.doc-ficha-logo{width:118px;height:auto}
+.doc-ficha-top div{display:flex;flex-direction:column;align-items:flex-end;font-size:9pt;color:#5E6E64}
+.doc-ficha-top strong{color:#17261D;font-size:10pt}
+.doc-ficha-hero{width:100%;height:82mm;object-fit:cover;border-radius:6px;display:block}
+.doc-ficha-titulo{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin:16px 0 14px}
+.doc-ficha-titulo h1{font-size:23pt;margin:0;line-height:1.1;letter-spacing:-.02em}
+.doc-ficha-titulo p{margin:5px 0 0;color:#5E6E64;font-size:11pt}
+.doc-ficha-precio{text-align:right;flex:none;display:flex;flex-direction:column;align-items:flex-end}
+.doc-ficha-precio strong{font-size:19pt;color:#1F4D31;letter-spacing:-.02em;line-height:1.15;white-space:nowrap}
+.doc-ficha-precio small{font-size:8.5pt;color:#5E6E64}
+.doc-ficha .doc-ficha-datos{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin:0 0 18px;padding:0;background:none;border:1px solid #DCE3DC;border-radius:8px;overflow:hidden}
+.doc-ficha-datos div{padding:10px 12px;border-right:1px solid #DCE3DC}
+.doc-ficha-datos div:last-child{border-right:0}
+.doc-ficha .doc-ficha-datos dt{font-size:8.5pt;color:#5E6E64}
+.doc-ficha .doc-ficha-datos dd{font-size:12.5pt;font-weight:600;margin:2px 0 0;color:#17261D}
+.doc-ficha-desc p{margin:0 0 6px;font-size:9.6pt;line-height:1.5;text-align:left;break-inside:avoid}
+.doc-ficha-desc strong{color:#1F4D31}
+.doc-ficha-item{padding-left:14px;position:relative}
+.doc-ficha-item::before{content:'';position:absolute;left:3px;top:.62em;width:5px;height:5px;border-radius:99px;background:#2D6A45}
+.doc-ficha-p2{padding-top:6px}
+.doc-ficha-p2 h2{break-after:avoid}
+.doc-ficha-p2 section{margin-bottom:14px}
+.doc-ficha-galeria{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.doc-ficha-galeria img{width:100%;height:38mm;object-fit:cover;border-radius:5px;display:block;break-inside:avoid}
+.doc-ficha-galeria.n1{grid-template-columns:1fr}.doc-ficha-galeria.n1 img{height:80mm}
+.doc-ficha-galeria.n3 img:first-child,.doc-ficha-galeria.n5 img:first-child{grid-column:1/-1;height:56mm}
+.doc-ficha-galeria{break-inside:avoid}
+.doc-ficha-ubic{break-inside:avoid}
+.doc-ficha-mapas{display:flex;gap:8px;max-width:100%}
+.doc-mapa{position:relative;overflow:hidden;border-radius:6px;background:#E3EEE6;flex:none;max-width:100%}
+.doc-mapa img{position:absolute;width:256px;height:256px;max-width:none}
+.doc-mapa-pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))}
+.doc-mapa-zona{position:absolute;left:50%;top:50%;width:120px;height:120px;transform:translate(-50%,-50%);border-radius:999px;border:2.5px solid #fff;background:rgba(180,69,42,.22);box-shadow:0 0 0 2px rgba(180,69,42,.7)}
+.doc-mapa-cred{position:absolute;right:4px;bottom:3px;font-size:6.5pt;color:#333;background:rgba(255,255,255,.8);padding:0 4px;border-radius:2px}
+.doc-ficha-nota{font-size:8.5pt;color:#5E6E64;margin:6px 0 0;word-break:break-all}
+.doc-ficha-pie{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px;padding:12px 14px;background:#1F4D31;color:#fff;border-radius:8px;font-size:8.8pt;break-inside:avoid}
+.doc-ficha-pie div{display:flex;flex-direction:column;gap:1px;min-width:0}
+.doc-ficha-pie span{color:rgba(255,255,255,.82);overflow-wrap:anywhere}
+.doc-ficha-legal{font-size:7.5pt;color:#5E6E64;margin:8px 0 0;text-align:center}
+@media (max-width:760px){.doc-ficha .doc-ficha-datos{grid-template-columns:1fr 1fr}.doc-ficha-datos div:nth-child(2){border-right:0}.doc-ficha-titulo{flex-direction:column}.doc-ficha-precio{align-items:flex-start;text-align:left}.doc-ficha-mapas{flex-direction:column}.doc-ficha-pie{grid-template-columns:1fr}.doc-ficha-hero{height:56vw}}
+@media print{.doc-ficha-hoja .doc-ficha-p2{break-before:page}.doc-ficha-hoja .doc-ficha-pie,.doc-ficha-hoja .doc-mapa-cred{-webkit-print-color-adjust:exact;print-color-adjust:exact}.doc-ficha .doc-ficha-datos{grid-template-columns:repeat(4,1fr)}.doc-ficha-titulo{flex-direction:row}.doc-ficha-mapas{flex-direction:row}.doc-ficha-pie{grid-template-columns:repeat(3,1fr)}.doc-ficha-hero{height:82mm}}
+/* Enlace con la web */
+.fbcrm-aviso.av-web{--c:var(--cielo)}
+.fbcrm-aviso-cuerpo{padding:12px 16px}
+.fbcrm-sync{background:var(--papel);border:1px solid var(--linea);border-radius:16px;padding:14px 16px;margin-bottom:16px}
+.fbcrm-sync-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.fbcrm-sync-ico{width:38px;height:38px;border-radius:12px;background:var(--cielo-cl);color:var(--cielo);display:inline-flex;align-items:center;justify-content:center;flex:none}
+.fbcrm-sync-txt{flex:1;min-width:200px;display:flex;flex-direction:column}
+.fbcrm-sync-txt small{color:var(--salvia);font-size:.86rem}
+.fbcrm-sync-error{margin:10px 0 0;color:var(--oxido);font-size:.9rem}
+.fbcrm-sync-nuevos{margin-top:12px;border-top:1px solid var(--linea2);padding-top:10px}
+.fbcrm-sync-nuevos summary{cursor:pointer;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;list-style:none}
+.fbcrm-sync-nuevos summary::-webkit-details-marker{display:none}
+.fbcrm-sync-nuevos summary::before{content:'';width:8px;height:8px;border-right:2px solid var(--salvia);border-bottom:2px solid var(--salvia);transform:rotate(-45deg);margin-right:4px;transition:transform .2s;align-self:center}
+.fbcrm-sync-nuevos[open] summary::before{transform:rotate(45deg)}
+.fbcrm-sync-nuevos summary span{color:var(--salvia);font-size:.9rem}
+.fbcrm-sync-nuevos .fbcrm-nota-suave{margin:8px 0 4px}
+.fbcrm-sync-nuevos ul{list-style:none;margin:0;padding:0}
+.fbcrm-sync-nuevos li{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--linea2);flex-wrap:wrap}
+.fbcrm-sync-nuevos li:last-child{border-bottom:0}
+.fbcrm-sync-nuevos .fbcrm-cuerpo{min-width:180px}
+.fbcrm-mini-link{font-size:.85rem;padding:5px 8px}
 `;
