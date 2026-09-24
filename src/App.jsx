@@ -777,6 +777,42 @@ export default function App(){
     }
     setTimeout(()=>setAvisoGuardado(""),7000);
   };
+  // ── Crear (o completar) este campo en el CRM del equipo ──
+  const crearEnCRM=async()=>{
+    let claveCRM=""; try{claveCRM=localStorage.getItem("fbcrm_clave")||"";}catch(e){}
+    if(!claveCRM){
+      claveCRM=(prompt("Clave del equipo del CRM (la misma con que entras a #crm):")||"").trim();
+      if(!claveCRM)return;
+      try{localStorage.setItem("fbcrm_clave",claveCRM);}catch(e){}
+    }
+    let usuarioCRM=""; try{usuarioCRM=localStorage.getItem("fbcrm_usuario")||"";}catch(e){}
+    if(!usuarioCRM)usuarioCRM=form.tasador||"Plataforma de tasaciones";
+    // Solo se envían los datos del predio: las imágenes quedan en la plataforma
+    const campos=["predioNombre","localidad","provincia","region","numTasacion","fechaTasacion","solicitante","email","superfTitulos","superfGoogleEarth",
+      "coordLat","coordLon","acceso","aptitud","plantacionDesc","plantacionHas","plantacionesCIREN","recursosHidricos","valorComercial","valorComercialUF",
+      "valorFacilVenta","valorFacilVentaUF","prediosGeo"];
+    const datos={};campos.forEach(k=>{if(form[k]!==undefined&&form[k]!==null&&typeof form[k]!=="object")datos[k]=form[k];});
+    datos.prediosGeo=form.prediosGeo?"si":"";
+    datos.roles=(form.roles||[]).map(r=>({rol:r.rol,comuna:r.comuna,datos:{propietario:(r.datos||{}).propietario||"",superfSII:(r.datos||{}).superfSII||"",avaluoFiscal:(r.datos||{}).avaluoFiscal||""}}));
+    setAvisoGuardado("Enviando al CRM…");
+    try{
+      const base=String(form.backendUrl||"https://farmbrokers-backend-production.up.railway.app").replace(/\/$/,"");
+      const r=await fetch(base+"/api/crm/plataforma/campo",{method:"POST",
+        headers:{"Content-Type":"application/json","x-crm-key":claveCRM,"x-crm-user":encodeURIComponent(usuarioCRM)},
+        body:JSON.stringify({tasacionId:idTasacionActual||"",campoId:form.crmCampoId||"",nombre:form.predioNombre||"",datos})});
+      const j=await r.json().catch(()=>({}));
+      if(r.status===401){try{localStorage.removeItem("fbcrm_clave");}catch(e){}throw new Error("la clave del CRM no es correcta. Presiona el botón de nuevo e ingrésala.");}
+      if(!r.ok)throw new Error(j.error||("error "+r.status));
+      const nombre=(j.campo&&j.campo.nombre)||"el campo";
+      if(j.campo&&j.campo.id)upd("crmCampoId",j.campo.id); // así no se duplica si lo presionas de nuevo
+      setAvisoGuardado(j.existia?("✓ Ya estaba en el CRM: "+nombre+(j.completados&&j.completados.length?" (se completaron datos que faltaban)":"")):("✓ Creado en el CRM: "+nombre+", en etapa Captación"));
+      setTimeout(()=>setAvisoGuardado(""),9000);
+      if(confirm((j.existia?"El campo ya estaba en el CRM":"Campo creado en el CRM")+". ¿Quieres abrir el CRM ahora?")){window.location.hash="#crm";window.location.reload();}
+    }catch(e){
+      setAvisoGuardado("No se pudo enviar al CRM: "+e.message);
+      setTimeout(()=>setAvisoGuardado(""),9000);
+    }
+  };
   const abrirMisTasaciones=async()=>{
     const regs=await dbListar();setListaTas(regs.sort((x,y)=>y.fecha.localeCompare(x.fecha)));
     setShowTas(true);setListaNube(null);setNubeMsg("");
@@ -2758,6 +2794,7 @@ export default function App(){
                   </div>
                 </div>:null}
                 <button onClick={guardarTasacion} style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>💾 Guardar</button>
+                <button onClick={crearEnCRM} title="Crea este campo en el CRM del equipo, o completa el que ya existe" style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>➕ Crear en CRM</button>
                 <button onClick={abrirMisTasaciones} style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>📂 Mis Tasaciones</button>
                 <button onClick={()=>{if(!cot.numero)updCot("numero",numeroCot());if(!cot.fecha)updCot("fecha",new Date().toLocaleDateString("es-CL",{day:"numeric",month:"long",year:"numeric"}));setShowCot(true);}} style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:6,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>💼 Cotización</button>
           {ufStatus==="ok"
