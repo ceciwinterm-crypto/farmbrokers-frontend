@@ -205,6 +205,12 @@ function Agenda({ ctx, irA, importar }) {
   const conFaltas = datos.campos.filter((c) => ['Documentación', 'Mandato firmado', 'Publicado', 'En negociación'].includes(c.etapa)).map((c) => ({ c, f: faltantes(datos, c) })).filter((p) => p.f.length);
   const sinAccion = items.filter((i) => i.col !== 'clientes' && !i.x.proximaFecha);
   const porCompletar = datos.clientes.filter((c) => c.revisar && c.etapa === 'Activo');
+  const sy = datos.sync;
+  const cambiosWeb = sy && !sy.error && Date.now() - new Date(sy.fecha).getTime() < 7 * 864e5 ? [
+    ...(sy.retirados || []).map((n) => ['Se borró de la web: pasó a Retirado de la web', n]),
+    ...(sy.vendidos || []).map((n) => ['Marcado como vendido en la web', n]),
+    ...(sy.restaurados || []).map((n) => ['Volvió a publicarse en la web', n]),
+  ].map(([texto, n]) => ({ texto, c: datos.campos.find((x) => x.nombre === n) })).filter((x) => x.c) : [];
   const hace14 = Date.now() - 14 * 864e5;
   const novedades = datos.campos.filter((c) => c.captacion && ['completado', 'tasacion', 'firmado', 'en_progreso'].includes(c.captacion.estado) && new Date(c.captacion.actualizado).getTime() >= hace14 && !(c.captacion.estado === 'firmado' && c.captacion.firmaCorredor))
     .sort((a, b) => b.captacion.actualizado.localeCompare(a.captacion.actualizado));
@@ -251,6 +257,17 @@ function Agenda({ ctx, irA, importar }) {
         </div>
       ))}
 
+      {cambiosWeb.length > 0 && (
+        <details className="fbcrm-aviso av-web" open>
+          <summary><strong>Cambios en farmbrokers.cl</strong> <span>{cambiosWeb.length === 1 ? '1 campo cambió según la web' : `${cambiosWeb.length} campos cambiaron según la web`}, revisión del {fmtFechaHora(datos.sync.fecha)}</span></summary>
+          {cambiosWeb.map(({ c, texto }) => (
+            <button key={c.id} className="fbcrm-fila" onClick={() => abrir('campos', c)}>
+              <span className="fbcrm-cuerpo"><strong>{c.nombre}</strong><small>{texto}</small></span>
+              <span className={`fbcrm-badge ${c.etapa === 'Retirado de la web' ? 'est-tasacion' : c.etapa === 'Vendido' ? 'gris' : ''}`}>{c.etapa}</span>
+            </button>
+          ))}
+        </details>
+      )}
       {datos.sync && (datos.sync.nuevos || []).length > 0 && (
         <details className="fbcrm-aviso av-web">
           <summary><strong>Nuevos en farmbrokers.cl</strong> <span>{datos.sync.nuevos.length === 1 ? '1 publicación de la web aún no está en el CRM' : `${datos.sync.nuevos.length} publicaciones de la web aún no están en el CRM`}</span></summary>
@@ -400,18 +417,26 @@ function ListaCampos({ ctx, importar }) {
   );
 }
 
+const CAMPOS_EDITABLES = ['nombre', 'tipo', 'etapa', 'codigo', 'rol', 'region', 'sector', 'coordenadas', 'acceso', 'hectareas', 'precioUF', 'precioCLP', 'precioTexto',
+  'agua', 'fuenteAgua', 'plantaciones', 'aptitud', 'infraestructura', 'descripcionFicha', 'propietario', 'telefono', 'email', 'corredor', 'asociado', 'linkWeb', 'linkPortal', 'observaciones'];
+const grupoEtapaCampo = (e) => (['Mandato firmado', 'Publicado', 'En negociación'].includes(e) ? 'pub' : ['Prospección', 'Captación', 'Documentación'].includes(e) ? 'cap' : ['Vendido', 'Arrendado'].includes(e) ? 'cer' : 'fuera');
+const huella = (f) => JSON.stringify(CAMPOS_EDITABLES.map((k) => (f[k] == null ? '' : String(f[k]))));
+
 function FichaCampo({ ctx, inicial, cerrar }) {
-  const { datos, api, usuario, guardar, abrir, cargar } = ctx;
+  const { datos, api, guardar, cargar } = ctx;
   const [f, setF] = useState({ checklist: {}, ...inicial });
+  const [base, setBase] = useState(() => huella({ checklist: {}, ...inicial }));
   const [msg, setMsg] = useState('');
   const [ocupado, setOcupado] = useState(false);
-  const [verDatos, setVerDatos] = useState(!inicial.id);
+  const [verMandato, setVerMandato] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const esNuevo = !f.id;
+  const sinGuardar = !esNuevo && huella(f) !== base;
+  const setCampo = (r) => { setF(r); setBase(huella(r)); };
 
   const grabar = async (extra = {}) => {
     setOcupado(true); setMsg('');
-    try { const r = await guardar('campos', { ...f, ...extra }); setF(r); setMsg(esNuevo ? 'Campo creado. Ya puedes ver a qué clientes les calza.' : 'Guardado.'); }
+    try { const r = await guardar('campos', { ...f, ...extra }); setCampo(r); setMsg(esNuevo ? 'Campo creado. Ya puedes ver a qué clientes les calza.' : 'Guardado.'); }
     catch (e) { setMsg(e.message); }
     setOcupado(false);
   };
@@ -419,13 +444,86 @@ function FichaCampo({ ctx, inicial, cerrar }) {
     if (!window.confirm(`¿Eliminar ${f.nombre} con todo su historial?`)) return;
     try { await api(`/campos/${f.id}`, { method: 'DELETE' }); await cargar(); cerrar(); } catch (e) { setMsg(e.message); }
   };
+  const salir = () => { if (sinGuardar && !window.confirm('Tienes cambios sin guardar en la información del campo. ¿Salir igual?')) return; cerrar(); };
+  const cap = f.captacion;
+  const foto = f.web && f.web.fotos && f.web.fotos[0];
+  const linkWeb = f.linkWeb || f.linkPortal;
 
   return (
-    <Hoja titulo={esNuevo ? 'Nuevo campo' : f.nombre} sub={esNuevo ? '' : [f.codigo, f.sector, f.region && REG_NOMBRE[f.region], f.hectareas && `${fmtNum(f.hectareas)} ha`, fmtPrecio(f)].filter(Boolean).join(', ')} cerrar={cerrar}>
-      {!esNuevo && <Etapas lista={datos.etapas.campos} actual={f.etapa} ocupado={ocupado} onCambio={(et) => grabar({ etapa: et })} />}
-      {!esNuevo && <div className="fbcrm-acciones fbcrm-arriba"><button onClick={() => ctx.imprimir({ tipo: 'campo', id: f.id })}>Ficha PDF</button></div>}
-      {!esNuevo && <Captacion ctx={ctx} campo={f} setCampo={setF} />}
-      {!esNuevo && <Match ctx={ctx} campo={f} setCampo={setF} />}
+    <Hoja titulo={esNuevo ? 'Nuevo campo' : f.nombre} sub={esNuevo ? '' : [f.codigo, f.sector, f.region && REG_NOMBRE[f.region], f.hectareas && `${fmtNum(f.hectareas)} ha`, fmtPrecio(f)].filter(Boolean).join(', ')} cerrar={salir}>
+      {!esNuevo && (
+        <div className="fbcrm-barra-ficha">
+          <label className={`fbcrm-etapa-sel e-${grupoEtapaCampo(f.etapa)}`}>
+            <span>Etapa</span>
+            <select value={f.etapa} disabled={ocupado} onChange={(e) => grabar({ etapa: e.target.value })}>{datos.etapas.campos.map((et) => <option key={et}>{et}</option>)}</select>
+          </label>
+          <button onClick={() => ctx.imprimir({ tipo: 'campo', id: f.id })}><Icono n="pdf" s={18} />Ficha PDF</button>
+          <button className={verMandato ? 'on' : ''} aria-expanded={verMandato} onClick={() => setVerMandato(!verMandato)}>
+            Mandato {cap ? <span className={`fbcrm-badge est-${cap.estado}`}>{ETIQUETA_CAP[cap.estado]}</span> : <span className="fbcrm-badge gris">Sin link</span>}
+          </button>
+          {linkWeb && <a className="fbcrm-btn-link" href={linkWeb} target="_blank" rel="noreferrer">Ver en la web</a>}
+        </div>
+      )}
+      {!esNuevo && verMandato && <Captacion ctx={ctx} campo={f} setCampo={setCampo} />}
+
+      {foto && <img src={foto} alt="" className="fbcrm-ficha-foto" />}
+
+      <div className="fbcrm-bloque fbcrm-info">
+        <h3>Información del campo</h3>
+        <p className="fbcrm-seccion">Ubicación</p>
+        <div className="fbcrm-form">
+          <Campo label="Nombre" ancho><input value={f.nombre || ''} onChange={set('nombre')} placeholder="Ej. Fundo Mahuidanche" /></Campo>
+          <Campo label="Tipo de propiedad"><SelectTipo ctx={ctx} value={f.tipo || 'agricola'} onChange={(v) => setF((x) => ({ ...x, tipo: v }))} /></Campo>
+          {esNuevo && <Campo label="Etapa"><select value={f.etapa} onChange={set('etapa')}>{datos.etapas.campos.map((e) => <option key={e}>{e}</option>)}</select></Campo>}
+          <Campo label="Región"><select value={f.region || ''} onChange={set('region')}><option value="">Sin región</option>{datos.regiones.map((r) => <option key={r} value={r}>{r}, {REG_NOMBRE[r]}</option>)}</select></Campo>
+          <Campo label="Comuna o sector"><input value={f.sector || ''} onChange={set('sector')} /></Campo>
+          <Campo label="Rol SII"><input value={f.rol || ''} onChange={set('rol')} placeholder="28-95" /></Campo>
+          <Campo label="Código"><input value={f.codigo || ''} onChange={set('codigo')} /></Campo>
+          <Campo label="Coordenadas (pega desde Google Maps)" ancho><input value={f.coordenadas || ''} onChange={set('coordenadas')} placeholder="-34.3963, -71.6152" /></Campo>
+          <Campo label="Acceso" ancho><input value={f.acceso || ''} onChange={set('acceso')} placeholder="Ej. 3 km de camino pavimentado desde la Ruta 66" /></Campo>
+        </div>
+        <p className="fbcrm-seccion">Superficie y precio</p>
+        <div className="fbcrm-form">
+          <Campo label="Hectáreas"><input type="number" inputMode="decimal" value={f.hectareas ?? ''} onChange={set('hectareas')} /></Campo>
+          <Campo label="Precio en UF"><input type="number" inputMode="decimal" value={f.precioUF ?? ''} onChange={set('precioUF')} /></Campo>
+          <Campo label="Precio en pesos"><input type="number" inputMode="numeric" value={f.precioCLP ?? ''} onChange={set('precioCLP')} /></Campo>
+          <Campo label="Precio (como se publica)"><input value={f.precioTexto || ''} onChange={set('precioTexto')} placeholder="Ej. UF 280.000" /></Campo>
+        </div>
+        <p className="fbcrm-seccion">Agua y producción</p>
+        <div className="fbcrm-form">
+          <Campo label="Derechos de agua"><input value={f.agua || ''} onChange={set('agua')} placeholder="Ej. 31 l/s" /></Campo>
+          <Campo label="Fuente del agua"><input value={f.fuenteAgua || ''} onChange={set('fuenteAgua')} placeholder="Ej. Canal Cocalán, pozo profundo" /></Campo>
+          <Campo label="Plantaciones" ancho><input value={f.plantaciones || ''} onChange={set('plantaciones')} placeholder="Ej. 40 ha almendros, 20 ha nogales" /></Campo>
+          <Campo label="Aptitud" ancho><input value={f.aptitud || ''} onChange={set('aptitud')} placeholder="Ej. paltos, cítricos, uva de mesa" /></Campo>
+          <Campo label="Infraestructura" ancho><textarea rows={2} value={f.infraestructura || ''} onChange={set('infraestructura')} placeholder="Ej. Casa patronal 250 m², bodega, galpón, tranque 30.000 m³" /></Campo>
+        </div>
+        <p className="fbcrm-seccion fbcrm-lbl-fila">Descripción para la ficha PDF
+          {f.web && f.web.descripcion && f.web.descripcion.length > 0 && <button type="button" className="fbcrm-texto" onClick={() => setF({ ...f, descripcionFicha: f.web.descripcion.join('\n') })}>Copiar desde farmbrokers.cl</button>}
+        </p>
+        <textarea rows={6} aria-label="Descripción para la ficha PDF" value={f.descripcionFicha || ''} onChange={set('descripcionFicha')} placeholder={'Si la dejas vacía, la ficha usa la descripción publicada en farmbrokers.cl.\nUn párrafo por línea. Para destacar un título escribe, por ejemplo, "Suelos: …"'} />
+        <p className="fbcrm-seccion">Propietario</p>
+        <div className="fbcrm-form">
+          <Campo label="Propietario o contacto" ancho><input value={f.propietario || ''} onChange={set('propietario')} /></Campo>
+          <Campo label="Teléfono"><input type="tel" value={f.telefono || ''} onChange={set('telefono')} /></Campo>
+          <Campo label="Email"><input type="email" value={f.email || ''} onChange={set('email')} /></Campo>
+          <Campo label="Corredor"><input value={f.corredor || ''} onChange={set('corredor')} /></Campo>
+          <Campo label="Asociado"><input value={f.asociado || ''} onChange={set('asociado')} /></Campo>
+        </div>
+        <p className="fbcrm-seccion">Publicación y notas</p>
+        <div className="fbcrm-form">
+          <Campo label="Link en farmbrokers.cl" ancho><input value={f.linkWeb || ''} onChange={set('linkWeb')} placeholder="https://farmbrokers.cl/propiedad/…" /></Campo>
+          <Campo label="Link en otro portal" ancho><input value={f.linkPortal || ''} onChange={set('linkPortal')} /></Campo>
+          <Campo label="Observaciones internas" ancho><textarea rows={3} value={f.observaciones || ''} onChange={set('observaciones')} /></Campo>
+        </div>
+        <div className="fbcrm-acciones">
+          <button className="fbcrm-primario" disabled={ocupado || !f.nombre} onClick={() => grabar()}>{esNuevo ? 'Crear campo' : 'Guardar información'}</button>
+          {!esNuevo && <button className="fbcrm-peligro" onClick={eliminar}>Eliminar campo</button>}
+        </div>
+        {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+      </div>
+
+      {!esNuevo && <ArchivosCampo ctx={ctx} campo={f} setCampo={setCampo} />}
+      {!esNuevo && <Match ctx={ctx} campo={f} setCampo={setCampo} />}
       {!esNuevo && (
         <div className="fbcrm-bloque">
           <h3>Documentos <span>{datos.checklist.filter(([k]) => f.checklist[k]).length} de {datos.checklist.length}</span></h3>
@@ -439,47 +537,15 @@ function FichaCampo({ ctx, inicial, cerrar }) {
         </div>
       )}
       {!esNuevo && <Seguimiento f={f} setF={setF} ocupado={ocupado} onGuardar={() => grabar()} />}
+      {!esNuevo && <Historial col="campos" f={f} setF={setCampo} api={api} cargar={cargar} />}
 
-      <div className="fbcrm-bloque">
-        {!esNuevo && <button className="fbcrm-plegable" aria-expanded={verDatos} onClick={() => setVerDatos(!verDatos)}>{verDatos ? 'Ocultar datos del campo' : 'Ver y editar datos del campo'}</button>}
-        {verDatos && (
-          <>
-            <div className="fbcrm-form">
-              <Campo label="Nombre" ancho><input value={f.nombre || ''} onChange={set('nombre')} placeholder="Ej. Fundo Mahuidanche" /></Campo>
-              <Campo label="Tipo de propiedad"><SelectTipo ctx={ctx} value={f.tipo || 'agricola'} onChange={(v) => setF((x) => ({ ...x, tipo: v }))} /></Campo>
-              {esNuevo && <Campo label="Etapa"><select value={f.etapa} onChange={set('etapa')}>{datos.etapas.campos.map((e) => <option key={e}>{e}</option>)}</select></Campo>}
-              <Campo label="Código"><input value={f.codigo || ''} onChange={set('codigo')} /></Campo>
-              <Campo label="Rol SII"><input value={f.rol || ''} onChange={set('rol')} placeholder="28-95" /></Campo>
-              <Campo label="Región"><select value={f.region || ''} onChange={set('region')}><option value="">Sin región</option>{datos.regiones.map((r) => <option key={r} value={r}>{r}, {REG_NOMBRE[r]}</option>)}</select></Campo>
-              <Campo label="Comuna o sector"><input value={f.sector || ''} onChange={set('sector')} /></Campo>
-              <Campo label="Hectáreas"><input type="number" inputMode="decimal" value={f.hectareas ?? ''} onChange={set('hectareas')} /></Campo>
-              <Campo label="Precio en UF"><input type="number" inputMode="decimal" value={f.precioUF ?? ''} onChange={set('precioUF')} /></Campo>
-              <Campo label="Precio en pesos"><input type="number" inputMode="numeric" value={f.precioCLP ?? ''} onChange={set('precioCLP')} /></Campo>
-              <Campo label="Precio (texto de la planilla)"><input value={f.precioTexto || ''} onChange={set('precioTexto')} /></Campo>
-              <Campo label="Derechos de agua"><input value={f.agua || ''} onChange={set('agua')} placeholder="Ej. 31 l/s" /></Campo>
-              <Campo label="Fuente del agua"><input value={f.fuenteAgua || ''} onChange={set('fuenteAgua')} /></Campo>
-              <Campo label="Plantaciones" ancho><input value={f.plantaciones || ''} onChange={set('plantaciones')} placeholder="Ej. 40 ha almendros, 20 ha nogales" /></Campo>
-              <Campo label="Aptitud" ancho><input value={f.aptitud || ''} onChange={set('aptitud')} placeholder="Ej. paltos, cítricos, uva de mesa" /></Campo>
-              <Campo label="Propietario o contacto"><input value={f.propietario || ''} onChange={set('propietario')} /></Campo>
-              <Campo label="Teléfono"><input type="tel" value={f.telefono || ''} onChange={set('telefono')} /></Campo>
-              <Campo label="Email"><input type="email" value={f.email || ''} onChange={set('email')} /></Campo>
-              <Campo label="Corredor"><input value={f.corredor || ''} onChange={set('corredor')} /></Campo>
-              <Campo label="Asociado"><input value={f.asociado || ''} onChange={set('asociado')} /></Campo>
-              <Campo label="Link web" ancho><input value={f.linkWeb || ''} onChange={set('linkWeb')} placeholder="https://farmbrokers.cl/propiedad/…" /></Campo>
-              <Campo label="Coordenadas (pega desde Google Maps)" ancho><input value={f.coordenadas || ''} onChange={set('coordenadas')} placeholder="-34.3963, -71.6152" /></Campo>
-              <Campo label="Link portal" ancho><input value={f.linkPortal || ''} onChange={set('linkPortal')} /></Campo>
-              <Campo label="Observaciones" ancho><textarea rows={3} value={f.observaciones || ''} onChange={set('observaciones')} /></Campo>
-            </div>
-            <div className="fbcrm-acciones">
-              <button className="fbcrm-primario" disabled={ocupado || !f.nombre} onClick={() => grabar()}>{esNuevo ? 'Crear campo' : 'Guardar datos'}</button>
-              {!esNuevo && <button className="fbcrm-peligro" onClick={eliminar}>Eliminar campo</button>}
-              {(f.linkWeb || f.linkPortal) && <a className="fbcrm-link" href={f.linkWeb || f.linkPortal} target="_blank" rel="noreferrer">Abrir publicación</a>}
-            </div>
-          </>
-        )}
-        {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
-      </div>
-      {!esNuevo && <Historial col="campos" f={f} setF={setF} api={api} cargar={cargar} />}
+      {sinGuardar && (
+        <div className="fbcrm-guardar-barra" role="status">
+          <span>Tienes cambios sin guardar</span>
+          <button onClick={() => { setF({ ...f, ...JSON.parse(base).reduce((o, v, i) => ({ ...o, [CAMPOS_EDITABLES[i]]: v }), {}) }); }}>Descartar</button>
+          <button className="fbcrm-primario" disabled={ocupado || !f.nombre} onClick={() => grabar()}>{ocupado ? 'Guardando…' : 'Guardar'}</button>
+        </div>
+      )}
     </Hoja>
   );
 }
@@ -1029,6 +1095,7 @@ function Calendario({ ctx }) {
 function Impresion({ ctx, imp, cerrar }) {
   const { datos, usuario } = ctx;
   const [variante, setVariante] = useState('cliente');
+  const [mostrarRol, setMostrarRol] = useState(false);
   const campoBase = imp.tipo === 'campo' ? datos.campos.find((c) => c.id === imp.id) : null;
   const [campoWeb, setCampoWeb] = useState(null);
   const campo = campoWeb || campoBase;
@@ -1079,13 +1146,14 @@ function Impresion({ ctx, imp, cerrar }) {
         )}
         {campo && <button onClick={traerWeb} disabled={!!estadoWeb && estadoWeb.startsWith('Trayendo')}>Actualizar desde farmbrokers.cl</button>}
         <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>
+        {campo && variante === 'cliente' && <label className="fbcrm-imp-opcion"><input type="checkbox" checked={mostrarRol} onChange={(e) => setMostrarRol(e.target.checked)} />Mostrar rol SII</label>}
         {campo && variante === 'cliente' && <p className="fbcrm-imp-estado">{estadoWeb || resumenWeb(campo, fotosProp)}</p>}
         <p>Al presionar “Guardar PDF” se abre la ventana de impresión: elige <strong>Guardar como PDF</strong>. En iPhone, toca Compartir en esa ventana y luego Guardar en Archivos.</p>
       </div>
       <article className={`fbcrm-doc ${imp.tipo === 'mandato' ? 'doc-mandato-hoja' : ''} ${campo && variante === 'cliente' ? 'doc-ficha-hoja' : ''}`}>
         {imp.tipo === 'mandato'
           ? (mandato ? <DocMandato m={mandato} /> : <p>{errorMandato || 'Preparando el mandato…'}</p>)
-          : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} usuario={usuario} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
+          : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} usuario={usuario} mostrarRol={mostrarRol} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
             : imp.tipo === 'campo' ? <p>El campo ya no existe.</p> : <DocInforme datos={datos} usuario={usuario} />}
       </article>
     </div>
@@ -1280,21 +1348,6 @@ function Captacion({ ctx, campo, setCampo }) {
             {cap.firmaCorredor && <span className="fbcrm-ok-linea">Firmado por Farm Brokers: {cap.firmaCorredor.nombre}, {fmtFecha(cap.firmaCorredor.fecha)}</span>}
           </div>
         </>
-      )}
-      {archivos.length > 0 && (
-        <div className="fbcrm-archivos">
-          <p className="fbcrm-etq">Archivos del propietario ({archivos.length})</p>
-          <ul>
-            {archivos.map((a) => (
-              <li key={a.id}>
-                <span className="fbcrm-tag">{TIPOS_ARCHIVO[a.tipo] || a.tipo}</span>
-                <span className="fbcrm-archivo-nombre">{a.nombre}</span>
-                <small>{pesoArchivo(a.tamano)}</small>
-                <button className="fbcrm-mini" onClick={() => descargar(a)}>Descargar</button>
-              </li>
-            ))}
-          </ul>
-        </div>
       )}
       {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
     </div>
@@ -1675,20 +1728,31 @@ function coordsDe(campo) {
   return null;
 }
 function resumenWeb(campo, fotosProp) {
-  const w = campo.web, c = coordsDe(campo);
+  const w = campo.web, c = coordsDe(campo), g = campo.geo;
   const partes = [];
   if (w) partes.push(`Desde farmbrokers.cl: ${plural(w.fotos.length, 'foto')}${w.descripcion.length ? ', descripción' : ''}${w.detalle.precio ? ', precio' : ''}.`);
-  else partes.push(fotosProp.length ? `Sin publicación en farmbrokers.cl: se usan ${plural(fotosProp.length, 'foto')} del propietario.` : 'Sin link de farmbrokers.cl: agrega el link en los datos del campo para incluir fotos y descripción.');
-  partes.push(c ? (c.aprox ? 'Ubicación aproximada (centro de la comuna). Para el punto exacto, pega las coordenadas en los datos del campo.' : 'Ubicación exacta.') : 'Sin ubicación: pega las coordenadas en los datos del campo.');
+  else partes.push(fotosProp.length ? `Sin publicación en farmbrokers.cl: se usan ${plural(fotosProp.length, 'foto')} subidas al CRM.` : 'Sin link de farmbrokers.cl: agrega el link o sube fotos en el campo.');
+  if (campo.descripcionFicha) partes.push('Descripción escrita en el CRM.');
+  if (g) partes.push(`Plano del predio: ${fmtNum(g.areaHa)} ha.`);
+  else partes.push(c ? (c.aprox ? 'Ubicación aproximada (centro de la comuna). Sube el KMZ o pega las coordenadas para el punto exacto.' : 'Ubicación exacta, sin plano: sube el KMZ para mostrar el contorno.') : 'Sin ubicación: sube el KMZ o pega las coordenadas en el campo.');
   return partes.join(' ');
 }
 const TILES = {
   satelite: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
   mapa: (z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
 };
-function MapaTiles({ lat, lng, z, w, h, fuente, aprox }) {
-  const n = 256 * 2 ** z, rad = (lat * Math.PI) / 180;
-  const cx = ((lng + 180) / 360) * n, cy = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n;
+const lng2x = (lng, z) => ((lng + 180) / 360) * 256 * 2 ** z;
+const lat2y = (lat, z) => { const r = (lat * Math.PI) / 180; return ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 256 * 2 ** z; };
+const y2lat = (y, z) => { const n = Math.PI - (2 * Math.PI * y) / (256 * 2 ** z); return (180 / Math.PI) * Math.atan(Math.sinh(n)); };
+function vistaAjustada(bbox, w, h) {
+  for (let z = 17; z >= 4; z--) {
+    const ancho = lng2x(bbox[2], z) - lng2x(bbox[0], z), alto = lat2y(bbox[1], z) - lat2y(bbox[3], z);
+    if (ancho <= w * 0.8 && alto <= h * 0.8) return { z, lng: (bbox[0] + bbox[2]) / 2, lat: y2lat((lat2y(bbox[1], z) + lat2y(bbox[3], z)) / 2, z) };
+  }
+  return { z: 4, lng: (bbox[0] + bbox[2]) / 2, lat: (bbox[1] + bbox[3]) / 2 };
+}
+function MapaTiles({ lat, lng, z, w, h, fuente, aprox, anillos }) {
+  const cx = lng2x(lng, z), cy = lat2y(lat, z);
   const x0 = cx - w / 2, y0 = cy - h / 2, max = 2 ** z;
   const tiles = [];
   for (let tx = Math.floor(x0 / 256); tx <= Math.floor((x0 + w) / 256); tx++)
@@ -1697,7 +1761,11 @@ function MapaTiles({ lat, lng, z, w, h, fuente, aprox }) {
   return (
     <div className="doc-mapa" style={{ width: w, height: h }}>
       {tiles}
-      {aprox && z >= 10 ? <span className="doc-mapa-zona" /> : (
+      {anillos && anillos.length ? (
+        <svg className="doc-mapa-poly" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
+          {anillos.map((a, i) => <polygon key={i} points={a.map(([x, y]) => `${(lng2x(x, z) - x0).toFixed(1)},${(lat2y(y, z) - y0).toFixed(1)}`).join(' ')} />)}
+        </svg>
+      ) : aprox && z >= 10 ? <span className="doc-mapa-zona" /> : (
         <svg className="doc-mapa-pin" width="30" height="40" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 39C15 39 28 23.5 28 14A13 13 0 0 0 2 14c0 9.5 13 25 13 25z" fill="#B4452A" stroke="#fff" strokeWidth="2" /><circle cx="15" cy="14" r="5" fill="#fff" /></svg>
       )}
       <span className="doc-mapa-cred">{fuente === 'satelite' ? 'Imágenes © Esri, Maxar' : '© OpenStreetMap'}</span>
@@ -1710,24 +1778,68 @@ function ParrafoFicha({ t }) {
   if (/^[-–•]\s*/.test(t)) return <p className="doc-ficha-item">{t.replace(/^[-–•]\s*/, '')}</p>;
   return <p>{t}</p>;
 }
-function DocFichaCliente({ campo: c, fotosProp, usuario }) {
-  const w = c.web || null, d = (w && w.detalle) || {};
+const numeroDe = (t) => { const m = String(t || '').replace(/\./g, '').replace(',', '.').match(/\d+(\.\d+)?/); return m ? Number(m[0]) : null; };
+function precioPorHa(c, d, ha) {
+  if (!ha) return '';
+  const txt = String(d.precio || '');
+  const uf = c.precioUF || (/uf/i.test(txt) ? numeroDe(txt) : null);
+  if (uf) return `UF ${fmtNum(Math.round(uf / ha))} por ha`;
+  const clp = c.precioCLP || (/\$/.test(txt) ? numeroDe(txt) : null);
+  if (clp && clp > 1e6) return `$${Math.round(clp / ha).toLocaleString('es-CL')} por ha`;
+  return '';
+}
+function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
+  const w = c.web || null, d = (w && w.detalle) || {}, g = c.geo || null;
   const fotos = w && w.fotos.length ? w.fotos : fotosProp;
-  const coord = coordsDe(c);
+  const coord = coordsDe(c) || (g ? { ...g.centro, aprox: false } : null);
   const titulo = (w && w.titulo) || c.nombre;
   const ubic = (w && (w.direccion || [w.comuna, w.region].filter(Boolean).join(', '))) || [c.sector, REG_NOMBRE[c.region]].filter(Boolean).join(', ');
   const precio = d.precio || fmtPrecio(c);
+  const haNum = c.hectareas || numeroDe(d.superficie) || (g && g.areaHa) || null;
   const datosClave = [
-    ['Superficie', d.superficie || (c.hectareas ? `${fmtNum(c.hectareas)} ha` : '')],
+    ['Superficie', d.superficie || (c.hectareas ? `${fmtNum(c.hectareas)} ha` : g ? `${fmtNum(g.areaHa)} ha` : '')],
     ['Agua', d.agua || c.agua],
     ['Plantaciones', d.plantaciones || c.plantaciones],
     ['Tipo', d.tipo || TIPOS[c.tipo]],
   ].filter(([, v]) => v && String(v).length < 60);
-  const descripcion = w && w.descripcion.length ? w.descripcion : [c.aptitud && `Aptitud: ${c.aptitud}`, c.fuenteAgua && `Fuente de agua: ${c.fuenteAgua}`].filter(Boolean);
+  const descripcion = c.descripcionFicha ? c.descripcionFicha.split('\n').map((l) => l.trim()).filter(Boolean)
+    : w && w.descripcion.length ? w.descripcion
+    : [c.aptitud && `Aptitud: ${c.aptitud}`, c.fuenteAgua && `Fuente de agua: ${c.fuenteAgua}`].filter(Boolean);
+  const cap = c.captacion && c.captacion.datos;
+  const loteos = cap ? cap.predios.filter((p) => p.tipo === 'loteo' && p.lotes) : [];
   const idProp = d.id || c.codigo;
+  const tecnica = [
+    ['Tipo de propiedad', d.tipo || TIPOS[c.tipo]],
+    ['Superficie total', d.superficie || (c.hectareas ? `${fmtNum(c.hectareas)} ha` : '')],
+    ['Superficie según plano', g ? `${fmtNum(g.areaHa)} ha` : ''],
+    ['Precio', precio],
+    ['Precio por hectárea', precioPorHa(c, d, haNum)],
+    ['Comuna', (w && w.comuna) || c.sector],
+    ['Región', (w && w.region) || REG_NOMBRE[c.region]],
+    ['Derechos de agua', d.agua || c.agua],
+    ['Fuente de agua', c.fuenteAgua],
+    ['Plantaciones', d.plantaciones || c.plantaciones],
+    ['Aptitud', c.aptitud],
+    ['Infraestructura', c.infraestructura || (cap && cap.infraestructura)],
+    ['Acceso', c.acceso],
+    ['Loteo', loteos.map((p) => `${p.lotes} lotes${p.m2Lote ? ` de ${Number(p.m2Lote).toLocaleString('es-CL')} m²` : ''}${p.planoSAG ? ', con plano de subdivisión aprobado por el SAG' : ''}`).join('; ')],
+    ['Rol SII', mostrarRol ? c.rol : ''],
+    ['ID de propiedad', idProp],
+  ].filter(([, v]) => v !== '' && v != null);
   const link = (w && w.url) || c.linkWeb || '';
   const gmaps = coord ? `https://maps.google.com/?q=${coord.lat.toFixed(5)},${coord.lng.toFixed(5)}` : '';
-  const galeria = fotos.slice(1, 6);
+  const galeria = fotos.slice(1, 5);
+  const vista = g ? vistaAjustada(g.bbox, 690, 400) : coord ? { z: coord.aprox ? 11 : 15, lat: coord.lat, lng: coord.lng } : null;
+  const pie = (
+    <>
+      <footer className="doc-ficha-pie">
+        <div><strong>{usuario}</strong><span>Farm Brokers Chile</span></div>
+        <div><span>+56 9 7193 9040</span><span>contacto@farmbrokers.cl</span></div>
+        <div><span>Estoril 120, of. 615, Las Condes</span>{link && <span>{link.replace(/^https?:\/\//, '')}</span>}</div>
+      </footer>
+      <p className="doc-ficha-legal">Información referencial, sujeta a verificación durante el proceso de compra.</p>
+    </>
+  );
   return (
     <div className="doc-ficha">
       <header className="doc-ficha-top">
@@ -1739,35 +1851,99 @@ function DocFichaCliente({ campo: c, fotosProp, usuario }) {
         <div><h1>{titulo}</h1>{ubic && <p>{ubic}</p>}</div>
         {precio && <div className="doc-ficha-precio"><small>Precio de venta</small><strong>{precio}</strong>{w && w.comision && <small>Comisión {w.comision}</small>}</div>}
       </div>
-      {datosClave.length > 0 && (
-        <dl className="doc-ficha-datos">{datosClave.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
-      )}
-      {descripcion.length > 0 && (
-        <section className="doc-ficha-desc"><h2>Descripción</h2>{descripcion.map((t, i) => <ParrafoFicha key={i} t={t} />)}</section>
-      )}
-      {(galeria.length > 0 || coord) && (
-        <div className="doc-ficha-p2">
-          {galeria.length > 0 && (
-            <section><h2>Galería</h2><div className={`doc-ficha-galeria n${galeria.length}`}>{galeria.map((f) => <img key={f} src={f} alt="" />)}</div></section>
-          )}
-          {coord && (
-            <section className="doc-ficha-ubic">
-              <h2>Ubicación</h2>
-              <div className="doc-ficha-mapas">
-                <MapaTiles lat={coord.lat} lng={coord.lng} z={coord.aprox ? 11 : 14} w={440} h={215} fuente="satelite" aprox={coord.aprox} />
-                <MapaTiles lat={coord.lat} lng={coord.lng} z={8} w={246} h={215} fuente="mapa" />
-              </div>
-              <p className="doc-ficha-nota">{coord.aprox ? `Ubicación aproximada en la comuna de ${(w && w.comuna) || c.sector}. La ubicación exacta se entrega en la visita.` : `Coordenadas ${coord.lat.toFixed(5)}, ${coord.lng.toFixed(5)}.`} {!coord.aprox && <>Ver en Google Maps: {gmaps}</>}</p>
-            </section>
-          )}
+      {datosClave.length > 0 && <dl className="doc-ficha-datos">{datosClave.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
+      {descripcion.length > 0 && <section className="doc-ficha-desc"><h2>Descripción</h2>{descripcion.map((t, i) => <ParrafoFicha key={i} t={t} />)}</section>}
+
+      <div className="doc-ficha-pag">
+        <section><h2>Ficha técnica</h2><dl className="doc-ficha-tecnica">{tecnica.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl></section>
+        {galeria.length > 0 && <section><h2>Galería</h2><div className={`doc-ficha-galeria n${galeria.length}`}>{galeria.map((f) => <img key={f} src={f} alt="" />)}</div></section>}
+        {!vista && pie}
+      </div>
+
+      {vista && (
+        <div className="doc-ficha-pag doc-ficha-plano">
+          <h2>{g ? 'Plano y ubicación' : 'Ubicación'}</h2>
+          <MapaTiles lat={vista.lat} lng={vista.lng} z={vista.z} w={690} h={400} fuente="satelite" aprox={!g && coord && coord.aprox} anillos={g && g.anillos} />
+          <div className="doc-ficha-ubic-fila">
+            <MapaTiles lat={vista.lat} lng={vista.lng} z={7} w={250} h={190} fuente="mapa" />
+            <dl className="doc-ficha-ubic-datos">
+              {g && <div><dt>Superficie según plano</dt><dd>{fmtNum(g.areaHa)} ha{g.anillos.length > 1 ? `, en ${g.anillos.length} polígonos` : ''}</dd></div>}
+              {ubic && <div><dt>Ubicación</dt><dd>{ubic}</dd></div>}
+              {coord && !coord.aprox && <div><dt>Coordenadas</dt><dd>{coord.lat.toFixed(5)}, {coord.lng.toFixed(5)}</dd></div>}
+              {coord && !coord.aprox && <div><dt>Google Maps</dt><dd className="doc-url">{gmaps}</dd></div>}
+              {coord && coord.aprox && !g && <div><dt>Nota</dt><dd>Ubicación aproximada en la comuna. La ubicación exacta se entrega en la visita.</dd></div>}
+              {c.acceso && <div><dt>Acceso</dt><dd>{c.acceso}</dd></div>}
+            </dl>
+          </div>
+          {g && <p className="doc-ficha-nota">Contorno referencial del predio{g.fuente === 'tasacion' ? ', según cartografía del SII' : ', según plano entregado'}.</p>}
+          {pie}
         </div>
       )}
-      <footer className="doc-ficha-pie">
-        <div><strong>{usuario}</strong><span>Farm Brokers Chile</span></div>
-        <div><span>+56 9 7193 9040</span><span>contacto@farmbrokers.cl</span></div>
-        <div><span>Estoril 120, of. 615, Las Condes</span>{link && <span>{link.replace(/^https?:\/\//, '')}</span>}</div>
-      </footer>
-      <p className="doc-ficha-legal">Información referencial, sujeta a verificación durante el proceso de compra.</p>
+    </div>
+  );
+}
+
+// ════════════════════════════ Archivos del campo (equipo y propietario) ════════════════════════════
+function ArchivosCampo({ ctx, campo, setCampo }) {
+  const { api, usuario, cargar } = ctx;
+  const [tipo, setTipo] = useState('kmz');
+  const [msg, setMsg] = useState('');
+  const [subiendo, setSubiendo] = useState('');
+  const archivos = campo.archivos || [];
+  const g = campo.geo;
+  const subir = async (files) => {
+    setMsg('');
+    for (const file of files) {
+      setSubiendo(`Subiendo ${file.name}…`);
+      try {
+        const a = await leerArchivo(file, tipo);
+        const r = await api(`/campos/${campo.id}/archivo`, { method: 'POST', body: { ...a, tipo } });
+        setCampo(r.campo);
+        if (r.avisoGeo) setMsg(`${file.name}: se guardó, pero no se pudo leer el contorno. ${r.avisoGeo}`);
+      } catch (e) { setMsg(e.message); }
+    }
+    setSubiendo(''); cargar();
+  };
+  const descargar = async (a) => {
+    try {
+      const r = await fetch(`${API_BASE}/api/crm/campos/${campo.id}/archivos/${a.id}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(usuario) } });
+      if (!r.ok) throw new Error('No se pudo descargar el archivo.');
+      const url = URL.createObjectURL(await r.blob());
+      const el = document.createElement('a'); el.href = url; el.download = a.nombre; document.body.appendChild(el); el.click(); el.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (e) { setMsg(e.message); }
+  };
+  const borrar = async (a) => {
+    if (!window.confirm(`¿Eliminar ${a.nombre}?`)) return;
+    try { const r = await api(`/campos/${campo.id}/archivos/${a.id}`, { method: 'DELETE' }); setCampo(r); cargar(); } catch (e) { setMsg(e.message); }
+  };
+  return (
+    <div className="fbcrm-bloque">
+      <h3>Archivos y plano {archivos.length > 0 && <span>{archivos.length}</span>}</h3>
+      {g ? <p className="fbcrm-geo-ok">Plano del predio: {plural(g.anillos.length, 'polígono')}, {fmtNum(g.areaHa)} ha {g.fuente === 'tasacion' ? '(desde la tasación)' : `(desde ${g.archivo})`}. Aparece en la ficha PDF.</p>
+        : <p className="fbcrm-nota-suave">Sube el KMZ o KML del predio (de Google Earth) para que la ficha muestre su contorno sobre el mapa satelital.</p>}
+      <div className="fbcrm-subir-fila">
+        <select value={tipo} onChange={(e) => setTipo(e.target.value)} aria-label="Tipo de archivo">{Object.entries(TIPOS_ARCHIVO).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+        <label className="fbcrm-subir">
+          <input type="file" multiple={tipo === 'foto'} accept={tipo === 'foto' ? 'image/*' : tipo === 'kmz' ? '.kmz,.kml' : '.pdf,image/*,.kmz,.kml,.doc,.docx,.xls,.xlsx'} onChange={(e) => { subir([...e.target.files]); e.target.value = ''; }} />
+          <span>{subiendo ? 'Subiendo…' : 'Subir archivo'}</span>
+        </label>
+      </div>
+      {subiendo && <p className="fbcrm-msg" role="status">{subiendo}</p>}
+      {archivos.length > 0 && (
+        <ul className="fbcrm-archivos-lista">
+          {archivos.map((a) => (
+            <li key={a.id}>
+              <span className="fbcrm-tag">{TIPOS_ARCHIVO[a.tipo] || a.tipo}</span>
+              <span className="fbcrm-archivo-nombre">{a.nombre}</span>
+              <small>{a.origen === 'propietario' ? 'Propietario' : a.autor || 'Equipo'}, {pesoArchivo(a.tamano)}</small>
+              <button className="fbcrm-mini" onClick={() => descargar(a)}>Descargar</button>
+              <button className="fbcrm-mini fbcrm-peligro" onClick={() => borrar(a)} aria-label={`Eliminar ${a.nombre}`}>Eliminar</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
     </div>
   );
 }
@@ -2347,7 +2523,7 @@ const CSS = `
 .doc-ficha-pie span{color:rgba(255,255,255,.82);overflow-wrap:anywhere}
 .doc-ficha-legal{font-size:7.5pt;color:#5E6E64;margin:8px 0 0;text-align:center}
 @media (max-width:760px){.doc-ficha .doc-ficha-datos{grid-template-columns:1fr 1fr}.doc-ficha-datos div:nth-child(2){border-right:0}.doc-ficha-titulo{flex-direction:column}.doc-ficha-precio{align-items:flex-start;text-align:left}.doc-ficha-mapas{flex-direction:column}.doc-ficha-pie{grid-template-columns:1fr}.doc-ficha-hero{height:56vw}}
-@media print{.doc-ficha-hoja .doc-ficha-p2{break-before:page}.doc-ficha-hoja .doc-ficha-pie,.doc-ficha-hoja .doc-mapa-cred{-webkit-print-color-adjust:exact;print-color-adjust:exact}.doc-ficha .doc-ficha-datos{grid-template-columns:repeat(4,1fr)}.doc-ficha-titulo{flex-direction:row}.doc-ficha-mapas{flex-direction:row}.doc-ficha-pie{grid-template-columns:repeat(3,1fr)}.doc-ficha-hero{height:82mm}}
+@media print{.doc-ficha-hoja .doc-ficha-pie,.doc-ficha-hoja .doc-mapa-cred{-webkit-print-color-adjust:exact;print-color-adjust:exact}.doc-ficha .doc-ficha-datos{grid-template-columns:repeat(4,1fr)}.doc-ficha-titulo{flex-direction:row}.doc-ficha-mapas{flex-direction:row}.doc-ficha-pie{grid-template-columns:repeat(3,1fr)}.doc-ficha-hero{height:82mm}}
 /* Enlace con la web */
 .fbcrm-aviso.av-web{--c:var(--cielo)}
 .fbcrm-aviso-cuerpo{padding:12px 16px}
@@ -2421,4 +2597,53 @@ const CSS = `
 .fbcrm-plat-lista .fbcrm-cuerpo{min-width:200px}
 .fbcrm-plat-lista strong{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .fbcrm-plat-lista .fbcrm-tag{font-weight:500}
+/* Ficha técnica, plano y archivos */
+.fbcrm-lbl-fila{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
+.fbcrm-imp-opcion{display:inline-flex;gap:8px;align-items:center;font-size:.9rem;background:#fff;border:1px solid var(--linea);border-radius:11px;padding:8px 12px;cursor:pointer}
+.fbcrm-geo-ok{margin:0 0 12px;color:var(--potrero-osc);background:var(--potrero-cl);border-radius:11px;padding:9px 12px;font-size:.9rem}
+.fbcrm-subir-fila{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.fbcrm-subir-fila select{width:auto;min-width:190px}
+.fbcrm-archivos-lista{list-style:none;margin:12px 0 0;padding:0;border-top:1px solid var(--linea2)}
+.fbcrm-archivos-lista li{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--linea2);flex-wrap:wrap}
+.fbcrm-archivos-lista li:last-child{border-bottom:0}
+.fbcrm-archivos-lista small{color:var(--salvia)}
+.doc-ficha-pag{padding-top:8px}
+.doc-ficha-pag section{margin-bottom:16px}
+.doc-ficha .doc-ficha-tecnica{display:grid;grid-template-columns:1fr 1fr;gap:0;padding:0;background:none;border:1px solid #DCE3DC;border-radius:8px;overflow:hidden}
+.doc-ficha-tecnica div{padding:8px 12px;border-bottom:1px solid #E9EEE9;break-inside:avoid}
+.doc-ficha-tecnica div:nth-child(odd){border-right:1px solid #E9EEE9}
+.doc-ficha .doc-ficha-tecnica dt{font-size:8.3pt;color:#5E6E64}
+.doc-ficha .doc-ficha-tecnica dd{font-size:10pt;font-weight:500;margin:1px 0 0;color:#17261D}
+.doc-ficha-plano .doc-mapa{margin-bottom:8px;border-radius:8px}
+.doc-mapa-poly{position:absolute;inset:0}
+.doc-mapa-poly polygon{fill:rgba(255,214,90,.16);stroke:#FFD65A;stroke-width:2.5;stroke-linejoin:round;filter:drop-shadow(0 0 2px rgba(0,0,0,.6))}
+.doc-ficha-ubic-fila{display:flex;gap:12px;align-items:stretch}
+.doc-ficha .doc-ficha-ubic-datos{flex:1;display:flex;flex-direction:column;gap:6px;margin:0;padding:10px 12px;background:#F3F6F2;border-radius:8px}
+.doc-ficha-ubic-datos dt{font-size:8.3pt;color:#5E6E64}
+.doc-ficha-ubic-datos dd{margin:0;font-size:9.6pt;font-weight:500}
+.doc-url{word-break:break-all;font-weight:400!important;font-size:8.5pt!important}
+@media (max-width:760px){.doc-ficha .doc-ficha-tecnica{grid-template-columns:1fr}.doc-ficha-tecnica div:nth-child(odd){border-right:0}.doc-ficha-ubic-fila{flex-direction:column}.doc-ficha-plano .doc-mapa{max-width:100%}}
+@media print{.doc-ficha-hoja .doc-ficha-pag{break-before:page}.doc-ficha .doc-ficha-tecnica{grid-template-columns:1fr 1fr}.doc-ficha-tecnica div:nth-child(odd){border-right:1px solid #E9EEE9}.doc-ficha-ubic-fila{flex-direction:row}.doc-mapa-poly polygon{-webkit-print-color-adjust:exact;print-color-adjust:exact}.doc-ficha-ubic-datos{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+/* Ficha del campo: información primero, mandato como botón */
+.fbcrm-barra-ficha{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+.fbcrm .fbcrm-barra-ficha button,.fbcrm-btn-link{display:inline-flex;align-items:center;gap:8px}
+.fbcrm .fbcrm-barra-ficha button.on{border-color:var(--potrero);box-shadow:0 0 0 2px var(--potrero-cl)}
+.fbcrm-btn-link{border:1px solid var(--linea);background:var(--papel);border-radius:11px;padding:9px 15px;font-weight:500;color:var(--tinta)!important;text-decoration:none}
+.fbcrm-btn-link:hover{border-color:#C4CEC6}
+.fbcrm-ficha-foto{width:100%;height:190px;object-fit:cover;border-radius:16px;display:block;margin:0 0 14px}
+.fbcrm-info h3{font-size:1.1rem}
+.fbcrm-seccion{font-size:.8rem;font-weight:600;color:var(--potrero-osc);text-transform:none;margin:20px 0 8px;padding-top:14px;border-top:1px solid var(--linea2)}
+.fbcrm-info h3+.fbcrm-seccion{margin-top:4px;padding-top:0;border-top:0}
+.fbcrm-guardar-barra{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px -4px 0;padding:12px 14px;background:var(--tinta);color:#fff;border-radius:14px;box-shadow:0 -4px 20px rgba(23,38,29,.18)}
+.fbcrm-guardar-barra span{flex:1;min-width:150px;font-weight:500}
+.fbcrm .fbcrm-guardar-barra button{background:transparent;color:#fff;border-color:rgba(255,255,255,.35)}
+.fbcrm .fbcrm-guardar-barra .fbcrm-primario{background:#fff;color:var(--tinta);border-color:#fff}
+@media (max-width:760px){.fbcrm-ficha-foto{height:150px}.fbcrm-guardar-barra{bottom:calc(8px + env(safe-area-inset-bottom))}}
+.fbcrm-etapa-sel{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--linea);border-radius:11px;padding:3px 6px 3px 12px;background:var(--papel)}
+.fbcrm-etapa-sel span{font-size:.84rem;color:var(--salvia);font-weight:500}
+.fbcrm .fbcrm-etapa-sel select{width:auto;border:0;padding:6px 8px;border-radius:8px;font-weight:600;box-shadow:none;cursor:pointer}
+.fbcrm-etapa-sel.e-pub select{background:var(--potrero-cl);color:var(--potrero-osc)}
+.fbcrm-etapa-sel.e-cap select{background:var(--cielo-cl);color:var(--cielo)}
+.fbcrm-etapa-sel.e-cer select{background:var(--hoja);color:var(--tinta)}
+.fbcrm-etapa-sel.e-fuera select{background:var(--oxido-cl);color:var(--oxido)}
 `;
