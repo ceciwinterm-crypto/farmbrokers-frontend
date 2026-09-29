@@ -792,7 +792,7 @@ export default function App(){
       "coordLat","coordLon","acceso","aptitud","plantacionDesc","plantacionHas","plantacionesCIREN","recursosHidricos","valorComercial","valorComercialUF",
       "valorFacilVenta","valorFacilVentaUF","prediosGeo"];
     const datos={};campos.forEach(k=>{if(form[k]!==undefined&&form[k]!==null&&typeof form[k]!=="object")datos[k]=form[k];});
-    datos.prediosGeo=form.prediosGeo?"si":"";
+    datos.prediosGeo=(typeof form.prediosGeo==="string"&&form.prediosGeo.length<4000000)?form.prediosGeo:""; // contorno de cada rol, para el plano de la ficha
     datos.roles=(form.roles||[]).map(r=>({rol:r.rol,comuna:r.comuna,datos:{propietario:(r.datos||{}).propietario||"",superfSII:(r.datos||{}).superfSII||"",avaluoFiscal:(r.datos||{}).avaluoFiscal||""}}));
     setAvisoGuardado("Enviando al CRM…");
     try{
