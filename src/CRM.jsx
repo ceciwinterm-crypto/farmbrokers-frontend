@@ -444,6 +444,18 @@ function FichaCampo({ ctx, inicial, cerrar }) {
     if (!window.confirm(`¿Eliminar ${f.nombre} con todo su historial?`)) return;
     try { await api(`/campos/${f.id}`, { method: 'DELETE' }); await cargar(); cerrar(); } catch (e) { setMsg(e.message); }
   };
+  const [redactando, setRedactando] = useState(false);
+  const [msgDesc, setMsgDesc] = useState('');
+  const redactar = async () => {
+    setRedactando(true); setMsgDesc('');
+    try {
+      const r = await api(`/campos/${f.id}/redactar`, { method: 'POST', body: { campo: Object.fromEntries(CAMPOS_EDITABLES.map((k) => [k, f[k]])) } });
+      if (f.descripcionFicha && f.descripcionFicha.trim() && !window.confirm('¿Reemplazar la descripción actual por el texto nuevo?')) { setRedactando(false); return; }
+      setF((x) => ({ ...x, descripcionFicha: r.texto }));
+      setMsgDesc('Texto listo. Revísalo, corrige lo que quieras y guarda.');
+    } catch (e) { setMsgDesc(e.message); }
+    setRedactando(false);
+  };
   const salir = () => { if (sinGuardar && !window.confirm('Tienes cambios sin guardar en la información del campo. ¿Salir igual?')) return; cerrar(); };
   const cap = f.captacion;
   const foto = f.web && f.web.fotos && f.web.fotos[0];
@@ -497,10 +509,13 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           <Campo label="Aptitud" ancho><input value={f.aptitud || ''} onChange={set('aptitud')} placeholder="Ej. paltos, cítricos, uva de mesa" /></Campo>
           <Campo label="Infraestructura" ancho><textarea rows={2} value={f.infraestructura || ''} onChange={set('infraestructura')} placeholder="Ej. Casa patronal 250 m², bodega, galpón, tranque 30.000 m³" /></Campo>
         </div>
-        <p className="fbcrm-seccion fbcrm-lbl-fila">Descripción para la ficha PDF
-          {f.web && f.web.descripcion && f.web.descripcion.length > 0 && <button type="button" className="fbcrm-texto" onClick={() => setF({ ...f, descripcionFicha: f.web.descripcion.join('\n') })}>Copiar desde farmbrokers.cl</button>}
-        </p>
-        <textarea rows={6} aria-label="Descripción para la ficha PDF" value={f.descripcionFicha || ''} onChange={set('descripcionFicha')} placeholder={'Si la dejas vacía, la ficha usa la descripción publicada en farmbrokers.cl.\nUn párrafo por línea. Para destacar un título escribe, por ejemplo, "Suelos: …"'} />
+        <p className="fbcrm-seccion">Descripción para la ficha PDF</p>
+        <div className="fbcrm-desc-acciones">
+          {!esNuevo && <button type="button" className="fbcrm-ia" disabled={redactando} onClick={redactar}>{redactando ? 'Redactando…' : '✨ Redactar con IA'}</button>}
+          {f.web && f.web.descripcion && f.web.descripcion.length > 0 && <button type="button" onClick={() => setF({ ...f, descripcionFicha: f.web.descripcion.join('\n') })}>Copiar desde farmbrokers.cl</button>}
+        </div>
+        <textarea rows={9} aria-label="Descripción para la ficha PDF" value={f.descripcionFicha || ''} onChange={set('descripcionFicha')} placeholder={'Escribe aquí el texto para el cliente, o usa “Redactar con IA” para armarlo con los datos del campo, de la web y de la tasación.\nUn párrafo por línea. Para destacar un título escribe, por ejemplo, "Suelos: …"'} />
+        {msgDesc && <p className="fbcrm-msg" role="status">{msgDesc}</p>}
         <p className="fbcrm-seccion">Propietario</p>
         <div className="fbcrm-form">
           <Campo label="Propietario o contacto" ancho><input value={f.propietario || ''} onChange={set('propietario')} /></Campo>
@@ -1733,6 +1748,7 @@ function resumenWeb(campo, fotosProp) {
   if (w) partes.push(`Desde farmbrokers.cl: ${plural(w.fotos.length, 'foto')}${w.descripcion.length ? ', descripción' : ''}${w.detalle.precio ? ', precio' : ''}.`);
   else partes.push(fotosProp.length ? `Sin publicación en farmbrokers.cl: se usan ${plural(fotosProp.length, 'foto')} subidas al CRM.` : 'Sin link de farmbrokers.cl: agrega el link o sube fotos en el campo.');
   if (campo.descripcionFicha) partes.push('Descripción escrita en el CRM.');
+  else if (!(w && w.descripcion.length)) partes.push('Falta la descripción: en la información del campo usa “✨ Redactar con IA”.');
   if (g) partes.push(`Plano del predio: ${fmtNum(g.areaHa)} ha.`);
   else partes.push(c ? (c.aprox ? 'Ubicación aproximada (centro de la comuna). Sube el KMZ o pega las coordenadas para el punto exacto.' : 'Ubicación exacta, sin plano: sube el KMZ para mostrar el contorno.') : 'Sin ubicación: sube el KMZ o pega las coordenadas en el campo.');
   return partes.join(' ');
@@ -1802,9 +1818,12 @@ function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
     ['Plantaciones', d.plantaciones || c.plantaciones],
     ['Tipo', d.tipo || TIPOS[c.tipo]],
   ].filter(([, v]) => v && String(v).length < 60);
+  const ti = c.tasacionInfo || {};
   const descripcion = c.descripcionFicha ? c.descripcionFicha.split('\n').map((l) => l.trim()).filter(Boolean)
     : w && w.descripcion.length ? w.descripcion
-    : [c.aptitud && `Aptitud: ${c.aptitud}`, c.fuenteAgua && `Fuente de agua: ${c.fuenteAgua}`].filter(Boolean);
+    : [ti.suelos && `Suelos: ${ti.suelos}`, (ti.aguas || c.agua) && `Aguas: ${ti.aguas || c.agua}`, (ti.plantaciones || c.plantaciones) && `Plantaciones: ${ti.plantaciones || c.plantaciones}`,
+      ti.clima && `Clima: ${ti.clima}`, (ti.construcciones || c.infraestructura) && `Infraestructura: ${c.infraestructura || ti.construcciones}`,
+      c.aptitud && `Aptitud: ${c.aptitud}`, (c.acceso || ti.acceso) && `Acceso: ${c.acceso || ti.acceso}`].filter(Boolean);
   const cap = c.captacion && c.captacion.datos;
   const loteos = cap ? cap.predios.filter((p) => p.tipo === 'loteo' && p.lotes) : [];
   const idProp = d.id || c.codigo;
@@ -1821,7 +1840,10 @@ function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
     ['Plantaciones', d.plantaciones || c.plantaciones],
     ['Aptitud', c.aptitud],
     ['Infraestructura', c.infraestructura || (cap && cap.infraestructura)],
-    ['Acceso', c.acceso],
+    ['Acceso', c.acceso || ti.acceso],
+    ['Suelos', ti.suelos],
+    ['Distancia a Santiago', ti.distSantiago],
+    ['Altitud', ti.altitud],
     ['Loteo', loteos.map((p) => `${p.lotes} lotes${p.m2Lote ? ` de ${Number(p.m2Lote).toLocaleString('es-CL')} m²` : ''}${p.planoSAG ? ', con plano de subdivisión aprobado por el SAG' : ''}`).join('; ')],
     ['Rol SII', mostrarRol ? c.rol : ''],
     ['ID de propiedad', idProp],
@@ -2646,4 +2668,7 @@ const CSS = `
 .fbcrm-etapa-sel.e-cap select{background:var(--cielo-cl);color:var(--cielo)}
 .fbcrm-etapa-sel.e-cer select{background:var(--hoja);color:var(--tinta)}
 .fbcrm-etapa-sel.e-fuera select{background:var(--oxido-cl);color:var(--oxido)}
+.fbcrm-desc-acciones{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}
+.fbcrm .fbcrm-ia{background:var(--tinta);color:#fff;border-color:var(--tinta);font-weight:600}
+.fbcrm .fbcrm-ia:hover{background:#000;border-color:#000}
 `;
