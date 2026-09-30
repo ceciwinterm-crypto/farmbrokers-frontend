@@ -790,7 +790,9 @@ export default function App(){
     // Solo se envían los datos del predio: las imágenes quedan en la plataforma
     const campos=["predioNombre","localidad","provincia","region","numTasacion","fechaTasacion","solicitante","email","superfTitulos","superfGoogleEarth",
       "coordLat","coordLon","acceso","aptitud","plantacionDesc","plantacionHas","plantacionesCIREN","recursosHidricos","valorComercial","valorComercialUF",
-      "valorFacilVenta","valorFacilVentaUF","prediosGeo"];
+      "valorFacilVenta","valorFacilVentaUF","prediosGeo",
+      "climaTxt","seriesSuelo","pendiente","profundidad","erosion","drenaje","textura","capacidadUso","construcciones","construccionesLista","instalacionesLista",
+      "usosCIREN","deslindeN","deslindeS","deslindeO","deslindeP","distSantiago","distComuna","altitud","escasezTxt","guiaConclusion"];
     const datos={};campos.forEach(k=>{if(form[k]!==undefined&&form[k]!==null&&typeof form[k]!=="object")datos[k]=form[k];});
     datos.prediosGeo=(typeof form.prediosGeo==="string"&&form.prediosGeo.length<4000000)?form.prediosGeo:""; // contorno de cada rol, para el plano de la ficha
     datos.roles=(form.roles||[]).map(r=>({rol:r.rol,comuna:r.comuna,datos:{propietario:(r.datos||{}).propietario||"",superfSII:(r.datos||{}).superfSII||"",avaluoFiscal:(r.datos||{}).avaluoFiscal||""}}));
