@@ -210,6 +210,9 @@ function Agenda({ ctx, irA, importar }) {
     ...(sy.retirados || []).map((n) => ['Se borró de la web: pasó a Retirado de la web', n]),
     ...(sy.vendidos || []).map((n) => ['Marcado como vendido en la web', n]),
     ...(sy.restaurados || []).map((n) => ['Volvió a publicarse en la web', n]),
+    ...(sy.actualizados || []).map((a) => [`Cambió en la web: ${a.cambios.join('; ')}`, a.nombre]),
+    ...(sy.vinculados || []).map((n) => ['Quedó enlazado con su publicación', n]),
+    ...(sy.creados || []).map((n) => ['Agregado desde la web', n]),
   ].map(([texto, n]) => ({ texto, c: datos.campos.find((x) => x.nombre === n) })).filter((x) => x.c) : [];
   const hace14 = Date.now() - 14 * 864e5;
   const novedades = datos.campos.filter((c) => c.captacion && ['completado', 'tasacion', 'firmado', 'en_progreso'].includes(c.captacion.estado) && new Date(c.captacion.actualizado).getTime() >= hace14 && !(c.captacion.estado === 'firmado' && c.captacion.firmaCorredor))
@@ -260,12 +263,13 @@ function Agenda({ ctx, irA, importar }) {
       {cambiosWeb.length > 0 && (
         <details className="fbcrm-aviso av-web" open>
           <summary><strong>Cambios en farmbrokers.cl</strong> <span>{cambiosWeb.length === 1 ? '1 campo cambió según la web' : `${cambiosWeb.length} campos cambiaron según la web`}, revisión del {fmtFechaHora(datos.sync.fecha)}</span></summary>
-          {cambiosWeb.map(({ c, texto }) => (
+          {cambiosWeb.slice(0, 12).map(({ c, texto }) => (
             <button key={c.id} className="fbcrm-fila" onClick={() => abrir('campos', c)}>
               <span className="fbcrm-cuerpo"><strong>{c.nombre}</strong><small>{texto}</small></span>
               <span className={`fbcrm-badge ${c.etapa === 'Retirado de la web' ? 'est-tasacion' : c.etapa === 'Vendido' ? 'gris' : ''}`}>{c.etapa}</span>
             </button>
           ))}
+          {cambiosWeb.length > 12 && <div className="fbcrm-aviso-cuerpo"><button onClick={() => irA('campos')}>Ver los {cambiosWeb.length} campos en Campos</button></div>}
         </details>
       )}
       {datos.sync && (datos.sync.nuevos || []).length > 0 && (
@@ -482,6 +486,9 @@ function FichaCampo({ ctx, inicial, cerrar }) {
 
       <div className="fbcrm-bloque fbcrm-info">
         <h3>Información del campo</h3>
+        {!esNuevo && /farmbrokers\.cl\/propiedad\//.test(linkWeb || '') && (
+          <p className="fbcrm-enlazado"><Icono n="enlace" s={16} />Enlazado con farmbrokers.cl{f.web && f.web.fecha ? `, actualizado el ${fmtFecha(f.web.fecha)}` : ''}. Superficie, agua, plantaciones, precio, comuna, región y tipo se toman de la web: si los cambias aquí, la próxima revisión los reemplaza.</p>
+        )}
         <p className="fbcrm-seccion">Ubicación</p>
         <div className="fbcrm-form">
           <Campo label="Nombre" ancho><input value={f.nombre || ''} onChange={set('nombre')} placeholder="Ej. Fundo Mahuidanche" /></Campo>
@@ -1978,6 +1985,9 @@ function resumenSync(r) {
   if (r.retirados && r.retirados.length) p.push(`${plural(r.retirados.length, 'campo')} ${r.retirados.length === 1 ? 'pasó' : 'pasaron'} a Retirado de la web (${r.retirados.join(', ')})`);
   if (r.vendidos && r.vendidos.length) p.push(`${plural(r.vendidos.length, 'campo')} ${r.vendidos.length === 1 ? 'pasó' : 'pasaron'} a Vendido (${r.vendidos.join(', ')})`);
   if (r.restaurados && r.restaurados.length) p.push(`${plural(r.restaurados.length, 'campo')} ${r.restaurados.length === 1 ? 'volvió' : 'volvieron'} a publicarse (${r.restaurados.join(', ')})`);
+  if (r.creados && r.creados.length) p.push(`${plural(r.creados.length, 'campo nuevo', 'campos nuevos')} ${r.creados.length === 1 ? 'agregado' : 'agregados'} desde la web`);
+  if (r.vinculados && r.vinculados.length) p.push(`${plural(r.vinculados.length, 'campo')} del CRM ${r.vinculados.length === 1 ? 'quedó enlazado' : 'quedaron enlazados'} con su publicación`);
+  if (r.actualizados && r.actualizados.length) p.push(`${plural(r.actualizados.length, 'campo')} con datos actualizados (${r.actualizados.slice(0, 5).map((a) => a.nombre).join(', ')}${r.actualizados.length > 5 ? '…' : ''})`);
   return p.length ? `${p.join('. ')}.` : 'Todo coincide con la web.';
 }
 function SyncWeb({ ctx }) {
@@ -1985,10 +1995,20 @@ function SyncWeb({ ctx }) {
   const s = datos.sync;
   const [ocupado, setOcupado] = useState('');
   const [msg, setMsg] = useState('');
+  const [esperando, setEsperando] = useState(null); // fecha en que se pidió la revisión
+  const enCurso = !!datos.syncEnCurso || !!esperando;
+  useEffect(() => {
+    if (!enCurso) return undefined;
+    const t = setInterval(cargar, 4000);
+    return () => clearInterval(t);
+  }, [enCurso]);
+  useEffect(() => {
+    if (esperando && !datos.syncEnCurso && s && s.fecha >= esperando) { setEsperando(null); setOcupado(''); setMsg(resumenSync(s)); }
+  }, [datos]);
   const revisar = async () => {
     setOcupado('todo'); setMsg('');
-    try { const r = await api('/sync', { method: 'POST' }); await cargar(); setMsg(resumenSync(r)); } catch (e) { setMsg(e.message); }
-    setOcupado('');
+    const pedido = new Date(Date.now() - 2000).toISOString();
+    try { await api('/sync', { method: 'POST' }); setEsperando(pedido); await cargar(); } catch (e) { setMsg(e.message); setOcupado(''); }
   };
   const agregar = async (n) => {
     setOcupado(n.slug); setMsg('');
@@ -2005,9 +2025,10 @@ function SyncWeb({ ctx }) {
         <span className="fbcrm-sync-ico"><Icono n="enlace" s={20} /></span>
         <div className="fbcrm-sync-txt">
           <strong>Enlazado con farmbrokers.cl</strong>
-          <small>{s ? `Última revisión: ${fmtFechaHora(s.fecha)}${s.publicadas ? `, ${s.publicadas} publicaciones en la web` : ''}. Se revisa sola cada 6 horas.` : 'Todavía no se revisa. La revisión automática corre cada 6 horas.'}</small>
+          <small>{enCurso ? 'Revisando la web ahora. La primera vez puede tardar unos minutos; puedes seguir trabajando.' : s ? `Última revisión: ${fmtFechaHora(s.fecha)}${s.publicadas ? `, ${s.publicadas} publicaciones en la web` : ''}. Se revisa sola cada 6 horas.` : 'Todavía no se revisa. La revisión automática corre cada 6 horas.'}</small>
+          <small>La web manda en superficie, agua, plantaciones, precio, comuna, región, tipo, fotos y descripción: cámbialos en farmbrokers.cl.</small>
         </div>
-        <button onClick={revisar} disabled={!!ocupado}>{ocupado === 'todo' ? 'Revisando…' : 'Revisar ahora'}</button>
+        <button onClick={revisar} disabled={!!ocupado || enCurso}>{enCurso ? 'Revisando…' : 'Revisar ahora'}</button>
       </div>
       {s && s.error && !msg && <p className="fbcrm-sync-error">{s.error}</p>}
       {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
@@ -2671,4 +2692,7 @@ const CSS = `
 .fbcrm-desc-acciones{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}
 .fbcrm .fbcrm-ia{background:var(--tinta);color:#fff;border-color:var(--tinta);font-weight:600}
 .fbcrm .fbcrm-ia:hover{background:#000;border-color:#000}
+.fbcrm-enlazado{display:flex;gap:8px;align-items:flex-start;margin:0 0 12px;background:var(--cielo-cl);color:#234F6E;border-radius:11px;padding:9px 12px;font-size:.88rem}
+.fbcrm-enlazado svg{flex:none;margin-top:2px}
+.fbcrm-sync-txt small+small{margin-top:2px}
 `;
