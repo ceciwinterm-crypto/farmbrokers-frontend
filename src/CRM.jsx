@@ -1174,13 +1174,15 @@ function Impresion({ ctx, imp, cerrar }) {
         <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>
         {campo && variante === 'cliente' && <label className="fbcrm-imp-opcion"><input type="checkbox" checked={mostrarRol} onChange={(e) => setMostrarRol(e.target.checked)} />Mostrar rol SII</label>}
         {campo && variante === 'cliente' && <p className="fbcrm-imp-estado">{estadoWeb || resumenWeb(campo, fotosProp)}</p>}
-        <p>Al presionar “Guardar PDF” se abre la ventana de impresión: elige <strong>Guardar como PDF</strong>. En iPhone, toca Compartir en esa ventana y luego Guardar en Archivos.</p>
+        <p>Al presionar “Guardar PDF” se abre la ventana de impresión: elige <strong>Guardar como PDF</strong>. Si arriba o abajo de la hoja aparecen la fecha o la dirección de la página, abre <strong>Más opciones</strong> y desmarca <strong>Encabezados y pies de página</strong>. En iPhone, toca Compartir en esa ventana y luego Guardar en Archivos.</p>
       </div>
       <article className={`fbcrm-doc ${imp.tipo === 'mandato' ? 'doc-mandato-hoja' : ''} ${campo && variante === 'cliente' ? 'doc-ficha-hoja' : ''}`}>
+        <Marco pie={imp.tipo === 'mandato' ? PIE_MANDATO : <><span>Farm Brokers Chile, farmbrokers.cl, +56 9 7193 9040</span><span>{campo ? `Ficha de propiedad${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo ? ` ${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo}` : ''}` : 'Informe de seguimiento'}</span></>}>
         {imp.tipo === 'mandato'
           ? (mandato ? <DocMandato m={mandato} /> : <p>{errorMandato || 'Preparando el mandato…'}</p>)
           : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} usuario={usuario} mostrarRol={mostrarRol} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
             : imp.tipo === 'campo' ? <p>El campo ya no existe.</p> : <DocInforme datos={datos} usuario={usuario} />}
+        </Marco>
       </article>
     </div>
   );
@@ -1522,7 +1524,7 @@ export function FormularioPropietario({ token }) {
         <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>
         <p>En la ventana de impresión elija <strong>Guardar como PDF</strong>. En iPhone, toque Compartir y luego Guardar en Archivos.</p>
       </div>
-      <article className="fbcrm-doc doc-mandato-hoja"><DocMandato m={mandato} /></article>
+      <article className="fbcrm-doc doc-mandato-hoja"><Marco pie={PIE_MANDATO}><DocMandato m={mandato} /></Marco></article>
     </div>
   );
 
@@ -1815,20 +1817,41 @@ function precioPorHa(c, d, ha) {
   if (clp && clp > 1e6) return `$${Math.round(clp / ha).toLocaleString('es-CL')} por ha`;
   return '';
 }
+const fmtHa = (n) => Number(n).toLocaleString('es-CL', { maximumFractionDigits: 2 });
+function limpiarUbic(t) {
+  const vistos = new Set(), partes = [];
+  for (const p of String(t || '').split(',').map((x) => x.trim()).filter(Boolean)) {
+    const k = p.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^region (de |del )?/, '');
+    if (k === 'chile' || vistos.has(k)) continue;
+    vistos.add(k); partes.push(p);
+  }
+  return partes.join(', ');
+}
+const PIE_MANDATO = <><span>www.farmbrokers.cl</span><span>Phone +569 7193 90 40</span><span>Email: contacto@farmbrokers.cl</span></>;
+function Marco({ pie, children }) {
+  return (
+    <table className="doc-marco">
+      <thead><tr><td><div className="doc-marco-sup" /></td></tr></thead>
+      <tfoot><tr><td><div className="doc-marco-inf">{pie}</div></td></tr></tfoot>
+      <tbody><tr><td>{children}</td></tr></tbody>
+    </table>
+  );
+}
 function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
   const w = c.web || null, d = (w && w.detalle) || {}, g = c.geo || null;
   const fotos = w && w.fotos.length ? w.fotos : fotosProp;
   const coord = coordsDe(c) || (g ? { ...g.centro, aprox: false } : null);
   const titulo = (w && w.titulo) || c.nombre;
-  const ubic = (w && (w.direccion || [w.comuna, w.region].filter(Boolean).join(', '))) || [c.sector, REG_NOMBRE[c.region]].filter(Boolean).join(', ');
+  const ubic = limpiarUbic([(w && w.direccion) || '', (w && w.comuna) || c.sector, (w && w.region) || REG_NOMBRE[c.region]].join(', '));
   const precio = d.precio || fmtPrecio(c);
   const haNum = c.hectareas || numeroDe(d.superficie) || (g && g.areaHa) || null;
   const datosClave = [
-    ['Superficie', d.superficie || (c.hectareas ? `${fmtNum(c.hectareas)} ha` : g ? `${fmtNum(g.areaHa)} ha` : '')],
+    ['Superficie', c.hectareas ? `${fmtHa(c.hectareas)} ha` : d.superficie || (g ? `${fmtHa(g.areaHa)} ha` : '')],
     ['Agua', d.agua || c.agua],
     ['Plantaciones', d.plantaciones || c.plantaciones],
     ['Tipo', d.tipo || TIPOS[c.tipo]],
-  ].filter(([, v]) => v && String(v).length < 60);
+    ['Comuna', (w && w.comuna) || c.sector],
+  ].filter(([, v]) => v && String(v).trim().length <= 22).slice(0, 4);
   const ti = c.tasacionInfo || {};
   const descripcion = c.descripcionFicha ? c.descripcionFicha.split('\n').map((l) => l.trim()).filter(Boolean)
     : w && w.descripcion.length ? w.descripcion
@@ -1840,8 +1863,8 @@ function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
   const idProp = d.id || c.codigo;
   const tecnica = [
     ['Tipo de propiedad', d.tipo || TIPOS[c.tipo]],
-    ['Superficie total', d.superficie || (c.hectareas ? `${fmtNum(c.hectareas)} ha` : '')],
-    ['Superficie según plano', g ? `${fmtNum(g.areaHa)} ha` : ''],
+    ['Superficie total', c.hectareas ? `${fmtHa(c.hectareas)} ha` : d.superficie || ''],
+    ['Superficie según plano', g ? `${fmtHa(g.areaHa)} ha` : ''],
     ['Precio', precio],
     ['Precio por hectárea', precioPorHa(c, d, haNum)],
     ['Comuna', (w && w.comuna) || c.sector],
@@ -1862,15 +1885,18 @@ function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
   const link = (w && w.url) || c.linkWeb || '';
   const gmaps = coord ? `https://maps.google.com/?q=${coord.lat.toFixed(5)},${coord.lng.toFixed(5)}` : '';
   const galeria = fotos.slice(1, 5);
-  const vista = g ? vistaAjustada(g.bbox, 690, 400) : coord ? { z: coord.aprox ? 11 : 15, lat: coord.lat, lng: coord.lng } : null;
+  const vista = g ? vistaAjustada(g.bbox, 690, 300) : coord ? { z: coord.aprox ? 11 : 15, lat: coord.lat, lng: coord.lng } : null;
   const pie = (
     <>
       <footer className="doc-ficha-pie">
-        <div><strong>{usuario}</strong><span>Farm Brokers Chile</span></div>
-        <div><span>+56 9 7193 9040</span><span>contacto@farmbrokers.cl</span></div>
-        <div><span>Estoril 120, of. 615, Las Condes</span>{link && <span>{link.replace(/^https?:\/\//, '')}</span>}</div>
+        <div className="doc-ficha-pie-fila">
+          <strong>{usuario}, Farm Brokers Chile</strong>
+          <span>+56 9 7193 9040</span>
+          <span>contacto@farmbrokers.cl</span>
+          {link && <span>{link.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>}
+        </div>
+        <p className="doc-ficha-legal">Estoril 120, of. 615, Las Condes. Información referencial, sujeta a verificación durante el proceso de compra.</p>
       </footer>
-      <p className="doc-ficha-legal">Información referencial, sujeta a verificación durante el proceso de compra.</p>
     </>
   );
   return (
@@ -1894,21 +1920,22 @@ function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
       </div>
 
       {vista && (
-        <div className="doc-ficha-pag doc-ficha-plano">
+        <div className="doc-ficha-pag"><div className="doc-ficha-plano">
           <h2>{g ? 'Plano y ubicación' : 'Ubicación'}</h2>
-          <MapaTiles lat={vista.lat} lng={vista.lng} z={vista.z} w={690} h={400} fuente="satelite" aprox={!g && coord && coord.aprox} anillos={g && g.anillos} />
+          <MapaTiles lat={vista.lat} lng={vista.lng} z={vista.z} w={690} h={300} fuente="satelite" aprox={!g && coord && coord.aprox} anillos={g && g.anillos} />
           <div className="doc-ficha-ubic-fila">
-            <MapaTiles lat={vista.lat} lng={vista.lng} z={7} w={250} h={190} fuente="mapa" />
+            <MapaTiles lat={vista.lat} lng={vista.lng} z={7} w={250} h={150} fuente="mapa" />
             <dl className="doc-ficha-ubic-datos">
-              {g && <div><dt>Superficie según plano</dt><dd>{fmtNum(g.areaHa)} ha{g.anillos.length > 1 ? `, en ${g.anillos.length} polígonos` : ''}</dd></div>}
+              {g && <div><dt>Superficie según plano</dt><dd>{fmtHa(g.areaHa)} ha{g.anillos.length > 1 ? `, en ${g.anillos.length} polígonos` : ''}</dd></div>}
               {ubic && <div><dt>Ubicación</dt><dd>{ubic}</dd></div>}
               {coord && !coord.aprox && <div><dt>Coordenadas</dt><dd>{coord.lat.toFixed(5)}, {coord.lng.toFixed(5)}</dd></div>}
               {coord && !coord.aprox && <div><dt>Google Maps</dt><dd className="doc-url">{gmaps}</dd></div>}
               {coord && coord.aprox && !g && <div><dt>Nota</dt><dd>Ubicación aproximada en la comuna. La ubicación exacta se entrega en la visita.</dd></div>}
               {c.acceso && <div><dt>Acceso</dt><dd>{c.acceso}</dd></div>}
+              {g && <div className="doc-ficha-ubic-nota">Contorno referencial del predio{g.fuente === 'tasacion' ? ', según cartografía del SII' : ', según plano entregado'}.</div>}
             </dl>
           </div>
-          {g && <p className="doc-ficha-nota">Contorno referencial del predio{g.fuente === 'tasacion' ? ', según cartografía del SII' : ', según plano entregado'}.</p>}
+          </div>
           {pie}
         </div>
       )}
@@ -2354,7 +2381,7 @@ export function FormularioPlano({ token }) {
       <section className="fbcrm-bloque">
         <MapaTiles lat={vista.lat} lng={vista.lng} z={vista.z} w={ancho} h={Math.round(ancho * 0.62)} fuente="satelite" anillos={p.plano.anillos} />
         <dl className="fbcrm-plano-datos">
-          <div><dt>Superficie según plano</dt><dd>{fmtNum(p.plano.areaHa)} ha</dd></div>
+          <div><dt>Superficie según plano</dt><dd>{fmtHa(p.plano.areaHa)} ha</dd></div>
           <div><dt>Coordenadas del centro</dt><dd>{p.plano.centro.lat.toFixed(5)}, {p.plano.centro.lng.toFixed(5)}</dd></div>
         </dl>
         {p.descarga && <div className="fbcrm-prop-pie"><a className="fbcrm-btn-descarga" href={url('/kmz')}>Descargar KMZ</a></div>}
@@ -2660,7 +2687,7 @@ const CSS = `
 .fbcrm-doc .doc-pie span{color:var(--salvia)}
 @media (max-width:600px){.fbcrm-doc{padding:20px 16px}.fbcrm-doc .doc-cols{grid-template-columns:1fr}.fbcrm-doc .doc-check{columns:1}.fbcrm-doc .doc-top{flex-direction:column}.fbcrm-doc .doc-fecha{text-align:left;max-width:none}}
 @media print{
-  @page{size:A4;margin:14mm 13mm}
+  @page{size:A4;margin:0}
   html,body{background:#fff!important}
   .no-print{display:none!important}
   .fbcrm-imp{background:none;padding:0;min-height:0}
@@ -2766,7 +2793,7 @@ const CSS = `
 .doc-certificado p{margin:0 0 4px;text-align:left}
 .doc-certificado p:last-child{margin:0}
 .doc-mandato-pie{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:34px;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:8.5pt;color:#222}
-@media print{.doc-mandato-hoja .doc-mandato-pie{position:fixed;bottom:0;left:0;right:0;margin:0}.doc-mandato-hoja{padding-bottom:10mm!important}.doc-borrador{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+@media print{.doc-mandato-hoja .doc-mandato-pie{display:none}.doc-borrador{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 /* Ficha para cliente */
 .fbcrm-imp-estado{color:var(--potrero-osc)!important;background:var(--potrero-cl);border-radius:10px;padding:8px 12px}
 .doc-ficha{color:#17261D}
@@ -2912,7 +2939,7 @@ const CSS = `
 .doc-ficha-ubic-datos dd{margin:0;font-size:9.6pt;font-weight:500}
 .doc-url{word-break:break-all;font-weight:400!important;font-size:8.5pt!important}
 @media (max-width:760px){.doc-ficha .doc-ficha-tecnica{grid-template-columns:1fr}.doc-ficha-tecnica div:nth-child(odd){border-right:0}.doc-ficha-ubic-fila{flex-direction:column}.doc-ficha-plano .doc-mapa{max-width:100%}}
-@media print{.doc-ficha-hoja .doc-ficha-pag{break-before:page}.doc-ficha .doc-ficha-tecnica{grid-template-columns:1fr 1fr}.doc-ficha-tecnica div:nth-child(odd){border-right:1px solid #E9EEE9}.doc-ficha-ubic-fila{flex-direction:row}.doc-mapa-poly polygon{-webkit-print-color-adjust:exact;print-color-adjust:exact}.doc-ficha-ubic-datos{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+@media print{.doc-ficha .doc-ficha-tecnica{grid-template-columns:1fr 1fr}.doc-ficha-tecnica div:nth-child(odd){border-right:1px solid #E9EEE9}.doc-ficha-ubic-fila{flex-direction:row}.doc-mapa-poly polygon{-webkit-print-color-adjust:exact;print-color-adjust:exact}.doc-ficha-ubic-datos{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 /* Ficha del campo: información primero, mandato como botón */
 .fbcrm-barra-ficha{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}
 .fbcrm .fbcrm-barra-ficha button,.fbcrm-btn-link{display:inline-flex;align-items:center;gap:8px}
@@ -2964,4 +2991,31 @@ const CSS = `
 .fbcrm-btn-descarga{display:inline-flex;align-items:center;background:var(--potrero);color:#fff!important;border-radius:11px;padding:11px 18px;font-weight:600;text-decoration:none;margin-left:auto}
 .fbcrm-btn-descarga:hover{background:var(--potrero-osc)}
 @media (max-width:760px){.fbcrm-kmz-lista li{grid-template-columns:1fr}.fbcrm-plano-datos{grid-template-columns:1fr}}
+/* Marco de página para imprimir: margen arriba y pie de Farm Brokers repetidos en cada hoja */
+.doc-marco{width:100%;border-collapse:collapse;border:0}
+.doc-marco>thead>tr>td,.doc-marco>tfoot>tr>td,.doc-marco>tbody>tr>td{padding:0;border:0;vertical-align:top}
+.doc-marco-sup,.doc-marco-inf{display:none}
+.doc-ficha-plano{break-inside:avoid}
+.doc-ficha-pag>section:first-child h2{margin-top:6px}
+.doc-ficha-tecnica div{break-inside:avoid}
+.doc-ficha-desc p,.doc-ficha-desc .doc-ficha-item{orphans:3;widows:3}
+@media print{
+  .fbcrm-doc{padding:0 14mm!important}
+  .doc-marco-sup{display:block;height:12mm}
+  .doc-marco-inf{display:flex;justify-content:space-between;gap:10px;align-items:center;height:12mm;font-size:7.5pt;color:#5E6E64;border-top:1px solid #DCE3DC;margin-top:4mm}
+  .doc-mandato-hoja .doc-marco-inf{font-family:Georgia,'Times New Roman',serif;font-style:italic;color:#222;border-top:0}
+  .doc-ficha-pag{padding-top:0}
+  .doc-ficha .doc-ficha-hero{height:78mm}
+}
+.doc-ficha-pie .doc-ficha-legal{grid-column:1/-1;margin:4px 0 0;text-align:left;color:rgba(255,255,255,.7);font-size:7.2pt}
+.doc-ficha-ubic-nota{font-size:7.8pt;color:#5E6E64;margin-top:2px}
+.doc-ficha .doc-ficha-ubic-datos{gap:4px;padding:8px 12px}
+.doc-ficha-tecnica div{padding:6px 12px}
+.doc-ficha-pag>section{margin-bottom:12px}
+.doc-ficha-plano h2{margin-top:2px}
+.doc-ficha .doc-ficha-pie{display:block;padding:9px 14px;margin-top:10px}
+.doc-ficha .doc-ficha-pie .doc-ficha-pie-fila{display:flex;flex-direction:row;flex-wrap:wrap;gap:3px 16px;align-items:baseline}
+.doc-ficha-pie-fila span{color:rgba(255,255,255,.85);overflow-wrap:anywhere}
+.doc-ficha .doc-ficha-pie .doc-ficha-legal{margin:3px 0 0}
+@media print{.doc-ficha .doc-ficha-pie{display:block}}
 `;
