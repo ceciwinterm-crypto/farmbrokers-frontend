@@ -337,6 +337,7 @@ function Agenda({ ctx, irA, importar }) {
 
 // ════════════════════════════ Campos ════════════════════════════
 function ListaCampos({ ctx, importar }) {
+  const [kmzMasivo, setKmzMasivo] = useState(false);
   const { datos, abrir, usuario } = ctx;
   const [filtro, setFiltro] = useState('activos');
   const [q, setQ] = useState('');
@@ -377,6 +378,7 @@ function ListaCampos({ ctx, importar }) {
         <div className="fbcrm-chips">{Object.entries(FILTROS).map(([k, [l]]) => <button key={k} className={filtro === k ? 'on' : ''} onClick={() => setFiltro(k)}>{l}</button>)}</div>
         <div className="fbcrm-chips">
           <button onClick={importar}>Importar planilla</button>
+          <button onClick={() => setKmzMasivo(true)}>Subir KMZ de varios campos</button>
           <button className="fbcrm-primario" onClick={() => abrir('campos', { etapa: 'Captación', tipo: 'agricola', responsable: usuario })}>Nuevo campo</button>
         </div>
       </div>
@@ -417,6 +419,7 @@ function ListaCampos({ ctx, importar }) {
           ))}
         </div>
       )}
+      {kmzMasivo && <KmzMasivo ctx={ctx} cerrar={() => setKmzMasivo(false)} />}
     </section>
   );
 }
@@ -545,6 +548,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
       </div>
 
       {!esNuevo && <ArchivosCampo ctx={ctx} campo={f} setCampo={setCampo} />}
+      {!esNuevo && <CompartirPlano ctx={ctx} campo={f} setCampo={setCampo} />}
       {!esNuevo && <Match ctx={ctx} campo={f} setCampo={setCampo} />}
       {!esNuevo && (
         <div className="fbcrm-bloque">
@@ -2119,6 +2123,248 @@ function TasacionesPlataforma({ ctx }) {
   );
 }
 
+// ════════════════════════════ Carga masiva de KMZ ════════════════════════════
+function KmzMasivo({ ctx, cerrar }) {
+  const { datos, api, cargar } = ctx;
+  const [filas, setFilas] = useState([]);
+  const [estado, setEstado] = useState('');
+  const [trabajando, setTrabajando] = useState(false);
+  const campos = useMemo(() => [...datos.campos].filter((c) => c.etapa !== 'Descartado').sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')), [datos.campos]);
+  const leer = async (files) => {
+    const lista = [...files]; if (!lista.length) return;
+    setTrabajando(true); setFilas([]);
+    const res = [];
+    try {
+      for (let i = 0; i < lista.length; i += 8) {
+        setEstado(`Leyendo ${Math.min(i + 8, lista.length)} de ${lista.length} archivos…`);
+        const lote = await Promise.all(lista.slice(i, i + 8).map(async (f) => ({ f, a: await leerArchivo(f, 'kmz') })));
+        const r = await api('/kmz/analizar', { method: 'POST', body: { archivos: lote.map((x) => ({ nombre: x.f.name, base64: x.a.base64 })) } });
+        r.resultados.forEach((x, j) => res.push({ ...x, base64: lote[j].a.base64, campoId: x.sugerencia ? x.sugerencia.campoId : '', estado: '' }));
+        setFilas([...res]);
+      }
+      setEstado('');
+    } catch (e) { setEstado(e.message); }
+    setTrabajando(false);
+  };
+  const cambiar = (i, campoId) => setFilas(filas.map((x, j) => (j === i ? { ...x, campoId } : x)));
+  const listas = filas.filter((x) => x.ok && x.campoId && x.estado !== 'listo');
+  const asignar = async () => {
+    setTrabajando(true);
+    const nuevas = [...filas];
+    for (let i = 0; i < nuevas.length; i++) {
+      const x = nuevas[i]; if (!x.ok || !x.campoId || x.estado === 'listo') continue;
+      setEstado(`Asignando ${x.nombre}…`);
+      try { await api(`/campos/${x.campoId}/archivo`, { method: 'POST', body: { tipo: 'kmz', nombre: x.nombre, mime: 'application/vnd.google-earth.kmz', base64: x.base64 } }); nuevas[i] = { ...x, estado: 'listo' }; }
+      catch (e) { nuevas[i] = { ...x, estado: e.message }; }
+      setFilas([...nuevas]);
+    }
+    setEstado(`Listo: ${plural(nuevas.filter((x) => x.estado === 'listo').length, 'plano asignado', 'planos asignados')}.`);
+    setTrabajando(false); cargar();
+  };
+  const conPlano = (id) => { const c = datos.campos.find((x) => x.id === id); return c && c.geo; };
+  return (
+    <Hoja titulo="Subir KMZ de varios campos" cerrar={cerrar}>
+      <div className="fbcrm-bloque">
+        <p>Elige todos los KMZ o KML juntos. El CRM propone a qué campo corresponde cada uno, según el ID de propiedad o el nombre del campo en el nombre del archivo, o según la ubicación del polígono. Revisa la lista, corrige lo necesario y confirma.</p>
+        <label className="fbcrm-archivo">
+          <input type="file" multiple accept=".kmz,.kml" disabled={trabajando} onChange={(e) => { leer(e.target.files); e.target.value = ''; }} />
+          <span>{filas.length ? 'Elegir otros archivos' : 'Elegir archivos KMZ o KML'}</span>
+        </label>
+        {estado && <p className="fbcrm-msg" role="status">{estado}</p>}
+      </div>
+      {filas.length > 0 && (
+        <div className="fbcrm-bloque">
+          <h3>{plural(filas.length, 'archivo')} <span>{filas.filter((x) => x.ok && x.campoId).length} con campo asignado</span></h3>
+          <ul className="fbcrm-kmz-lista">
+            {filas.map((x, i) => (
+              <li key={i} className={x.estado === 'listo' ? 'listo' : !x.ok ? 'error' : ''}>
+                <div className="fbcrm-kmz-arch"><strong>{x.nombre}</strong>
+                  <small>{x.ok ? `${fmtNum(x.areaHa)} ha${x.poligonos > 1 ? `, ${x.poligonos} polígonos` : ''}${x.nombreInterno ? `, “${x.nombreInterno}”` : ''}` : x.error}</small></div>
+                {x.ok && (
+                  <div className="fbcrm-kmz-campo">
+                    <select value={x.campoId} disabled={trabajando || x.estado === 'listo'} onChange={(e) => cambiar(i, e.target.value)} aria-label={`Campo para ${x.nombre}`}>
+                      <option value="">Elegir campo…</option>
+                      {campos.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.sector ? `, ${c.sector}` : ''}{c.codigo ? ` (${c.codigo})` : ''}</option>)}
+                    </select>
+                    <small>{x.estado === 'listo' ? '✓ Asignado' : x.estado ? x.estado : x.sugerencia && x.campoId === x.sugerencia.campoId ? `Sugerido por ${x.sugerencia.motivo}` : x.campoId ? 'Elegido a mano' : 'Sin sugerencia: elige el campo'}{x.campoId && x.estado !== 'listo' && conPlano(x.campoId) ? '. Reemplaza el plano actual.' : ''}</small>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="fbcrm-acciones">
+            <button className="fbcrm-primario" disabled={trabajando || !listas.length} onClick={asignar}>{trabajando ? 'Trabajando…' : `Asignar ${plural(listas.length, 'plano')}`}</button>
+            <button onClick={cerrar}>Cerrar</button>
+          </div>
+        </div>
+      )}
+    </Hoja>
+  );
+}
+
+// ════════════════════════════ Plano con acuerdo de confidencialidad ════════════════════════════
+const linkPlano = (token) => `${window.location.origin}${window.location.pathname}#plano/${token}`;
+function estadoCompartido(c) {
+  if (!c.activo) return ['Desactivado', 'gris'];
+  if (Date.now() > new Date(c.vence).getTime()) return ['Vencido', 'gris'];
+  if (c.aceptacion) return [(c.descargas || []).length ? `Aceptó y descargó (${c.descargas.length})` : 'Aceptó, sin descargar', 'est-firmado'];
+  return [c.vistas ? 'Abrió el link, sin aceptar' : 'Enviado', 'est-completado'];
+}
+function CompartirPlano({ ctx, campo, setCampo }) {
+  const { datos, api, usuario, cargar } = ctx;
+  const [clienteId, setClienteId] = useState('');
+  const [nombre, setNombre] = useState('');
+  const [email, setEmail] = useState('');
+  const [telefono, setTelefono] = useState('');
+  const [dias, setDias] = useState(15);
+  const [descarga, setDescarga] = useState(true);
+  const [msg, setMsg] = useState('');
+  const [verAcuerdo, setVerAcuerdo] = useState(false);
+  const [texto, setTexto] = useState(datos.acuerdo || '');
+  if (!campo.geo) return (
+    <div className="fbcrm-bloque"><h3>Enviar plano con confidencialidad</h3>
+      <p className="fbcrm-nota-suave">Cuando el campo tenga su KMZ, podrás enviarle el plano a un cliente con un link personal: primero acepta el acuerdo de confidencialidad y después ve el plano y descarga el KMZ con sus datos grabados.</p></div>
+  );
+  const calzan = (datos.matches[campo.id] || []).map((m) => m.clienteId);
+  const opciones = [...datos.clientes].filter((c) => c.etapa === 'Activo').sort((a, b) => (calzan.includes(b.id) - calzan.includes(a.id)) || a.nombre.localeCompare(b.nombre, 'es'));
+  const cli = datos.clientes.find((c) => c.id === clienteId);
+  const titulo = (campo.web && campo.web.titulo) || campo.nombre;
+  const saludoDe = (c) => { const k = c.clienteId && datos.clientes.find((x) => x.id === c.clienteId); const n = k ? k.contactoNombre : c.destinatario; return n ? ` ${String(n).trim().split(' ')[0]}` : ''; };
+  const mensaje = (c) => `Hola${saludoDe(c)}, te comparto el plano de ${titulo}. Es información confidencial: para verlo y descargar el KMZ primero debes aceptar un breve acuerdo de confidencialidad en este link:\n\n${linkPlano(c.token)}\n\nEl link vence el ${fmtFecha(c.vence.slice(0, 10))}.\n\n${usuario}\nFarm Brokers Chile`;
+  const crear = async () => {
+    setMsg('');
+    try {
+      const r = await api(`/campos/${campo.id}/compartir`, { method: 'POST', body: { clienteId, nombre: nombre || (cli ? cli.nombre : ''), email: email || (cli ? emailsDe(cli.email)[0] || '' : ''), telefono: telefono || (cli ? cli.telefono : ''), dias, descarga } });
+      setCampo(r); cargar(); setClienteId(''); setNombre(''); setEmail(''); setTelefono('');
+      setMsg('Link creado. Envíaselo por WhatsApp o correo desde la lista de abajo.');
+    } catch (e) { setMsg(e.message); }
+  };
+  const desactivar = async (c) => {
+    if (!window.confirm(`¿Desactivar el link de ${c.destinatario}? Ya no podrá ver ni descargar el plano.`)) return;
+    try { setCampo(await api(`/campos/${campo.id}/compartir/${c.token}/desactivar`, { method: 'POST' })); cargar(); } catch (e) { setMsg(e.message); }
+  };
+  const guardarAcuerdo = async (t) => {
+    try { const r = await api('/config/acuerdo', { method: 'PUT', body: { texto: t } }); setTexto(r.acuerdo); await cargar(); setMsg(t ? 'Texto del acuerdo guardado. Se usa en todos los links nuevos y en los que aún no se aceptan.' : 'Se restauró el texto base.'); } catch (e) { setMsg(e.message); }
+  };
+  const lista = [...(campo.compartidos || [])].reverse();
+  return (
+    <div className="fbcrm-bloque fbcrm-compartir">
+      <h3>Enviar plano con confidencialidad {lista.length > 0 && <span>{plural(lista.length, 'envío')}</span>}</h3>
+      <p className="fbcrm-nota-suave">El cliente recibe un link personal. Primero acepta el acuerdo con su nombre y RUT; después ve el plano y descarga el KMZ con sus datos grabados.</p>
+      <div className="fbcrm-form">
+        <Campo label="Cliente" ancho>
+          <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+            <option value="">Otra persona (escribe sus datos)</option>
+            {opciones.map((c) => <option key={c.id} value={c.id}>{calzan.includes(c.id) ? '★ ' : ''}{c.nombre}</option>)}
+          </select>
+        </Campo>
+        {!clienteId && <Campo label="Nombre"><input value={nombre} onChange={(e) => setNombre(e.target.value)} /></Campo>}
+        {!clienteId && <Campo label="Teléfono"><input type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} /></Campo>}
+        {!clienteId && <Campo label="Email" ancho><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Campo>}
+        <Campo label="El link vence en (días)"><input type="number" min="1" max="365" value={dias} onChange={(e) => setDias(e.target.value)} /></Campo>
+        <label className="fbcrm-check-linea"><input type="checkbox" checked={descarga} onChange={(e) => setDescarga(e.target.checked)} />Permitir descargar el KMZ</label>
+      </div>
+      <div className="fbcrm-acciones">
+        <button className="fbcrm-primario" disabled={!clienteId && !nombre.trim()} onClick={crear}>Crear link para {cli ? cli.nombre : nombre || 'el cliente'}</button>
+        <button className="fbcrm-texto" onClick={() => setVerAcuerdo(!verAcuerdo)}>{verAcuerdo ? 'Ocultar el texto del acuerdo' : 'Ver o editar el texto del acuerdo'}</button>
+      </div>
+      {verAcuerdo && (
+        <div className="fbcrm-acuerdo-editor">
+          <p className="fbcrm-nota-suave">Borrador basado en la cláusula de confidencialidad de tu mandato: revísalo con tu abogado. Escribe {'{CAMPO}'} donde quieras que aparezca el nombre del campo.</p>
+          <textarea rows={12} value={texto} onChange={(e) => setTexto(e.target.value)} aria-label="Texto del acuerdo de confidencialidad" />
+          <div className="fbcrm-acciones"><button className="fbcrm-primario" onClick={() => guardarAcuerdo(texto)}>Guardar texto</button><button onClick={() => guardarAcuerdo('')}>Restaurar el borrador base</button></div>
+        </div>
+      )}
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+      {lista.length > 0 && (
+        <ul className="fbcrm-envios-plano">
+          {lista.map((c) => {
+            const [est, clase] = estadoCompartido(c);
+            const vigente = c.activo && Date.now() <= new Date(c.vence).getTime();
+            return (
+              <li key={c.token}>
+                <div className="fbcrm-cuerpo">
+                  <strong>{c.destinatario}</strong>
+                  <small>{c.aceptacion ? `Aceptó ${c.aceptacion.nombre}, RUT ${c.aceptacion.rut}, el ${fmtFechaHora(c.aceptacion.fecha)}` : `Creado el ${fmtFecha(c.creado.slice(0, 10))} por ${c.creadoPor}, vence el ${fmtFecha(c.vence.slice(0, 10))}`}</small>
+                </div>
+                <span className={`fbcrm-badge ${clase}`}>{est}</span>
+                {vigente && (
+                  <span className="fbcrm-envio-acc">
+                    <button className="fbcrm-mini" onClick={() => window.open(`https://wa.me/${fonoWa(c.telefono)}?text=${encodeURIComponent(mensaje(c))}`, '_blank', 'noopener')}>WhatsApp</button>
+                    <button className="fbcrm-mini" onClick={() => { window.location.href = `mailto:${c.email || ''}?subject=${encodeURIComponent(`Plano de ${titulo} (confidencial)`)}&body=${encodeURIComponent(mensaje(c))}`; }}>Correo</button>
+                    <button className="fbcrm-mini" onClick={() => navigator.clipboard && navigator.clipboard.writeText(linkPlano(c.token)).then(() => setMsg('Link copiado.'))}>Copiar link</button>
+                    <button className="fbcrm-mini fbcrm-peligro" onClick={() => desactivar(c)}>Desactivar</button>
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// Página que abre el cliente
+export function FormularioPlano({ token }) {
+  const [p, setP] = useState(null);
+  const [error, setError] = useState('');
+  const [f, setF] = useState({ nombre: '', rut: '', email: '', acepto: false });
+  const [aviso, setAviso] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const url = (r) => `${API_BASE}/api/crm/publico-plano/${token}${r}`;
+  useEffect(() => {
+    fetch(url('')).then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Link no válido.'); setP(j); }).catch((e) => setError(e.message));
+  }, []);
+  useEffect(() => { document.title = p ? `Plano de ${p.titulo} - Farm Brokers` : 'Farm Brokers Chile'; }, [p]);
+  const aceptar = async () => {
+    setEnviando(true); setAviso('');
+    try {
+      const r = await fetch(url('/aceptar'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...f, hash: p.hash }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
+      setP(j); window.scrollTo && window.scrollTo(0, 0);
+    } catch (e) { setAviso(e.message); }
+    setEnviando(false);
+  };
+  const ancho = Math.min(typeof window !== 'undefined' ? window.innerWidth - 36 : 700, 820);
+  const caja = (hijos) => (<div className="fbcrm fbcrm-prop"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{hijos[0]}</header><main className="fbcrm-prop-main">{hijos[1]}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 7193 90 40</footer></div>);
+  if (error) return caja([<h1 key="t">Link no disponible</h1>, <p key="m" className="fbcrm-sub">{error}</p>]);
+  if (!p) return caja([<p key="t" className="fbcrm-sub">Cargando…</p>, null]);
+  if (!p.disponible) return caja([<h1 key="t">{p.titulo}</h1>, <section key="m" className="fbcrm-bloque"><h2>El plano no está disponible</h2><p>{p.motivo} Si lo necesitas, escríbenos y te enviamos un link nuevo.</p></section>]);
+  if (!p.aceptacion) return caja([
+    <div key="t"><h1>Plano de {p.titulo}</h1><p className="fbcrm-sub">{p.lugar ? `${p.lugar}. ` : ''}Información confidencial preparada para {p.destinatario}. Para ver el plano y descargar el KMZ, lee y acepta el acuerdo.</p></div>,
+    <section key="m" className="fbcrm-bloque">
+      <h2>Acuerdo de confidencialidad</h2>
+      <div className="fbcrm-acuerdo-texto">{p.acuerdo}</div>
+      {aviso && <p className="fbcrm-error" role="alert">{aviso}</p>}
+      <div className="fbcrm-form fbcrm-sep2">
+        <Campo label="Nombre completo" ancho><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} autoComplete="name" /></Campo>
+        <RutInput label="RUT" value={f.rut} onChange={(x) => setF({ ...f, rut: x })} />
+        <Campo label="Email"><input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} autoComplete="email" /></Campo>
+      </div>
+      <label className="fbcrm-check-linea fbcrm-acepto"><input type="checkbox" checked={f.acepto} onChange={(e) => setF({ ...f, acepto: e.target.checked })} />Leí el acuerdo de confidencialidad y lo acepto. Entiendo que esta aceptación electrónica equivale a mi firma.</label>
+      <div className="fbcrm-prop-pie"><button className="fbcrm-primario" disabled={enviando || !f.acepto || f.nombre.trim().length < 3 || !rutOk(f.rut)} onClick={aceptar}>{enviando ? 'Enviando…' : 'Aceptar y ver el plano'}</button></div>
+    </section>,
+  ]);
+  const vista = vistaAjustada(p.plano.bbox, ancho, Math.round(ancho * 0.62));
+  return caja([
+    <div key="t"><h1>Plano de {p.titulo}</h1><p className="fbcrm-sub">{p.lugar}</p></div>,
+    <>
+      <section className="fbcrm-bloque">
+        <MapaTiles lat={vista.lat} lng={vista.lng} z={vista.z} w={ancho} h={Math.round(ancho * 0.62)} fuente="satelite" anillos={p.plano.anillos} />
+        <dl className="fbcrm-plano-datos">
+          <div><dt>Superficie según plano</dt><dd>{fmtNum(p.plano.areaHa)} ha</dd></div>
+          <div><dt>Coordenadas del centro</dt><dd>{p.plano.centro.lat.toFixed(5)}, {p.plano.centro.lng.toFixed(5)}</dd></div>
+        </dl>
+        {p.descarga && <div className="fbcrm-prop-pie"><a className="fbcrm-btn-descarga" href={url('/kmz')}>Descargar KMZ</a></div>}
+        <p className="fbcrm-nota-suave fbcrm-sep">{p.descarga ? 'El archivo se abre con Google Earth e incluye tus datos, porque es de uso confidencial.' : 'Este plano se entrega solo para ver en línea.'}</p>
+      </section>
+      <p className="fbcrm-nota-suave">Acuerdo aceptado por {p.aceptacion.nombre}, RUT {p.aceptacion.rut}, el {fmtFechaHora(p.aceptacion.fecha)}. Código de verificación {p.aceptacion.codigo}.</p>
+    </>,
+  ]);
+}
+
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap');
 .fbcrm,.fbcrm-imp{--hoja:#F3F6F2;--papel:#FFFFFF;--tinta:#17261D;--salvia:#5E6E64;--linea:#DCE3DC;--linea2:#E9EEE9;
@@ -2695,4 +2941,27 @@ const CSS = `
 .fbcrm-enlazado{display:flex;gap:8px;align-items:flex-start;margin:0 0 12px;background:var(--cielo-cl);color:#234F6E;border-radius:11px;padding:9px 12px;font-size:.88rem}
 .fbcrm-enlazado svg{flex:none;margin-top:2px}
 .fbcrm-sync-txt small+small{margin-top:2px}
+/* KMZ masivo y plano confidencial */
+.fbcrm-kmz-lista{list-style:none;margin:0;padding:0}
+.fbcrm-kmz-lista li{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--linea2);align-items:start}
+.fbcrm-kmz-lista li:last-child{border-bottom:0}
+.fbcrm-kmz-lista li.listo{opacity:.7}
+.fbcrm-kmz-lista li.error .fbcrm-kmz-arch small{color:var(--oxido)}
+.fbcrm-kmz-arch,.fbcrm-kmz-campo{display:flex;flex-direction:column;gap:4px;min-width:0}
+.fbcrm-kmz-arch strong{overflow-wrap:anywhere}
+.fbcrm-kmz-arch small,.fbcrm-kmz-campo small{color:var(--salvia);font-size:.84rem}
+.fbcrm-envios-plano{list-style:none;margin:14px 0 0;padding:0;border-top:1px solid var(--linea2)}
+.fbcrm-envios-plano li{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:11px 0;border-bottom:1px solid var(--linea2)}
+.fbcrm-envios-plano li:last-child{border-bottom:0}
+.fbcrm-envios-plano .fbcrm-cuerpo{min-width:200px}
+.fbcrm-envio-acc{display:flex;gap:6px;flex-wrap:wrap;width:100%}
+.fbcrm-acuerdo-editor{margin-top:12px;border-top:1px solid var(--linea2);padding-top:12px}
+.fbcrm-acuerdo-texto{white-space:pre-wrap;max-height:48vh;overflow-y:auto;border:1px solid var(--linea);border-radius:12px;padding:16px 18px;background:#fff;font-size:.93rem;line-height:1.55}
+.fbcrm-plano-datos{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 0}
+.fbcrm-plano-datos dt{font-size:.82rem;color:var(--salvia)}
+.fbcrm-plano-datos dd{margin:2px 0 0;font-weight:600}
+.fbcrm-prop .doc-mapa{border-radius:12px;max-width:100%}
+.fbcrm-btn-descarga{display:inline-flex;align-items:center;background:var(--potrero);color:#fff!important;border-radius:11px;padding:11px 18px;font-weight:600;text-decoration:none;margin-left:auto}
+.fbcrm-btn-descarga:hover{background:var(--potrero-osc)}
+@media (max-width:760px){.fbcrm-kmz-lista li{grid-template-columns:1fr}.fbcrm-plano-datos{grid-template-columns:1fr}}
 `;
