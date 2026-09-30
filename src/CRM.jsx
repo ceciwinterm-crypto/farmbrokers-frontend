@@ -1,5 +1,5 @@
 // CRM.jsx — Farm Brokers v2: campos, clientes, match automático, tasaciones y seguimiento del equipo
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 // ⚠️ Cambia esta dirección por la URL de tu backend en Railway (la misma que usa la plataforma)
 const API_BASE = 'https://farmbrokers-backend-production.up.railway.app';
@@ -1176,6 +1176,7 @@ function Impresion({ ctx, imp, cerrar }) {
         {campo && variante === 'cliente' && <p className="fbcrm-imp-estado">{estadoWeb || resumenWeb(campo, fotosProp)}</p>}
         <p>Al presionar “Guardar PDF” se abre la ventana de impresión: elige <strong>Guardar como PDF</strong>. Si arriba o abajo de la hoja aparecen la fecha o la dirección de la página, abre <strong>Más opciones</strong> y desmarca <strong>Encabezados y pies de página</strong>. En iPhone, toca Compartir en esa ventana y luego Guardar en Archivos.</p>
       </div>
+      <style>{`@page{size:A4;margin:${campo && variante === 'cliente' && imp.tipo === 'campo' ? '0' : '14mm 0 16mm'}}`}</style>
       <article className={`fbcrm-doc ${imp.tipo === 'mandato' ? 'doc-mandato-hoja' : ''} ${campo && variante === 'cliente' ? 'doc-ficha-hoja' : ''}`}>
         <Marco pie={imp.tipo === 'mandato' ? PIE_MANDATO : <><span>Farm Brokers Chile, farmbrokers.cl, +56 9 7193 9040</span><span>{campo ? `Ficha de propiedad${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo ? ` ${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo}` : ''}` : 'Informe de seguimiento'}</span></>}>
         {imp.tipo === 'mandato'
@@ -1524,7 +1525,8 @@ export function FormularioPropietario({ token }) {
         <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>
         <p>En la ventana de impresión elija <strong>Guardar como PDF</strong>. En iPhone, toque Compartir y luego Guardar en Archivos.</p>
       </div>
-      <article className="fbcrm-doc doc-mandato-hoja"><Marco pie={PIE_MANDATO}><DocMandato m={mandato} /></Marco></article>
+      <style>{'@page{size:A4;margin:14mm 0 16mm}'}</style>
+      <article className="fbcrm-doc doc-mandato-hoja"><DocMandato m={mandato} /></article>
     </div>
   );
 
@@ -1802,10 +1804,70 @@ function MapaTiles({ lat, lng, z, w, h, fuente, aprox, anillos }) {
   );
 }
 function ParrafoFicha({ t }) {
-  const m = t.match(/^[-–•]?\s*([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,24}):\s*(.+)$/);
+  if (/^[•–-]\s*/.test(t)) return <p className="doc-ficha-item">{t.replace(/^[•–-]\s*/, '')}</p>;
+  if (/^[^:]{2,45}:$/.test(t)) return <p className="doc-ficha-sub"><strong>{t}</strong></p>;
+  const m = t.match(/^([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,24}):\s*(.+)$/);
   if (m) return <p><strong>{m[1]}:</strong> {m[2]}</p>;
-  if (/^[-–•]\s*/.test(t)) return <p className="doc-ficha-item">{t.replace(/^[-–•]\s*/, '')}</p>;
   return <p>{t}</p>;
+}
+// Ordena los párrafos que vienen de la web: separa títulos pegados y une "Título:" con su texto
+function prepararDescripcion(lineas) {
+  const etq = /^[A-ZÁÉÍÓÚÑ][^:•]{1,40}:$/;
+  const arr = lineas.flatMap((l) => String(l).replace(/([.;])\s*(?=[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,30}:(\s|$))/g, '$1\n').split('\n')).map((x) => x.trim()).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < arr.length; i++) {
+    const l = arr[i], sig = arr[i + 1];
+    if (etq.test(l) && sig && !etq.test(sig) && !/^[•–-]/.test(sig) && !/:$/.test(sig)) { out.push(`${l} ${sig}`); i++; }
+    else out.push(l);
+  }
+  return out;
+}
+// Valor largo de la ficha técnica: si viene como "– a – b – c" se muestra como lista
+function ValorTecnico({ v }) {
+  const t = String(v).replace(/^\s*(Infraestructura|Plantaciones|Agua)\s*:\s*/i, '').trim();
+  const partes = t.split(/\s+[–—-]\s+/).map((x) => x.replace(/^[–—-]\s*/, '').trim()).filter(Boolean);
+  if (partes.length >= 3) return <ul className="doc-tec-lista">{partes.slice(0, 10).map((x, i) => <li key={i}>{x.length > 140 ? `${x.slice(0, 137)}…` : x}</li>)}</ul>;
+  return <>{t.length > 320 ? `${t.slice(0, 317)}…` : t}</>;
+}
+
+// Reparte bloques en hojas A4 fijas: nada se corta, cualquier navegador imprime igual
+function Paginado({ bloques, pie }) {
+  const medidor = useRef(null);
+  const [paginas, setPaginas] = useState(null);
+  const calcular = () => {
+    const el = medidor.current; if (!el) return;
+    const mm = el.querySelector('.doc-mm').getBoundingClientRect().height / 100;
+    if (!mm) return;
+    const cap = (297 - 12 - 10 - 10) * mm - 2;
+    const alt = [...el.children].filter((h) => h.classList.contains('doc-bloque')).map((h) => h.getBoundingClientRect().height);
+    const pags = [[]]; let usado = 0;
+    bloques.forEach((b, i) => {
+      const h = alt[i] || 0, sig = b.conSiguiente ? (alt[i + 1] || 0) : 0;
+      if (pags[pags.length - 1].length && (b.nuevaHoja || usado + h + sig > cap)) { pags.push([]); usado = 0; }
+      pags[pags.length - 1].push(i); usado += h;
+    });
+    setPaginas(pags);
+  };
+  useLayoutEffect(() => {
+    calcular();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(calcular);
+    const t = setTimeout(calcular, 400);
+    return () => clearTimeout(t);
+  }, [bloques]);
+  return (
+    <>
+      <div ref={medidor} className="doc-medidor" aria-hidden="true">
+        <div className="doc-mm" />
+        {bloques.map((b, i) => <div key={i} className={`doc-bloque ${b.clase || ''}`}>{b.el}</div>)}
+      </div>
+      {(paginas || [bloques.map((_, i) => i)]).map((idx, n, todas) => (
+        <section key={n} className="doc-pagina">
+          <div className="doc-pagina-cuerpo">{idx.map((i) => <div key={i} className={`doc-bloque ${bloques[i].clase || ''}`}>{bloques[i].el}</div>)}</div>
+          <footer className="doc-pagina-pie"><span>{pie}</span><span>Página {n + 1} de {todas.length}</span></footer>
+        </section>
+      ))}
+    </>
+  );
 }
 const numeroDe = (t) => { const m = String(t || '').replace(/\./g, '').replace(',', '.').match(/\d+(\.\d+)?/); return m ? Number(m[0]) : null; };
 function precioPorHa(c, d, ha) {
@@ -1828,15 +1890,7 @@ function limpiarUbic(t) {
   return partes.join(', ');
 }
 const PIE_MANDATO = <><span>www.farmbrokers.cl</span><span>Phone +569 7193 90 40</span><span>Email: contacto@farmbrokers.cl</span></>;
-function Marco({ pie, children }) {
-  return (
-    <table className="doc-marco">
-      <thead><tr><td><div className="doc-marco-sup" /></td></tr></thead>
-      <tfoot><tr><td><div className="doc-marco-inf">{pie}</div></td></tr></tfoot>
-      <tbody><tr><td>{children}</td></tr></tbody>
-    </table>
-  );
-}
+function Marco({ children }) { return <>{children}</>; }
 function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
   const w = c.web || null, d = (w && w.detalle) || {}, g = c.geo || null;
   const fotos = w && w.fotos.length ? w.fotos : fotosProp;
@@ -1853,20 +1907,22 @@ function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
     ['Comuna', (w && w.comuna) || c.sector],
   ].filter(([, v]) => v && String(v).trim().length <= 22).slice(0, 4);
   const ti = c.tasacionInfo || {};
-  const descripcion = c.descripcionFicha ? c.descripcionFicha.split('\n').map((l) => l.trim()).filter(Boolean)
+  const descripcion = prepararDescripcion(c.descripcionFicha ? c.descripcionFicha.split('\n')
     : w && w.descripcion.length ? w.descripcion
     : [ti.suelos && `Suelos: ${ti.suelos}`, (ti.aguas || c.agua) && `Aguas: ${ti.aguas || c.agua}`, (ti.plantaciones || c.plantaciones) && `Plantaciones: ${ti.plantaciones || c.plantaciones}`,
       ti.clima && `Clima: ${ti.clima}`, (ti.construcciones || c.infraestructura) && `Infraestructura: ${c.infraestructura || ti.construcciones}`,
-      c.aptitud && `Aptitud: ${c.aptitud}`, (c.acceso || ti.acceso) && `Acceso: ${c.acceso || ti.acceso}`].filter(Boolean);
+      c.aptitud && `Aptitud: ${c.aptitud}`, (c.acceso || ti.acceso) && `Acceso: ${c.acceso || ti.acceso}`].filter(Boolean));
   const cap = c.captacion && c.captacion.datos;
   const loteos = cap ? cap.predios.filter((p) => p.tipo === 'loteo' && p.lotes) : [];
   const idProp = d.id || c.codigo;
+  const comision = w && w.comision && /\d/.test(w.comision) ? w.comision : '';
   const tecnica = [
     ['Tipo de propiedad', d.tipo || TIPOS[c.tipo]],
     ['Superficie total', c.hectareas ? `${fmtHa(c.hectareas)} ha` : d.superficie || ''],
     ['Superficie según plano', g ? `${fmtHa(g.areaHa)} ha` : ''],
     ['Precio', precio],
     ['Precio por hectárea', precioPorHa(c, d, haNum)],
+    ['Comisión', comision],
     ['Comuna', (w && w.comuna) || c.sector],
     ['Región', (w && w.region) || REG_NOMBRE[c.region]],
     ['Derechos de agua', d.agua || c.agua],
@@ -1884,63 +1940,56 @@ function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
   ].filter(([, v]) => v !== '' && v != null);
   const link = (w && w.url) || c.linkWeb || '';
   const gmaps = coord ? `https://maps.google.com/?q=${coord.lat.toFixed(5)},${coord.lng.toFixed(5)}` : '';
-  const galeria = fotos.slice(1, 5);
-  const vista = g ? vistaAjustada(g.bbox, 690, 300) : coord ? { z: coord.aprox ? 11 : 15, lat: coord.lat, lng: coord.lng } : null;
-  const pie = (
-    <>
-      <footer className="doc-ficha-pie">
-        <div className="doc-ficha-pie-fila">
-          <strong>{usuario}, Farm Brokers Chile</strong>
-          <span>+56 9 7193 9040</span>
-          <span>contacto@farmbrokers.cl</span>
-          {link && <span>{link.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>}
-        </div>
-        <p className="doc-ficha-legal">Estoril 120, of. 615, Las Condes. Información referencial, sujeta a verificación durante el proceso de compra.</p>
-      </footer>
-    </>
-  );
-  return (
-    <div className="doc-ficha">
-      <header className="doc-ficha-top">
-        <img src={LOGO_FB} alt="Farm Brokers Chile" className="doc-ficha-logo" />
-        <div><strong>Ficha de propiedad</strong>{idProp && <span>ID {idProp}</span>}</div>
-      </header>
-      {fotos[0] && <img src={fotos[0]} alt={titulo} className="doc-ficha-hero" />}
-      <div className="doc-ficha-titulo">
-        <div><h1>{titulo}</h1>{ubic && <p>{ubic}</p>}</div>
-        {precio && <div className="doc-ficha-precio"><small>Precio de venta</small><strong>{precio}</strong>{w && w.comision && <small>Comisión {w.comision}</small>}</div>}
-      </div>
-      {datosClave.length > 0 && <dl className="doc-ficha-datos">{datosClave.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
-      {descripcion.length > 0 && <section className="doc-ficha-desc"><h2>Descripción</h2>{descripcion.map((t, i) => <ParrafoFicha key={i} t={t} />)}</section>}
+  const galeria = fotos.slice(1, 7);
+  const vista = g ? vistaAjustada(g.bbox, 690, 330) : coord ? { z: coord.aprox ? 11 : 15, lat: coord.lat, lng: coord.lng } : null;
 
-      <div className="doc-ficha-pag">
-        <section><h2>Ficha técnica</h2><dl className="doc-ficha-tecnica">{tecnica.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl></section>
-        {galeria.length > 0 && <section><h2>Galería</h2><div className={`doc-ficha-galeria n${galeria.length}`}>{galeria.map((f) => <img key={f} src={f} alt="" />)}</div></section>}
-        {!vista && pie}
+  const B = [];
+  const add = (el, o = {}) => B.push({ el, ...o });
+  add(<header className="doc-ficha-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="doc-ficha-logo" /><div><strong>Ficha de propiedad</strong>{idProp && <span>ID {idProp}</span>}</div></header>);
+  if (fotos[0]) add(<img src={fotos[0]} alt={titulo} className="doc-ficha-hero" />);
+  add(<div className="doc-ficha-titulo"><div><h1>{titulo}</h1>{ubic && <p>{ubic}</p>}</div>
+    {precio && <div className="doc-ficha-precio"><small>Precio de venta</small><strong>{precio}</strong>{comision && <small>Comisión {comision}</small>}</div>}</div>);
+  if (datosClave.length) add(<dl className="doc-ficha-datos">{datosClave.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>);
+  if (descripcion.length) {
+    add(<h2 className="doc-h2">Descripción</h2>, { conSiguiente: true });
+    descripcion.forEach((t, i) => add(<div className="doc-ficha-desc"><ParrafoFicha t={t} /></div>, { conSiguiente: /:$/.test(t) && !!descripcion[i + 1] }));
+  }
+  add(<h2 className="doc-h2 doc-h2-sep">Ficha técnica</h2>, { conSiguiente: true });
+  for (let i = 0; i < tecnica.length; i += 2) {
+    const fila = tecnica.slice(i, i + 2);
+    add(<dl className={`doc-tec-fila ${i === 0 ? 'primera' : ''} ${i + 2 >= tecnica.length ? 'ultima' : ''}`}>{fila.map(([k, v]) => <div key={k}><dt>{k}</dt><dd><ValorTecnico v={v} /></dd></div>)}{fila.length === 1 && <div />}</dl>);
+  }
+  if (galeria.length) {
+    add(<h2 className="doc-h2 doc-h2-sep">Galería</h2>, { conSiguiente: true });
+    let resto = galeria;
+    if (galeria.length % 2 === 1) { add(<div className="doc-gal-fila una"><img src={galeria[0]} alt="" /></div>); resto = galeria.slice(1); }
+    for (let i = 0; i < resto.length; i += 2) add(<div className="doc-gal-fila"><img src={resto[i]} alt="" /><img src={resto[i + 1]} alt="" /></div>);
+  }
+  if (vista) {
+    add(<div className="doc-ficha-plano">
+      <h2 className="doc-h2 doc-h2-sep">{g ? 'Plano y ubicación' : 'Ubicación'}</h2>
+      <MapaTiles lat={vista.lat} lng={vista.lng} z={vista.z} w={690} h={330} fuente="satelite" aprox={!g && coord && coord.aprox} anillos={g && g.anillos} />
+      <div className="doc-ficha-ubic-fila">
+        <MapaTiles lat={vista.lat} lng={vista.lng} z={7} w={250} h={160} fuente="mapa" />
+        <dl className="doc-ficha-ubic-datos">
+          {g && <div><dt>Superficie según plano</dt><dd>{fmtHa(g.areaHa)} ha{g.anillos.length > 1 ? `, en ${g.anillos.length} polígonos` : ''}</dd></div>}
+          {ubic && <div><dt>Ubicación</dt><dd>{ubic}</dd></div>}
+          {coord && !coord.aprox && <div><dt>Coordenadas</dt><dd>{coord.lat.toFixed(5)}, {coord.lng.toFixed(5)}</dd></div>}
+          {coord && !coord.aprox && <div><dt>Google Maps</dt><dd className="doc-url">{gmaps}</dd></div>}
+          {coord && coord.aprox && !g && <div><dt>Nota</dt><dd>Ubicación aproximada en la comuna. La ubicación exacta se entrega en la visita.</dd></div>}
+          {g && <div className="doc-ficha-ubic-nota">Contorno referencial del predio{g.fuente === 'tasacion' ? ', según cartografía del SII' : ', según plano entregado'}.</div>}
+        </dl>
       </div>
-
-      {vista && (
-        <div className="doc-ficha-pag"><div className="doc-ficha-plano">
-          <h2>{g ? 'Plano y ubicación' : 'Ubicación'}</h2>
-          <MapaTiles lat={vista.lat} lng={vista.lng} z={vista.z} w={690} h={300} fuente="satelite" aprox={!g && coord && coord.aprox} anillos={g && g.anillos} />
-          <div className="doc-ficha-ubic-fila">
-            <MapaTiles lat={vista.lat} lng={vista.lng} z={7} w={250} h={150} fuente="mapa" />
-            <dl className="doc-ficha-ubic-datos">
-              {g && <div><dt>Superficie según plano</dt><dd>{fmtHa(g.areaHa)} ha{g.anillos.length > 1 ? `, en ${g.anillos.length} polígonos` : ''}</dd></div>}
-              {ubic && <div><dt>Ubicación</dt><dd>{ubic}</dd></div>}
-              {coord && !coord.aprox && <div><dt>Coordenadas</dt><dd>{coord.lat.toFixed(5)}, {coord.lng.toFixed(5)}</dd></div>}
-              {coord && !coord.aprox && <div><dt>Google Maps</dt><dd className="doc-url">{gmaps}</dd></div>}
-              {coord && coord.aprox && !g && <div><dt>Nota</dt><dd>Ubicación aproximada en la comuna. La ubicación exacta se entrega en la visita.</dd></div>}
-              {c.acceso && <div><dt>Acceso</dt><dd>{c.acceso}</dd></div>}
-              {g && <div className="doc-ficha-ubic-nota">Contorno referencial del predio{g.fuente === 'tasacion' ? ', según cartografía del SII' : ', según plano entregado'}.</div>}
-            </dl>
-          </div>
-          </div>
-          {pie}
-        </div>
-      )}
+    </div>);
+  }
+  add(<footer className="doc-ficha-pie">
+    <div className="doc-ficha-pie-fila">
+      <strong>{usuario}, Farm Brokers Chile</strong><span>+56 9 7193 9040</span><span>contacto@farmbrokers.cl</span>
+      {link && <span>{link.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>}
     </div>
-  );
+    <p className="doc-ficha-legal">Estoril 120, of. 615, Las Condes. Información referencial, sujeta a verificación durante el proceso de compra.</p>
+  </footer>);
+  return <div className="doc-ficha"><Paginado bloques={B} pie={`Farm Brokers Chile, farmbrokers.cl${idProp ? `. Ficha ${idProp}` : ''}`} /></div>;
 }
 
 // ════════════════════════════ Archivos del campo (equipo y propietario) ════════════════════════════
@@ -2687,7 +2736,6 @@ const CSS = `
 .fbcrm-doc .doc-pie span{color:var(--salvia)}
 @media (max-width:600px){.fbcrm-doc{padding:20px 16px}.fbcrm-doc .doc-cols{grid-template-columns:1fr}.fbcrm-doc .doc-check{columns:1}.fbcrm-doc .doc-top{flex-direction:column}.fbcrm-doc .doc-fecha{text-align:left;max-width:none}}
 @media print{
-  @page{size:A4;margin:0}
   html,body{background:#fff!important}
   .no-print{display:none!important}
   .fbcrm-imp{background:none;padding:0;min-height:0}
@@ -2793,7 +2841,7 @@ const CSS = `
 .doc-certificado p{margin:0 0 4px;text-align:left}
 .doc-certificado p:last-child{margin:0}
 .doc-mandato-pie{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:34px;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:8.5pt;color:#222}
-@media print{.doc-mandato-hoja .doc-mandato-pie{display:none}.doc-borrador{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+@media print{.doc-borrador{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 /* Ficha para cliente */
 .fbcrm-imp-estado{color:var(--potrero-osc)!important;background:var(--potrero-cl);border-radius:10px;padding:8px 12px}
 .doc-ficha{color:#17261D}
@@ -3018,4 +3066,47 @@ const CSS = `
 .doc-ficha-pie-fila span{color:rgba(255,255,255,.85);overflow-wrap:anywhere}
 .doc-ficha .doc-ficha-pie .doc-ficha-legal{margin:3px 0 0}
 @media print{.doc-ficha .doc-ficha-pie{display:block}}
+/* Ficha armada en hojas A4 fijas */
+.doc-medidor{position:absolute;left:-10000px;top:0;width:182mm;visibility:hidden;pointer-events:none}
+.doc-mm{height:100mm;width:1px}
+.doc-bloque{display:flow-root}
+.fbcrm-doc.doc-ficha-hoja{background:none;box-shadow:none;padding:0!important;max-width:none;border-radius:0}
+.doc-pagina{width:210mm;height:297mm;margin:0 auto 18px;background:#fff;box-shadow:0 2px 12px rgba(23,38,29,.12);padding:12mm 14mm 0;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.doc-pagina-cuerpo{flex:1;min-height:0}
+.doc-pagina-pie{height:10mm;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #DCE3DC;font-size:7.5pt;color:#5E6E64;margin-bottom:5mm}
+.fbcrm-imp:has(.doc-pagina){overflow-x:auto}
+.doc-ficha .doc-h2{font-size:12pt;margin:14px 0 8px;color:#1F4D31;font-weight:600;border:0;padding:0}
+.doc-ficha .doc-h2-sep{margin-top:18px}
+.doc-ficha-top{margin-bottom:12px}
+.doc-ficha-desc p{margin:0 0 6px;font-size:9.8pt;line-height:1.5;text-align:left}
+.doc-ficha-sub{margin:8px 0 3px!important}
+.doc-ficha-sub strong{color:#1F4D31}
+.doc-ficha-item{padding-left:16px;position:relative;margin-bottom:3px!important}
+.doc-ficha-item::before{content:'';position:absolute;left:5px;top:.6em;width:5px;height:5px;border-radius:99px;background:#2D6A45}
+.fbcrm-doc .doc-tec-fila{display:grid;grid-template-columns:1fr 1fr;gap:0;margin:0;padding:0;background:#fff;border:1px solid #DCE3DC;border-top:0;border-radius:0}
+.fbcrm-doc .doc-tec-fila.primera{border-top:1px solid #DCE3DC;border-radius:8px 8px 0 0}
+.fbcrm-doc .doc-tec-fila.ultima{border-radius:0 0 8px 8px}
+.fbcrm-doc .doc-tec-fila.primera.ultima{border-radius:8px}
+.fbcrm-doc .doc-tec-fila>div{padding:7px 12px;min-width:0}
+.doc-tec-fila>div:first-child{border-right:1px solid #E9EEE9}
+.fbcrm-doc .doc-tec-fila dt{font-size:8.3pt;color:#5E6E64}
+.fbcrm-doc .doc-tec-fila dd{font-size:9.8pt;font-weight:500;margin:1px 0 0;color:#17261D;word-break:normal;overflow-wrap:anywhere}
+.doc-tec-lista{margin:2px 0 0;padding-left:15px;list-style:disc}
+.doc-tec-lista li{margin:0 0 2px;font-size:9.2pt}
+.doc-gal-fila{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.doc-gal-fila img{width:100%;height:56mm;object-fit:cover;border-radius:5px;display:block}
+.doc-gal-fila.una{grid-template-columns:1fr}
+.doc-gal-fila.una img{height:70mm}
+.doc-ficha .doc-ficha-plano .doc-mapa{margin-bottom:8px}
+@media print{
+  .fbcrm-imp{padding:0!important}
+  .doc-medidor{display:none}
+  .doc-pagina{margin:0;box-shadow:none;break-after:page;page-break-after:always}
+  .doc-pagina:last-child{break-after:auto;page-break-after:auto}
+  .fbcrm-doc.doc-ficha-hoja{margin:0}
+}
+@media (max-width:760px){.fbcrm-imp:has(.doc-pagina) .fbcrm-imp-barra{max-width:none}}
+.doc-pagina-cuerpo>.doc-bloque:first-child .doc-tec-fila{border-top:1px solid #DCE3DC;border-radius:8px 8px 0 0}
+.doc-pagina-cuerpo>.doc-bloque:first-child .doc-tec-fila.ultima{border-radius:8px}
+.doc-pagina-cuerpo>.doc-bloque:first-child>.doc-ficha-desc p,.doc-pagina-cuerpo>.doc-bloque:first-child>.doc-h2{margin-top:0}
 `;
