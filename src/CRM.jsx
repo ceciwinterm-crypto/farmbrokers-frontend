@@ -1122,6 +1122,7 @@ function Impresion({ ctx, imp, cerrar }) {
   const { datos, usuario } = ctx;
   const [variante, setVariante] = useState('cliente');
   const [mostrarRol, setMostrarRol] = useState(false);
+  const [generando, setGenerando] = useState('');
   const campoBase = imp.tipo === 'campo' ? datos.campos.find((c) => c.id === imp.id) : null;
   const [campoWeb, setCampoWeb] = useState(null);
   const campo = campoWeb || campoBase;
@@ -1135,7 +1136,7 @@ function Impresion({ ctx, imp, cerrar }) {
   useEffect(() => {
     if (!campoBase) return;
     const tieneLink = [campoBase.linkWeb, campoBase.linkPortal].some((u) => /^https:\/\/(www\.)?farmbrokers\.cl\/propiedad\//.test(String(u || '').trim()));
-    const viejo = !campoBase.web || Date.now() - new Date(campoBase.web.fecha).getTime() > 3 * 864e5;
+    const viejo = !campoBase.web || Date.now() - new Date(campoBase.web.fecha).getTime() > 3 * 864e5 || (campoBase.web.descripcion || []).some((l) => /<|class=/.test(l));
     if (tieneLink && viejo) traerWeb();
     const fotos = (campoBase.archivos || []).filter((a) => a.tipo === 'foto').slice(0, 8);
     Promise.all(fotos.map((a) => fetch(`${API_BASE}/api/crm/campos/${campoBase.id}/archivos/${a.id}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(usuario) } })
@@ -1171,10 +1172,17 @@ function Impresion({ ctx, imp, cerrar }) {
           </div>
         )}
         {campo && <button onClick={traerWeb} disabled={!!estadoWeb && estadoWeb.startsWith('Trayendo')}>Actualizar desde farmbrokers.cl</button>}
-        <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>
+        {campo && variante === 'cliente' && imp.tipo === 'campo'
+          ? <button className="fbcrm-primario" disabled={!!generando} onClick={async () => {
+              try { await descargarFichaPDF(`Ficha ${((campo.web && campo.web.titulo) || campo.nombre).replace(/[\\/:*?"<>|]/g, '')} - Farm Brokers.pdf`, setGenerando); } catch (e) { alert(e.message); }
+              setGenerando('');
+            }}>{generando || 'Descargar PDF'}</button>
+          : <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>}
         {campo && variante === 'cliente' && <label className="fbcrm-imp-opcion"><input type="checkbox" checked={mostrarRol} onChange={(e) => setMostrarRol(e.target.checked)} />Mostrar rol SII</label>}
         {campo && variante === 'cliente' && <p className="fbcrm-imp-estado">{estadoWeb || resumenWeb(campo, fotosProp)}</p>}
-        <p>Al presionar “Guardar PDF” se abre la ventana de impresión: elige <strong>Guardar como PDF</strong>. Si arriba o abajo de la hoja aparecen la fecha o la dirección de la página, abre <strong>Más opciones</strong> y desmarca <strong>Encabezados y pies de página</strong>. En iPhone, toca Compartir en esa ventana y luego Guardar en Archivos.</p>
+        {campo && variante === 'cliente' && imp.tipo === 'campo'
+          ? <p>“Descargar PDF” arma el archivo con las mismas páginas que ves abajo y lo descarga directo, sin pasar por la ventana de impresión.</p>
+          : <p>Al presionar “Guardar PDF” se abre la ventana de impresión: elige <strong>Guardar como PDF</strong>. Si arriba o abajo de la hoja aparecen la fecha o la dirección de la página, abre <strong>Más opciones</strong> y desmarca <strong>Encabezados y pies de página</strong>. En iPhone, toca Compartir en esa ventana y luego Guardar en Archivos.</p>}
       </div>
       <style>{`@page{size:A4;margin:${campo && variante === 'cliente' && imp.tipo === 'campo' ? '0' : '14mm 0 16mm'}}`}</style>
       <article className={`fbcrm-doc ${imp.tipo === 'mandato' ? 'doc-mandato-hoja' : ''} ${campo && variante === 'cliente' ? 'doc-ficha-hoja' : ''}`}>
@@ -1745,6 +1753,41 @@ export function FormularioPropietario({ token }) {
 }
 
 // ════════════════════════════ Ficha para cliente (datos de farmbrokers.cl) ════════════════════════════
+const HOSTS_PUENTE = /^https:\/\/((www\.)?farmbrokers\.cl|server\.arcgisonline\.com|([abc]\.)?tile\.openstreetmap\.org)\//;
+const prox = (u) => (HOSTS_PUENTE.test(u || '') ? `${API_BASE}/api/crm/publico-img?u=${encodeURIComponent(u)}` : u);
+const Foto = ({ src, clase, alt }) => <div className={clase} role="img" aria-label={alt || ''} style={{ backgroundImage: `url("${prox(src)}")` }} />;
+function cargarScript(src, nombre) {
+  if (window[nombre]) return Promise.resolve(window[nombre]);
+  return new Promise((ok, mal) => {
+    const el = document.createElement('script'); el.src = src; el.crossOrigin = 'anonymous';
+    el.onload = () => ok(window[nombre]); el.onerror = () => mal(new Error('No se pudo cargar el generador de PDF. Revisa tu conexión a internet.'));
+    document.head.appendChild(el);
+  });
+}
+async function esperarImagenesDe(raiz) {
+  const urls = new Set([...raiz.querySelectorAll('img')].map((i) => i.src));
+  raiz.querySelectorAll('[style*="background-image"]').forEach((el) => { const m = el.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/); if (m) urls.add(m[1]); });
+  await Promise.all([...urls].map((u) => new Promise((r) => { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = r; im.onerror = r; im.src = u; setTimeout(r, 12000); })));
+}
+// Arma el PDF página por página (igual a lo que se ve en pantalla) y lo descarga
+async function descargarFichaPDF(nombre, avance) {
+  avance('Preparando…');
+  await cargarScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', 'html2canvas');
+  await cargarScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'jspdf');
+  const paginas = [...document.querySelectorAll('.doc-pagina')];
+  if (!paginas.length) throw new Error('No hay páginas para descargar.');
+  avance('Cargando fotos y mapas…');
+  await esperarImagenesDe(document.querySelector('.fbcrm-doc') || document.body);
+  if (document.fonts && document.fonts.ready) await document.fonts.ready;
+  const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', compress: true });
+  for (let i = 0; i < paginas.length; i++) {
+    avance(`Armando página ${i + 1} de ${paginas.length}…`);
+    const lienzo = await window.html2canvas(paginas[i], { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, windowWidth: 1280, scrollX: 0, scrollY: -window.scrollY });
+    if (i) pdf.addPage();
+    pdf.addImage(lienzo.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+  }
+  pdf.save(nombre);
+}
 async function imprimirConImagenes() {
   const imgs = [...document.querySelectorAll('.fbcrm-doc img')];
   await Promise.all(imgs.map((i) => (i.complete ? null : new Promise((r) => { i.addEventListener('load', r); i.addEventListener('error', r); setTimeout(r, 10000); }))));
@@ -1788,7 +1831,7 @@ function MapaTiles({ lat, lng, z, w, h, fuente, aprox, anillos }) {
   const tiles = [];
   for (let tx = Math.floor(x0 / 256); tx <= Math.floor((x0 + w) / 256); tx++)
     for (let ty = Math.floor(y0 / 256); ty <= Math.floor((y0 + h) / 256); ty++)
-      if (ty >= 0 && ty < max) tiles.push(<img key={`${tx}-${ty}`} src={TILES[fuente](z, ((tx % max) + max) % max, ty)} alt="" style={{ left: tx * 256 - x0, top: ty * 256 - y0 }} />);
+      if (ty >= 0 && ty < max) tiles.push(<img key={`${tx}-${ty}`} src={prox(TILES[fuente](z, ((tx % max) + max) % max, ty))} crossOrigin="anonymous" alt="" style={{ left: tx * 256 - x0, top: ty * 256 - y0 }} />);
   return (
     <div className="doc-mapa" style={{ width: w, height: h }}>
       {tiles}
@@ -1796,8 +1839,8 @@ function MapaTiles({ lat, lng, z, w, h, fuente, aprox, anillos }) {
         <svg className="doc-mapa-poly" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
           {anillos.map((a, i) => <polygon key={i} points={a.map(([x, y]) => `${(lng2x(x, z) - x0).toFixed(1)},${(lat2y(y, z) - y0).toFixed(1)}`).join(' ')} />)}
         </svg>
-      ) : aprox && z >= 10 ? <span className="doc-mapa-zona" /> : (
-        <svg className="doc-mapa-pin" width="30" height="40" viewBox="0 0 30 40" aria-hidden="true"><path d="M15 39C15 39 28 23.5 28 14A13 13 0 0 0 2 14c0 9.5 13 25 13 25z" fill="#B4452A" stroke="#fff" strokeWidth="2" /><circle cx="15" cy="14" r="5" fill="#fff" /></svg>
+      ) : aprox && z >= 10 ? <span className="doc-mapa-zona" style={{ left: w / 2 - 60, top: h / 2 - 60, transform: 'none' }} /> : (
+        <span className="doc-pin" style={{ left: w / 2 - 12, top: h / 2 - 34 }} aria-hidden="true" />
       )}
       <span className="doc-mapa-cred">{fuente === 'satelite' ? 'Imágenes © Esri, Maxar' : '© OpenStreetMap'}</span>
     </div>
@@ -1813,7 +1856,7 @@ function ParrafoFicha({ t }) {
 // Ordena los párrafos que vienen de la web: separa títulos pegados y une "Título:" con su texto
 function prepararDescripcion(lineas) {
   const etq = /^[A-ZÁÉÍÓÚÑ][^:•]{1,40}:$/;
-  const arr = lineas.flatMap((l) => String(l).replace(/([.;])\s*(?=[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,30}:(\s|$))/g, '$1\n').split('\n')).map((x) => x.trim()).filter(Boolean);
+  const arr = lineas.filter((l) => !/<\/?[a-z][^>]*|class=["']/i.test(String(l))).flatMap((l) => String(l).replace(/([.;])\s*(?=[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,30}:(\s|$))/g, '$1\n').split('\n')).map((x) => x.trim()).filter(Boolean);
   const out = [];
   for (let i = 0; i < arr.length; i++) {
     const l = arr[i], sig = arr[i + 1];
@@ -1946,7 +1989,7 @@ function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
   const B = [];
   const add = (el, o = {}) => B.push({ el, ...o });
   add(<header className="doc-ficha-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="doc-ficha-logo" /><div><strong>Ficha de propiedad</strong>{idProp && <span>ID {idProp}</span>}</div></header>);
-  if (fotos[0]) add(<img src={fotos[0]} alt={titulo} className="doc-ficha-hero" />);
+  if (fotos[0]) add(<Foto src={fotos[0]} clase="doc-ficha-hero" alt={titulo} />);
   add(<div className="doc-ficha-titulo"><div><h1>{titulo}</h1>{ubic && <p>{ubic}</p>}</div>
     {precio && <div className="doc-ficha-precio"><small>Precio de venta</small><strong>{precio}</strong>{comision && <small>Comisión {comision}</small>}</div>}</div>);
   if (datosClave.length) add(<dl className="doc-ficha-datos">{datosClave.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>);
@@ -1962,8 +2005,8 @@ function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
   if (galeria.length) {
     add(<h2 className="doc-h2 doc-h2-sep">Galería</h2>, { conSiguiente: true });
     let resto = galeria;
-    if (galeria.length % 2 === 1) { add(<div className="doc-gal-fila una"><img src={galeria[0]} alt="" /></div>); resto = galeria.slice(1); }
-    for (let i = 0; i < resto.length; i += 2) add(<div className="doc-gal-fila"><img src={resto[i]} alt="" /><img src={resto[i + 1]} alt="" /></div>);
+    if (galeria.length % 2 === 1) { add(<div className="doc-gal-fila una"><Foto src={galeria[0]} clase="doc-foto" /></div>); resto = galeria.slice(1); }
+    for (let i = 0; i < resto.length; i += 2) add(<div className="doc-gal-fila"><Foto src={resto[i]} clase="doc-foto" /><Foto src={resto[i + 1]} clase="doc-foto" /></div>);
   }
   if (vista) {
     add(<div className="doc-ficha-plano">
@@ -2886,7 +2929,6 @@ const CSS = `
 .doc-ficha-pie div{display:flex;flex-direction:column;gap:1px;min-width:0}
 .doc-ficha-pie span{color:rgba(255,255,255,.82);overflow-wrap:anywhere}
 .doc-ficha-legal{font-size:7.5pt;color:#5E6E64;margin:8px 0 0;text-align:center}
-@media (max-width:760px){.doc-ficha .doc-ficha-datos{grid-template-columns:1fr 1fr}.doc-ficha-datos div:nth-child(2){border-right:0}.doc-ficha-titulo{flex-direction:column}.doc-ficha-precio{align-items:flex-start;text-align:left}.doc-ficha-mapas{flex-direction:column}.doc-ficha-pie{grid-template-columns:1fr}.doc-ficha-hero{height:56vw}}
 @media print{.doc-ficha-hoja .doc-ficha-pie,.doc-ficha-hoja .doc-mapa-cred{-webkit-print-color-adjust:exact;print-color-adjust:exact}.doc-ficha .doc-ficha-datos{grid-template-columns:repeat(4,1fr)}.doc-ficha-titulo{flex-direction:row}.doc-ficha-mapas{flex-direction:row}.doc-ficha-pie{grid-template-columns:repeat(3,1fr)}.doc-ficha-hero{height:82mm}}
 /* Enlace con la web */
 .fbcrm-aviso.av-web{--c:var(--cielo)}
@@ -2986,7 +3028,6 @@ const CSS = `
 .doc-ficha-ubic-datos dt{font-size:8.3pt;color:#5E6E64}
 .doc-ficha-ubic-datos dd{margin:0;font-size:9.6pt;font-weight:500}
 .doc-url{word-break:break-all;font-weight:400!important;font-size:8.5pt!important}
-@media (max-width:760px){.doc-ficha .doc-ficha-tecnica{grid-template-columns:1fr}.doc-ficha-tecnica div:nth-child(odd){border-right:0}.doc-ficha-ubic-fila{flex-direction:column}.doc-ficha-plano .doc-mapa{max-width:100%}}
 @media print{.doc-ficha .doc-ficha-tecnica{grid-template-columns:1fr 1fr}.doc-ficha-tecnica div:nth-child(odd){border-right:1px solid #E9EEE9}.doc-ficha-ubic-fila{flex-direction:row}.doc-mapa-poly polygon{-webkit-print-color-adjust:exact;print-color-adjust:exact}.doc-ficha-ubic-datos{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 /* Ficha del campo: información primero, mandato como botón */
 .fbcrm-barra-ficha{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}
@@ -3109,4 +3150,11 @@ const CSS = `
 .doc-pagina-cuerpo>.doc-bloque:first-child .doc-tec-fila{border-top:1px solid #DCE3DC;border-radius:8px 8px 0 0}
 .doc-pagina-cuerpo>.doc-bloque:first-child .doc-tec-fila.ultima{border-radius:8px}
 .doc-pagina-cuerpo>.doc-bloque:first-child>.doc-ficha-desc p,.doc-pagina-cuerpo>.doc-bloque:first-child>.doc-h2{margin-top:0}
+/* Fotos como fondo para el PDF */
+.doc-ficha-hero,.doc-foto{background-size:cover;background-position:center;background-repeat:no-repeat;background-color:#E3EEE6}
+.doc-ficha .doc-ficha-hero{width:100%;height:82mm;border-radius:6px}
+.doc-gal-fila .doc-foto{width:100%;height:56mm;border-radius:5px}
+.doc-gal-fila.una .doc-foto{height:70mm}
+.doc-pin{position:absolute;width:24px;height:24px;background:#B4452A;border:2.5px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-sizing:border-box}
+.doc-pin::after{content:'';position:absolute;left:5px;top:5px;width:9px;height:9px;border-radius:50%;background:#fff}
 `;
