@@ -92,7 +92,11 @@ export default function CRM() {
   const api = useApi(clave, usuario);
 
   const cargar = async () => {
-    try { setError(''); const d = await api('/'); if (d.tipos) Object.assign(TIPOS, d.tipos); setDatos(d); }
+    try {
+      setError(''); const d = await api('/'); if (d.tipos) Object.assign(TIPOS, d.tipos);
+      if (d.alias && d.alias[usuario] && d.alias[usuario] !== usuario) { guardarLocal('fbcrm_usuario', d.alias[usuario]); setUsuario(d.alias[usuario]); }
+      setDatos(d);
+    }
     catch (e) { setError(e.message); if (/clave/i.test(e.message)) { setClave(''); guardarLocal('fbcrm_clave', ''); } }
   };
   useEffect(() => { if (clave && usuario) cargar(); }, [clave, usuario]);
@@ -870,6 +874,8 @@ function Actividad({ ctx }) {
   if (!datos.actividad.length) return <p className="fbcrm-vacio">Todavía no hay actividad. Aquí verás lo que hace cada persona del equipo: cambios de etapa, envíos, documentos y notas.</p>;
   const ir = (ref) => { if (!ref) return; const x = (datos[ref.col] || []).find((y) => y.id === ref.id); if (x) abrir(ref.col, x); };
   return (
+    <>
+    <Equipo ctx={ctx} />
     <ul className="fbcrm-feed">
       {datos.actividad.map((a, i) => (
         <li key={i}>
@@ -881,6 +887,36 @@ function Actividad({ ctx }) {
         </li>
       ))}
     </ul>
+    </>
+  );
+}
+
+function Equipo({ ctx }) {
+  const { datos, api, cargar, usuario } = ctx;
+  const [msg, setMsg] = useState('');
+  const personas = datos.equipo || [];
+  if (!personas.length) return null;
+  const renombrar = async (de) => {
+    const a = (window.prompt(`Nombre nuevo para “${de}”. Se cambiará en todo el historial del CRM.`, de) || '').trim();
+    if (!a || a === de) return;
+    try { const r = await api('/equipo/renombrar', { method: 'POST', body: { de, a } }); await cargar(); setMsg(`Listo: “${de}” ahora es “${a}” en ${plural(r.cambiados, 'registro')}. Lo que haga desde ahora también quedará con el nombre nuevo.`); }
+    catch (e) { setMsg(e.message); }
+  };
+  return (
+    <div className="fbcrm-bloque fbcrm-equipo">
+      <h3>Equipo <span>{plural(personas.length, 'persona')}</span></h3>
+      <p className="fbcrm-nota-suave">Cada persona aparece con el nombre que escribió al entrar al CRM. Si alguno está incompleto, cámbialo aquí: se corrige en todo el historial.</p>
+      <ul>
+        {personas.map((p) => (
+          <li key={p.nombre}>
+            <span className="fbcrm-avatar">{iniciales(p.nombre)}</span>
+            <span className="fbcrm-cuerpo"><strong>{p.nombre}{p.nombre === usuario ? ' (tú)' : ''}</strong><small>{plural(p.registros, 'registro')}</small></span>
+            <button className="fbcrm-mini" onClick={() => renombrar(p.nombre)}>Cambiar nombre</button>
+          </li>
+        ))}
+      </ul>
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+    </div>
   );
 }
 
@@ -3158,4 +3194,8 @@ const CSS = `
 .doc-gal-fila.una .doc-foto{height:70mm}
 .doc-pin{position:absolute;width:24px;height:24px;background:#B4452A;border:2.5px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-sizing:border-box}
 .doc-pin::after{content:'';position:absolute;left:5px;top:5px;width:9px;height:9px;border-radius:50%;background:#fff}
+.fbcrm-equipo ul{list-style:none;margin:0;padding:0}
+.fbcrm-equipo li{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--linea2)}
+.fbcrm-equipo li:last-child{border-bottom:0}
+.fbcrm-equipo .fbcrm-avatar{width:34px;height:34px;font-size:.75rem}
 `;
