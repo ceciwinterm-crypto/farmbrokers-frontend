@@ -1136,7 +1136,7 @@ function Impresion({ ctx, imp, cerrar }) {
   useEffect(() => {
     if (!campoBase) return;
     const tieneLink = [campoBase.linkWeb, campoBase.linkPortal].some((u) => /^https:\/\/(www\.)?farmbrokers\.cl\/propiedad\//.test(String(u || '').trim()));
-    const viejo = !campoBase.web || Date.now() - new Date(campoBase.web.fecha).getTime() > 3 * 864e5 || (campoBase.web.descripcion || []).some((l) => /<|class=/.test(l));
+    const viejo = !campoBase.web || Date.now() - new Date(campoBase.web.fecha).getTime() > 3 * 864e5 || (campoBase.web.descripcion || []).some((l) => /<|class=/.test(l)) || (campoBase.web.descripcion || []).join('').replace(/[•\s]/g, '').length < 40;
     if (tieneLink && viejo) traerWeb();
     const fotos = (campoBase.archivos || []).filter((a) => a.tipo === 'foto').slice(0, 8);
     Promise.all(fotos.map((a) => fetch(`${API_BASE}/api/crm/campos/${campoBase.id}/archivos/${a.id}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(usuario) } })
@@ -1806,7 +1806,7 @@ function resumenWeb(campo, fotosProp) {
   if (w) partes.push(`Desde farmbrokers.cl: ${plural(w.fotos.length, 'foto')}${w.descripcion.length ? ', descripción' : ''}${w.detalle.precio ? ', precio' : ''}.`);
   else partes.push(fotosProp.length ? `Sin publicación en farmbrokers.cl: se usan ${plural(fotosProp.length, 'foto')} subidas al CRM.` : 'Sin link de farmbrokers.cl: agrega el link o sube fotos en el campo.');
   if (campo.descripcionFicha) partes.push('Descripción escrita en el CRM.');
-  else if (!(w && w.descripcion.length)) partes.push('Falta la descripción: en la información del campo usa “✨ Redactar con IA”.');
+  else if (!(w && (w.descripcion || []).join('').replace(/[•\s]/g, '').length >= 40)) partes.push('Falta la descripción: presiona “Actualizar desde farmbrokers.cl” o, en la información del campo, usa “✨ Redactar con IA”.');
   if (g) partes.push(`Plano del predio: ${fmtNum(g.areaHa)} ha.`);
   else partes.push(c ? (c.aprox ? 'Ubicación aproximada (centro de la comuna). Sube el KMZ o pega las coordenadas para el punto exacto.' : 'Ubicación exacta, sin plano: sube el KMZ para mostrar el contorno.') : 'Sin ubicación: sube el KMZ o pega las coordenadas en el campo.');
   return partes.join(' ');
@@ -1856,7 +1856,7 @@ function ParrafoFicha({ t }) {
 // Ordena los párrafos que vienen de la web: separa títulos pegados y une "Título:" con su texto
 function prepararDescripcion(lineas) {
   const etq = /^[A-ZÁÉÍÓÚÑ][^:•]{1,40}:$/;
-  const arr = lineas.filter((l) => !/<\/?[a-z][^>]*|class=["']/i.test(String(l))).flatMap((l) => String(l).replace(/([.;])\s*(?=[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,30}:(\s|$))/g, '$1\n').split('\n')).map((x) => x.trim()).filter(Boolean);
+  const arr = lineas.filter((l) => !/<\/?[a-z][^>]*|class=["']/i.test(String(l)) && !/^[•\s–-]*$/.test(String(l))).flatMap((l) => String(l).replace(/([.;])\s*(?=[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,30}:(\s|$))/g, '$1\n').split('\n')).map((x) => x.trim()).filter(Boolean);
   const out = [];
   for (let i = 0; i < arr.length; i++) {
     const l = arr[i], sig = arr[i + 1];
@@ -1950,8 +1950,9 @@ function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
     ['Comuna', (w && w.comuna) || c.sector],
   ].filter(([, v]) => v && String(v).trim().length <= 22).slice(0, 4);
   const ti = c.tasacionInfo || {};
+  const webConTexto = w && (w.descripcion || []).join('').replace(/[•\s]/g, '').length >= 40;
   const descripcion = prepararDescripcion(c.descripcionFicha ? c.descripcionFicha.split('\n')
-    : w && w.descripcion.length ? w.descripcion
+    : webConTexto ? w.descripcion
     : [ti.suelos && `Suelos: ${ti.suelos}`, (ti.aguas || c.agua) && `Aguas: ${ti.aguas || c.agua}`, (ti.plantaciones || c.plantaciones) && `Plantaciones: ${ti.plantaciones || c.plantaciones}`,
       ti.clima && `Clima: ${ti.clima}`, (ti.construcciones || c.infraestructura) && `Infraestructura: ${c.infraestructura || ti.construcciones}`,
       c.aptitud && `Aptitud: ${c.aptitud}`, (c.acceso || ti.acceso) && `Acceso: ${c.acceso || ti.acceso}`].filter(Boolean));
