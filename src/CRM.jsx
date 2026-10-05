@@ -53,17 +53,17 @@ function HojaFecha({ iso }) {
 function leerLocal(k, d = '') { try { return localStorage.getItem(k) || d; } catch { return d; } }
 function guardarLocal(k, v) { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } }
 
-function mensajeCampo(c, usuario, cli) {
+function mensajeCampo(c, usuario, cli, linkPdf) {
   const saludo = cli && cli.contactoNombre ? `Hola ${cli.contactoNombre.split(' ')[0]},` : 'Hola,';
-  const lineas = [
-    saludo, '', 'Te comparto un campo que calza con lo que estás buscando:', '',
+  const datosCampo = [
     `${c.nombre}${c.sector ? `, ${c.sector}` : ''}${c.region ? ` (${REG_NOMBRE[c.region] || c.region})` : ''}`,
     [c.hectareas ? `${fmtNum(c.hectareas)} ha` : '', c.agua ? `agua: ${c.agua}` : ''].filter(Boolean).join(', '),
     c.plantaciones ? `Plantaciones: ${c.plantaciones}` : '',
     fmtPrecio(c) ? `Precio: ${fmtPrecio(c)}` : '',
-    c.linkWeb || c.linkPortal || '', '', '¿Te interesa verlo? Coordinamos una visita cuando quieras.', '', usuario, 'Farm Brokers Chile',
-  ];
-  return lineas.filter((l, i) => l !== '' || lineas[i - 1] !== '').join('\n');
+  ].filter(Boolean);
+  const enlaces = [linkPdf ? `Ficha completa (PDF): ${linkPdf}` : '', (c.linkWeb || c.linkPortal) ? `Publicación: ${c.linkWeb || c.linkPortal}` : ''].filter(Boolean);
+  return [saludo, 'Te comparto un campo que calza con lo que estás buscando:', datosCampo.join('\n'), enlaces.join('\n'),
+    '¿Te interesa verlo? Coordinamos una visita cuando quieras.', `${usuario}\nFarm Brokers Chile`].filter(Boolean).join('\n\n');
 }
 
 function useApi(clave, usuario) {
@@ -89,6 +89,7 @@ export default function CRM() {
   const [abierto, setAbierto] = useState(null); // {col, item}
   const [importando, setImportando] = useState(false);
   const [impresion, setImpresion] = useState(null); // {tipo:'campo'|'informe', id}
+  const [trabajoFicha, setTrabajoFicha] = useState(null);
   const api = useApi(clave, usuario);
 
   const cargar = async () => {
@@ -112,7 +113,20 @@ export default function CRM() {
     const r = obj.id ? await api(`/${col}/${obj.id}`, { method: 'PUT', body: obj }) : await api(`/${col}`, { method: 'POST', body: obj });
     await cargar(); return r;
   };
-  const ctx = { datos, api, usuario, guardar, cargar, abrir: (col, item) => setAbierto({ col, item }), imprimir: setImpresion };
+  const generarFicha = (campo, avance = () => {}) => new Promise((ok, mal) => setTrabajoFicha({ campo, avance, ok, mal }));
+  // Devuelve el link público del PDF; si el campo no cambió desde la última ficha, la reutiliza
+  const linkFicha = async (campo, avance = () => {}) => {
+    const actual = (datos && datos.campos.find((x) => x.id === campo.id)) || campo;
+    const f = actual.fichaPdf;
+    if (f && new Date(f.fecha).getTime() >= new Date(actual.actualizado || 0).getTime()) return linkPublicoFicha(f.token);
+    avance('Generando la ficha…');
+    const blob = await generarFicha(actual, avance);
+    avance('Subiendo la ficha…');
+    const link = await subirFicha(api, actual, blob);
+    cargar();
+    return link;
+  };
+  const ctx = { datos, api, usuario, guardar, cargar, abrir: (col, item) => setAbierto({ col, item }), imprimir: setImpresion, linkFicha };
   if (impresion && datos) return <Impresion ctx={ctx} imp={impresion} cerrar={() => setImpresion(null)} />;
 
   const VISTAS = [['agenda', 'Agenda'], ['calendario', 'Calendario'], ['campos', 'Campos'], ['clientes', 'Clientes'], ['tasaciones', 'Tasaciones'], ['actividad', 'Actividad']];
@@ -162,6 +176,7 @@ export default function CRM() {
       {abierto?.col === 'clientes' && <FichaCliente key={abierto.item.id || 'nuevo'} ctx={ctx} inicial={abierto.item} cerrar={() => setAbierto(null)} />}
       {abierto?.col === 'tasaciones' && <FichaTasacion key={abierto.item.id || 'nuevo'} ctx={ctx} inicial={abierto.item} cerrar={() => setAbierto(null)} />}
       {importando && <Importar ctx={ctx} cerrar={() => setImportando(false)} />}
+      {trabajoFicha && <GeneradorFicha ctx={ctx} trabajo={trabajoFicha} alTerminar={(blob, e) => { const t = trabajoFicha; setTrabajoFicha(null); if (e) t.mal(e); else t.ok(blob); }} />}
     </div>
   );
 }
@@ -348,12 +363,14 @@ function ListaCampos({ ctx, importar }) {
   const [orden, setOrden] = useState('region');
   const [fRegion, setFRegion] = useState('');
   const [fTipo, setFTipo] = useState('');
+  const [fPerfil, setFPerfil] = useState('');
   const FILTROS = { activos: ['Activos', datos.activas], captacion: ['Captación', ['Prospección', 'Captación', 'Documentación']], publicados: ['Publicados', ['Mandato firmado', 'Publicado', 'En negociación']], cerrados: ['Cerrados', ['Vendido', 'Arrendado', 'Suspendido', 'Retirado de la web', 'Descartado']], todos: ['Todos', datos.etapas.campos] };
   const nq = q.toLowerCase();
   const enEtapa = datos.campos.filter((c) => FILTROS[filtro][1].includes(c.etapa));
   const idxR = (r) => { const i = datos.regiones.indexOf(r); return i < 0 ? 99 : i; };
   const cmp = (a, b) => String(a || '').localeCompare(String(b || ''), 'es', { sensitivity: 'base' });
   const lista = enEtapa.filter((c) => (!fRegion || (c.region || '') === fRegion) && (!fTipo || c.tipo === fTipo) &&
+    (!fPerfil || (fPerfil === 'sin' ? !(c.perfiles || []).length : (c.perfiles || []).includes(fPerfil))) &&
     (!nq || [c.nombre, c.sector, c.codigo, c.rol, c.plantaciones, c.aptitud, c.propietario, REG_NOMBRE[c.region], TIPOS[c.tipo]].join(' ').toLowerCase().includes(nq)));
   const porRegion = (a, b) => idxR(a.region) - idxR(b.region) || cmp(a.sector, b.sector) || cmp(a.nombre, b.nombre);
   const ordenes = {
@@ -374,7 +391,7 @@ function ListaCampos({ ctx, importar }) {
   const tituloGrupo = (k) => (orden === 'region' ? (k ? `${REG_NOMBRE[k] || k}` : 'Sin región') : orden === 'etapa' ? k : orden === 'tipo' ? TIPOS[k] || k || 'Sin tipo' : '');
   const regionesHay = [...new Set(enEtapa.map((c) => c.region || ''))].sort((a, b) => idxR(a) - idxR(b));
   const tiposHay = [...new Set(enEtapa.map((c) => c.tipo))].sort((a, b) => cmp(TIPOS[a], TIPOS[b]));
-  const hayFiltros = fRegion || fTipo || q;
+  const hayFiltros = fRegion || fTipo || fPerfil || q;
   return (
     <section>
       <SyncWeb ctx={ctx} />
@@ -390,11 +407,12 @@ function ListaCampos({ ctx, importar }) {
         <input className="fbcrm-buscar" placeholder="Buscar por nombre, comuna, código, rol, plantación o propietario" value={q} onChange={(e) => setQ(e.target.value)} />
         <label><span>Región</span><select value={fRegion} onChange={(e) => setFRegion(e.target.value)}><option value="">Todas</option>{regionesHay.map((r) => <option key={r || 'sin'} value={r}>{r ? REG_NOMBRE[r] || r : 'Sin región'}</option>)}</select></label>
         <label><span>Tipo</span><select value={fTipo} onChange={(e) => setFTipo(e.target.value)}><option value="">Todos</option>{tiposHay.map((t) => <option key={t} value={t}>{TIPOS[t] || t}</option>)}</select></label>
+        <label><span>Perfil</span><select value={fPerfil} onChange={(e) => setFPerfil(e.target.value)}><option value="">Todos</option>{(datos.perfiles || []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}<option value="sin">Sin perfil</option></select></label>
         <label><span>Ordenar</span><select value={orden} onChange={(e) => setOrden(e.target.value)}>
           <option value="region">Región, de norte a sur</option><option value="etapa">Etapa</option><option value="tipo">Tipo de propiedad</option><option value="nombre">Nombre</option><option value="hectareas">Hectáreas, mayor a menor</option>
         </select></label>
       </div>
-      <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); }}>Quitar filtros</button></>}</p>
+      <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); setFPerfil(''); }}>Quitar filtros</button></>}</p>
       {!lista.length && <p className="fbcrm-vacio">{datos.campos.length ? 'Ningún campo coincide con el filtro.' : 'Aún no hay campos. Importa la planilla o usa “Nuevo campo”.'}</p>}
       {lista.length > 0 && (
         <div className="fbcrm-tabla">
@@ -428,7 +446,7 @@ function ListaCampos({ ctx, importar }) {
   );
 }
 
-const CAMPOS_EDITABLES = ['nombre', 'tipo', 'etapa', 'codigo', 'rol', 'region', 'sector', 'coordenadas', 'acceso', 'hectareas', 'precioUF', 'precioCLP', 'precioTexto',
+const CAMPOS_EDITABLES = ['perfiles', 'nombre', 'tipo', 'etapa', 'codigo', 'rol', 'region', 'sector', 'coordenadas', 'acceso', 'hectareas', 'precioUF', 'precioCLP', 'precioTexto',
   'agua', 'fuenteAgua', 'plantaciones', 'aptitud', 'infraestructura', 'descripcionFicha', 'propietario', 'telefono', 'email', 'corredor', 'asociado', 'linkWeb', 'linkPortal', 'observaciones'];
 const grupoEtapaCampo = (e) => (['Mandato firmado', 'Publicado', 'En negociación'].includes(e) ? 'pub' : ['Prospección', 'Captación', 'Documentación'].includes(e) ? 'cap' : ['Vendido', 'Arrendado'].includes(e) ? 'cer' : 'fuera');
 const huella = (f) => JSON.stringify(CAMPOS_EDITABLES.map((k) => (f[k] == null ? '' : String(f[k]))));
@@ -496,6 +514,9 @@ function FichaCampo({ ctx, inicial, cerrar }) {
         {!esNuevo && /farmbrokers\.cl\/propiedad\//.test(linkWeb || '') && (
           <p className="fbcrm-enlazado"><Icono n="enlace" s={16} />Enlazado con farmbrokers.cl{f.web && f.web.fecha ? `, actualizado el ${fmtFecha(f.web.fecha)}` : ''}. Superficie, agua, plantaciones, precio, comuna, región y tipo se toman de la web: si los cambias aquí, la próxima revisión los reemplaza.</p>
         )}
+        <p className="fbcrm-seccion">Perfil de comprador</p>
+        <p className="fbcrm-nota-suave">¿Para qué tipo de comprador sirve este campo? Puedes marcar más de uno.</p>
+        <SelectorPerfiles ctx={ctx} valor={f.perfiles || []} onChange={(v) => setF((x) => ({ ...x, perfiles: v }))} />
         <p className="fbcrm-seccion">Ubicación</p>
         <div className="fbcrm-form">
           <Campo label="Nombre" ancho><input value={f.nombre || ''} onChange={set('nombre')} placeholder="Ej. Fundo Mahuidanche" /></Campo>
@@ -596,20 +617,36 @@ function Match({ ctx, campo, setCampo }) {
     try { const r = await api(`/campos/${campo.id}/envio`, { method: 'POST', body: { clienteIds: ids, canal } }); setCampo(r); await cargar(); setSel(new Set()); }
     catch (e) { setMsg(e.message); }
   };
-  const enviarCorreo = () => {
+  const [enviando, setEnviando] = useState('');
+  const enviarCorreo = async () => {
     const ids = [...sel].filter((id) => emailsDe(cli(id).email).length);
     const correos = [...new Set(ids.flatMap((id) => emailsDe(cli(id).email)))];
     if (!correos.length) { setMsg('Ninguno de los seleccionados tiene email registrado.'); return; }
     const sinCorreo = sel.size - ids.length;
-    const asunto = `Campo en venta: ${campo.nombre}${campo.sector ? `, ${campo.sector}` : ''}`;
-    window.location.href = `mailto:?bcc=${encodeURIComponent(correos.join(','))}&subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensajeCampo(campo, usuario))}`;
-    registrar(ids, 'correo');
-    setMsg(`Se abrió tu correo con ${plural(correos.length, 'destinatario')} en copia oculta.${sinCorreo ? ` ${plural(sinCorreo, 'cliente')} sin email: envíalos por WhatsApp.` : ''}`);
+    setEnviando('correo'); setMsg('');
+    try {
+      const link = await ctx.linkFicha(campo, setMsg);
+      const asunto = `Campo en venta: ${campo.nombre}${campo.sector ? `, ${campo.sector}` : ''}`;
+      window.location.href = `mailto:?bcc=${encodeURIComponent(correos.join(','))}&subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensajeCampo(campo, usuario, null, link))}`;
+      registrar(ids, 'correo');
+      setMsg(`Se abrió tu correo con ${plural(correos.length, 'destinatario')} en copia oculta y el link a la ficha.${sinCorreo ? ` ${plural(sinCorreo, 'cliente')} sin email: envíalos por WhatsApp.` : ''}`);
+    } catch (e) { setMsg(e.message); }
+    setEnviando('');
   };
-  const enviarWa = (id) => {
+  const enviarWa = async (id) => {
     const c = cli(id); const n = fonoWa(c.telefono);
-    window.open(`https://wa.me/${n}?text=${encodeURIComponent(mensajeCampo(campo, usuario, c))}`, '_blank', 'noopener');
-    registrar([id], 'whatsapp');
+    // La ventana se abre al instante (si no, el navegador la bloquea) y se completa cuando la ficha está lista
+    const win = window.open('', '_blank');
+    if (win) { try { win.document.title = 'Farm Brokers'; win.document.body.innerHTML = '<p style="font-family:system-ui,sans-serif;padding:28px;color:#1F4D31;font-size:17px">Preparando la ficha de Farm Brokers…</p>'; } catch (e) { /* sin acceso */ } }
+    setEnviando(id); setMsg('');
+    try {
+      const link = await ctx.linkFicha(campo, setMsg);
+      const url = `https://wa.me/${n}?text=${encodeURIComponent(mensajeCampo(campo, usuario, c, link))}`;
+      if (win && !win.closed) win.location.href = url; else window.location.href = url;
+      registrar([id], 'whatsapp');
+      setMsg(`Ficha lista: se abrió WhatsApp con el mensaje y el link para ${c.nombre}.`);
+    } catch (e) { if (win) win.close(); setMsg(e.message); }
+    setEnviando('');
   };
 
   const fuertes = lista.filter((m) => m.nivel === 'fuerte'), parciales = lista.filter((m) => m.nivel === 'parcial');
@@ -626,7 +663,7 @@ function Match({ ctx, campo, setCampo }) {
           </span>
           {env && <small className="fbcrm-ok">Enviado {fmtFecha(env.fecha)} por {env.canal}, {env.autor}</small>}
         </div>
-        {fonoWa(c.telefono) && <button className="fbcrm-mini" onClick={() => enviarWa(m.clienteId)}>WhatsApp</button>}
+        {fonoWa(c.telefono) && <button className="fbcrm-mini" disabled={!!enviando} onClick={() => enviarWa(m.clienteId)}>{enviando === m.clienteId ? 'Preparando…' : 'WhatsApp con ficha'}</button>}
       </li>
     );
   };
@@ -641,8 +678,8 @@ function Match({ ctx, campo, setCampo }) {
       {verParciales && <ul>{parciales.map(fila)}</ul>}
       {lista.length > 0 && (
         <div className="fbcrm-acciones">
-          <button className="fbcrm-primario" disabled={!sel.size} onClick={enviarCorreo}>Enviar correo a {plural(sel.size, 'seleccionado')}</button>
-          <button className="fbcrm-texto" onClick={() => navigator.clipboard && navigator.clipboard.writeText(mensajeCampo(campo, usuario)).then(() => setMsg('Mensaje copiado.'))}>Copiar mensaje</button>
+          <button className="fbcrm-primario" disabled={!sel.size || !!enviando} onClick={enviarCorreo}>{enviando === 'correo' ? 'Preparando la ficha…' : `Enviar ficha por correo a ${plural(sel.size, 'seleccionado')}`}</button>
+          <button className="fbcrm-texto" disabled={!!enviando} onClick={async () => { try { const link = await ctx.linkFicha(campo, setMsg); await navigator.clipboard.writeText(mensajeCampo(campo, usuario, null, link)); setMsg('Mensaje con el link de la ficha copiado.'); } catch (e) { setMsg(e.message); } }}>Copiar mensaje con la ficha</button>
         </div>
       )}
       {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
@@ -651,10 +688,25 @@ function Match({ ctx, campo, setCampo }) {
 }
 
 // ════════════════════════════ Clientes ════════════════════════════
+const fechaIngresoCliente = (c) => {
+  if (/^\d{4}-\d{2}/.test(c.fechaAlta || '')) return new Date(c.fechaAlta.length === 7 ? `${c.fechaAlta}-01T12:00:00` : `${c.fechaAlta.slice(0, 10)}T12:00:00`);
+  const importado = (c.historial || [])[0] && c.historial[0].autor === 'Importación';
+  if (!importado && c.creado) return new Date(c.creado);
+  const r = c.fechaRequerimiento;
+  if (r && /^\d{4}-\d{2}/.test(r)) return new Date(r.length === 7 ? `${r}-01T12:00:00` : `${r.slice(0, 10)}T12:00:00`);
+  return c.creado ? new Date(c.creado) : null;
+};
+const nombrePerfil = (datos, id) => ((datos.perfiles || []).find((p) => p.id === id) || {}).nombre || id;
 function ListaClientes({ ctx }) {
   const { datos, abrir, usuario } = ctx;
   const [filtro, setFiltro] = useState('Activo');
   const [q, setQ] = useState('');
+  const [fPerfil, setFPerfil] = useState('');
+  const [fFecha, setFFecha] = useState('');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [orden, setOrden] = useState('nombre');
+  const [verPerfiles, setVerPerfiles] = useState(false);
   const porCliente = useMemo(() => {
     const m = {}; for (const [cid, lista] of Object.entries(datos.matches)) {
       const campo = datos.campos.find((c) => c.id === cid);
@@ -663,18 +715,49 @@ function ListaClientes({ ctx }) {
     } return m;
   }, [datos]);
   const nq = q.toLowerCase();
-  const lista = datos.clientes.filter((c) => (filtro === 'todos' || (filtro === 'revisar' ? c.revisar : c.etapa === filtro)) &&
+  const ahora = Date.now();
+  const enFecha = (c) => {
+    if (!fFecha) return true;
+    const d = fechaIngresoCliente(c); if (!d) return false;
+    if (['7', '30', '90', '365'].includes(fFecha)) return ahora - d.getTime() <= Number(fFecha) * 864e5;
+    if (fFecha === 'anio') return d.getFullYear() === new Date().getFullYear();
+    if (fFecha === 'rango') return (!desde || d >= new Date(`${desde}T00:00:00`)) && (!hasta || d <= new Date(`${hasta}T23:59:59`));
+    return true;
+  };
+  const base = datos.clientes.filter((c) => filtro === 'todos' || (filtro === 'revisar' ? c.revisar : c.etapa === filtro));
+  const lista = base.filter((c) => (!fPerfil || (fPerfil === 'sin' ? !(c.perfiles || []).length : (c.perfiles || []).includes(fPerfil))) && enFecha(c) &&
     (!nq || [c.nombre, c.contactoNombre, c.requerimiento, c.zona, c.email, c.observaciones].join(' ').toLowerCase().includes(nq)))
-    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    .sort(orden === 'nombre' ? (a, b) => a.nombre.localeCompare(b.nombre, 'es')
+      : (a, b) => ((fechaIngresoCliente(orden === 'recientes' ? b : a) || 0) - (fechaIngresoCliente(orden === 'recientes' ? a : b) || 0)));
+  const hayFiltros = q || fPerfil || fFecha;
+  const fmtMes = (d) => (d ? d.toLocaleDateString('es-CL', { month: 'short', year: 'numeric' }) : '');
   return (
     <section>
       <div className="fbcrm-barra">
         <div className="fbcrm-chips">
           {[['Activo', 'Activos'], ['revisar', 'Por completar'], ['Pausado', 'Pausados'], ['todos', 'Todos']].map(([k, l]) => <button key={k} className={filtro === k ? 'on' : ''} onClick={() => setFiltro(k)}>{l}</button>)}
         </div>
-        <button className="fbcrm-primario" onClick={() => abrir('clientes', { etapa: 'Activo', operacion: 'compra', tipo: 'agricola', regiones: [], cultivos: [], responsable: usuario, fechaRequerimiento: hoyISO() })}>Nuevo cliente</button>
+        <div className="fbcrm-chips">
+          <button className={verPerfiles ? 'on' : ''} onClick={() => setVerPerfiles(!verPerfiles)}>Perfiles</button>
+          <button className="fbcrm-primario" onClick={() => abrir('clientes', { etapa: 'Activo', operacion: 'compra', tipo: 'agricola', regiones: [], cultivos: [], perfiles: [], responsable: usuario, fechaRequerimiento: hoyISO() })}>Nuevo cliente</button>
+        </div>
       </div>
-      <input className="fbcrm-buscar" placeholder="Buscar por nombre, requerimiento, zona o email" value={q} onChange={(e) => setQ(e.target.value)} />
+      {verPerfiles && <div className="fbcrm-bloque"><PerfilesAdmin ctx={ctx} /></div>}
+      <div className="fbcrm-filtros">
+        <input className="fbcrm-buscar" placeholder="Buscar por nombre, requerimiento, zona o email" value={q} onChange={(e) => setQ(e.target.value)} />
+        <label><span>Perfil</span><select value={fPerfil} onChange={(e) => setFPerfil(e.target.value)}><option value="">Todos</option>{(datos.perfiles || []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}<option value="sin">Sin perfil</option></select></label>
+        <label><span>Fecha de ingreso</span><select value={fFecha} onChange={(e) => setFFecha(e.target.value)}>
+          <option value="">Todas</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="365">Último año</option><option value="anio">Este año</option><option value="rango">Entre fechas…</option>
+        </select></label>
+        <label><span>Ordenar</span><select value={orden} onChange={(e) => setOrden(e.target.value)}><option value="nombre">Nombre</option><option value="recientes">Más recientes primero</option><option value="antiguos">Más antiguos primero</option></select></label>
+      </div>
+      {fFecha === 'rango' && (
+        <div className="fbcrm-filtros fbcrm-rango">
+          <label><span>Desde</span><input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></label>
+          <label><span>Hasta</span><input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></label>
+        </div>
+      )}
+      <p className="fbcrm-conteo">{plural(lista.length, 'cliente')}{hayFiltros ? ` de ${base.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFPerfil(''); setFFecha(''); setDesde(''); setHasta(''); }}>Quitar filtros</button></>}</p>
       {!lista.length && <p className="fbcrm-vacio">{datos.clientes.length ? 'Ningún cliente coincide.' : 'Aún no hay clientes. Importa la planilla o usa “Nuevo cliente”.'}</p>}
       <div className="fbcrm-grupo">
         {lista.map((c) => (
@@ -683,8 +766,10 @@ function ListaClientes({ ctx }) {
             <span className="fbcrm-cuerpo">
               <strong>{c.nombre}</strong>
               <small>{[c.requerimiento, c.regiones.length ? c.regiones.join('–') : c.zona, c.haMin != null || c.haMax != null ? rangoTxt(c) : ''].filter(Boolean).join(', ')}</small>
+              {(c.perfiles || []).length > 0 && <span className="fbcrm-tags">{c.perfiles.map((id) => <span key={id} className="fbcrm-tag perfil">{nombrePerfil(datos, id)}</span>)}</span>}
             </span>
             <span className="fbcrm-der">
+              <small className="fbcrm-fecha-ingreso">{fmtMes(fechaIngresoCliente(c))}</small>
               {c.revisar && <span className="fbcrm-badge gris">Completar</span>}
               {porCliente[c.id] > 0 && <span className="fbcrm-badge">{plural(porCliente[c.id], 'campo')}</span>}
             </span>
@@ -692,6 +777,77 @@ function ListaClientes({ ctx }) {
         ))}
       </div>
     </section>
+  );
+}
+
+// ════════════════════════════ Perfiles de comprador ════════════════════════════
+function SelectorPerfiles({ ctx, valor, onChange }) {
+  const perfiles = ctx.datos.perfiles || [];
+  const [admin, setAdmin] = useState(false);
+  return (
+    <div className="fbcrm-perfiles-sel">
+      <div className="fbcrm-chips">
+        {perfiles.map((p) => {
+          const on = valor.includes(p.id);
+          return <button key={p.id} type="button" title={p.descripcion} className={on ? 'on' : ''} aria-pressed={on} onClick={() => onChange(on ? valor.filter((x) => x !== p.id) : [...valor, p.id])}>{p.nombre}</button>;
+        })}
+        <button type="button" className="fbcrm-texto" onClick={() => setAdmin(!admin)}>{admin ? 'Cerrar' : 'Crear o editar perfiles'}</button>
+      </div>
+      {admin && <div className="fbcrm-perfiles-admin-en"><PerfilesAdmin ctx={ctx} /></div>}
+    </div>
+  );
+}
+function PerfilesAdmin({ ctx }) {
+  const { datos, api, cargar } = ctx;
+  const [nuevo, setNuevo] = useState({ nombre: '', descripcion: '' });
+  const [editando, setEditando] = useState(null);
+  const [msg, setMsg] = useState('');
+  const perfiles = datos.perfiles || [];
+  const usos = (id) => [datos.campos.filter((c) => (c.perfiles || []).includes(id)).length, datos.clientes.filter((c) => (c.perfiles || []).includes(id)).length];
+  const crear = async () => {
+    try { await api('/perfiles', { method: 'POST', body: nuevo }); await cargar(); setNuevo({ nombre: '', descripcion: '' }); setMsg(`Perfil “${nuevo.nombre}” creado.`); } catch (e) { setMsg(e.message); }
+  };
+  const guardar = async () => {
+    try { await api(`/perfiles/${editando.id}`, { method: 'PUT', body: editando }); await cargar(); setEditando(null); setMsg('Perfil actualizado.'); } catch (e) { setMsg(e.message); }
+  };
+  const borrar = async (p) => {
+    const [nc, nk] = usos(p.id);
+    if (!window.confirm(`¿Eliminar el perfil “${p.nombre}”?${nc + nk ? ` Se quitará de ${plural(nc, 'campo')} y ${plural(nk, 'cliente')}.` : ''}`)) return;
+    try { await api(`/perfiles/${p.id}`, { method: 'DELETE' }); await cargar(); setMsg(`Perfil “${p.nombre}” eliminado.`); } catch (e) { setMsg(e.message); }
+  };
+  return (
+    <div className="fbcrm-perfiles-admin">
+      <h3>Perfiles de comprador <span>{plural(perfiles.length, 'perfil', 'perfiles')}</span></h3>
+      <p className="fbcrm-nota-suave">Lo que busca de verdad cada cliente. Se asignan a campos y clientes, y el match solo cruza los que comparten perfil.</p>
+      <ul>
+        {perfiles.map((p) => {
+          const [nc, nk] = usos(p.id);
+          return (
+            <li key={p.id}>
+              {editando && editando.id === p.id ? (
+                <div className="fbcrm-form fbcrm-perfil-edit">
+                  <Campo label="Nombre"><input value={editando.nombre} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} /></Campo>
+                  <Campo label="Descripción" ancho><input value={editando.descripcion || ''} onChange={(e) => setEditando({ ...editando, descripcion: e.target.value })} /></Campo>
+                  <div className="fbcrm-acciones ancho-etq"><button className="fbcrm-primario" onClick={guardar}>Guardar</button><button onClick={() => setEditando(null)}>Cancelar</button></div>
+                </div>
+              ) : (
+                <>
+                  <span className="fbcrm-cuerpo"><strong>{p.nombre}</strong><small>{p.descripcion || 'Sin descripción'}</small><small>{plural(nc, 'campo')}, {plural(nk, 'cliente')}</small></span>
+                  <button className="fbcrm-mini" onClick={() => setEditando({ ...p })}>Editar</button>
+                  <button className="fbcrm-mini fbcrm-peligro" onClick={() => borrar(p)}>Eliminar</button>
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <div className="fbcrm-form fbcrm-sep2">
+        <Campo label="Nuevo perfil"><input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="Ej. Inversión, Viñedo boutique" /></Campo>
+        <Campo label="Descripción (opcional)"><input value={nuevo.descripcion} onChange={(e) => setNuevo({ ...nuevo, descripcion: e.target.value })} placeholder="Qué busca este comprador" /></Campo>
+      </div>
+      <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={nuevo.nombre.trim().length < 2} onClick={crear}>Crear perfil</button></div>
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+    </div>
   );
 }
 const rangoTxt = (c) => (c.haMax == null ? `${c.haMin}+ ha` : `${c.haMin || 0}–${c.haMax} ha`);
@@ -726,7 +882,9 @@ function FichaCliente({ ctx, inicial, cerrar }) {
       )}
       <div className="fbcrm-bloque">
         <h3>Qué busca</h3>
-        <div className="fbcrm-form">
+        <p className="fbcrm-etq fbcrm-etq-primera">Perfil</p>
+        <SelectorPerfiles ctx={ctx} valor={f.perfiles || []} onChange={(v) => setF((x) => ({ ...x, perfiles: v }))} />
+        <div className="fbcrm-form fbcrm-sep2">
           <Campo label="Requerimiento (como lo dijo el cliente)" ancho><textarea rows={2} value={f.requerimiento || ''} onChange={set('requerimiento')} /></Campo>
           <Campo label="Tipo de propiedad"><SelectTipo ctx={ctx} value={f.tipo || ''} vacio="Cualquiera" onChange={(v) => setF((x) => ({ ...x, tipo: v }))} /></Campo>
           <Campo label="Operación"><select value={f.operacion} onChange={set('operacion')}><option value="compra">Compra</option><option value="arriendo">Arriendo</option></select></Campo>
@@ -1214,10 +1372,33 @@ function Impresion({ ctx, imp, cerrar }) {
               setGenerando('');
             }}>{generando || 'Descargar PDF'}</button>
           : <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>}
+        {campo && variante === 'cliente' && imp.tipo === 'campo' && (
+          <>
+            <button disabled={!!generando} onClick={async () => {
+              try {
+                const pdf = await pdfDeFicha(document.querySelector('.fbcrm-doc'), setGenerando);
+                const archivo = new File([pdf.output('blob')], nombreFicha(campo), { type: 'application/pdf' });
+                if (navigator.canShare && navigator.canShare({ files: [archivo] })) await navigator.share({ files: [archivo], title: nombreFicha(campo) });
+                else alert('Este navegador no permite compartir archivos. Usa “Copiar link” o, desde el celular, “Compartir”.');
+              } catch (e) { if (e && e.name !== 'AbortError') alert(e.message); }
+              setGenerando('');
+            }}>Compartir</button>
+            <button disabled={!!generando} onClick={async () => {
+              try {
+                const pdf = await pdfDeFicha(document.querySelector('.fbcrm-doc'), setGenerando);
+                setGenerando('Subiendo…');
+                const link = await subirFicha(ctx.api, campo, pdf.output('blob'));
+                await navigator.clipboard.writeText(link); ctx.cargar();
+                alert(`Link de la ficha copiado:\n${link}`);
+              } catch (e) { alert(e.message); }
+              setGenerando('');
+            }}>Copiar link</button>
+          </>
+        )}
         {campo && variante === 'cliente' && <label className="fbcrm-imp-opcion"><input type="checkbox" checked={mostrarRol} onChange={(e) => setMostrarRol(e.target.checked)} />Mostrar rol SII</label>}
         {campo && variante === 'cliente' && <p className="fbcrm-imp-estado">{estadoWeb || resumenWeb(campo, fotosProp)}</p>}
         {campo && variante === 'cliente' && imp.tipo === 'campo'
-          ? <p>“Descargar PDF” arma el archivo con las mismas páginas que ves abajo y lo descarga directo, sin pasar por la ventana de impresión.</p>
+          ? <p>“Descargar PDF” arma el archivo con las mismas páginas que ves abajo. “Compartir” lo adjunta directo en WhatsApp u otra app (desde el celular). “Copiar link” sube la ficha y copia un link que puedes pegar en cualquier chat.</p>
           : <p>Al presionar “Guardar PDF” se abre la ventana de impresión: elige <strong>Guardar como PDF</strong>. Si arriba o abajo de la hoja aparecen la fecha o la dirección de la página, abre <strong>Más opciones</strong> y desmarca <strong>Encabezados y pies de página</strong>. En iPhone, toca Compartir en esa ventana y luego Guardar en Archivos.</p>}
       </div>
       <style>{`@page{size:A4;margin:${campo && variante === 'cliente' && imp.tipo === 'campo' ? '0' : '14mm 0 16mm'}}`}</style>
@@ -1805,15 +1986,15 @@ async function esperarImagenesDe(raiz) {
   raiz.querySelectorAll('[style*="background-image"]').forEach((el) => { const m = el.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/); if (m) urls.add(m[1]); });
   await Promise.all([...urls].map((u) => new Promise((r) => { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = r; im.onerror = r; im.src = u; setTimeout(r, 12000); })));
 }
-// Arma el PDF página por página (igual a lo que se ve en pantalla) y lo descarga
-async function descargarFichaPDF(nombre, avance) {
+// Arma el PDF página por página (igual a lo que se ve en pantalla)
+async function pdfDeFicha(raiz, avance) {
   avance('Preparando…');
   await cargarScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', 'html2canvas');
   await cargarScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'jspdf');
-  const paginas = [...document.querySelectorAll('.doc-pagina')];
-  if (!paginas.length) throw new Error('No hay páginas para descargar.');
+  const paginas = [...raiz.querySelectorAll('.doc-pagina')];
+  if (!paginas.length) throw new Error('No hay páginas para la ficha.');
   avance('Cargando fotos y mapas…');
-  await esperarImagenesDe(document.querySelector('.fbcrm-doc') || document.body);
+  await esperarImagenesDe(raiz);
   if (document.fonts && document.fonts.ready) await document.fonts.ready;
   const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', compress: true });
   for (let i = 0; i < paginas.length; i++) {
@@ -1822,7 +2003,46 @@ async function descargarFichaPDF(nombre, avance) {
     if (i) pdf.addPage();
     pdf.addImage(lienzo.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
   }
+  return pdf;
+}
+async function descargarFichaPDF(nombre, avance) {
+  const pdf = await pdfDeFicha(document.querySelector('.fbcrm-doc') || document.body, avance);
   pdf.save(nombre);
+}
+const nombreFicha = (c) => `Ficha ${((c.web && c.web.titulo) || c.nombre).replace(/[\\/:*?"<>|]/g, '')} - Farm Brokers.pdf`;
+const blobABase64 = (b) => new Promise((ok, mal) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => mal(new Error('No se pudo leer la ficha.')); fr.readAsDataURL(b); });
+const linkPublicoFicha = (token) => `${API_BASE}/api/crm/publico-ficha/${token}`;
+async function subirFicha(api, campo, blob) {
+  const r = await api(`/campos/${campo.id}/ficha-pdf`, { method: 'POST', body: { base64: await blobABase64(blob) } });
+  return linkPublicoFicha(r.token);
+}
+// Ficha armada fuera de la vista para generar el PDF desde cualquier parte del CRM
+function GeneradorFicha({ ctx, trabajo, alTerminar }) {
+  const ref = useRef(null);
+  const [campo, setCampo] = useState(trabajo.campo);
+  const [fotosProp, setFotosProp] = useState([]);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        let c = trabajo.campo;
+        const tieneLink = [c.linkWeb, c.linkPortal].some((u) => /^https:\/\/(www\.)?farmbrokers\.cl\/propiedad\//.test(String(u || '').trim()));
+        const viejo = !c.web || Date.now() - new Date(c.web.fecha).getTime() > 3 * 864e5 || (c.web.descripcion || []).join('').replace(/[•\s]/g, '').length < 40;
+        if (tieneLink && viejo) { trabajo.avance('Leyendo la publicación…'); try { c = await ctx.api(`/campos/${c.id}/web`, { method: 'POST' }); if (vivo) setCampo(c); } catch (e) { /* se usa lo que hay */ } }
+        if (!(c.web && c.web.fotos && c.web.fotos.length)) {
+          const fotos = (c.archivos || []).filter((a) => a.tipo === 'foto').slice(0, 7);
+          const urls = await Promise.all(fotos.map((a) => fetch(`${API_BASE}/api/crm/campos/${c.id}/archivos/${a.id}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(ctx.usuario) } })
+            .then((r) => (r.ok ? r.blob() : null)).then((b) => (b ? URL.createObjectURL(b) : null)).catch(() => null)));
+          if (vivo) setFotosProp(urls.filter(Boolean));
+        }
+        await new Promise((r) => setTimeout(r, 1200));
+        const pdf = await pdfDeFicha(ref.current, trabajo.avance);
+        if (vivo) alTerminar(pdf.output('blob'), null, c);
+      } catch (e) { if (vivo) alTerminar(null, e); }
+    })();
+    return () => { vivo = false; };
+  }, []);
+  return <div className="fbcrm-generador" ref={ref} aria-hidden="true"><div className="fbcrm-doc doc-ficha-hoja"><DocFichaCliente campo={campo} fotosProp={fotosProp} usuario={ctx.usuario} mostrarRol={false} /></div></div>;
 }
 async function imprimirConImagenes() {
   const imgs = [...document.querySelectorAll('.fbcrm-doc img')];
@@ -3198,4 +3418,18 @@ const CSS = `
 .fbcrm-equipo li{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--linea2)}
 .fbcrm-equipo li:last-child{border-bottom:0}
 .fbcrm-equipo .fbcrm-avatar{width:34px;height:34px;font-size:.75rem}
+.fbcrm-generador{position:fixed;left:0;top:0;width:230mm;z-index:-10;pointer-events:none;opacity:1}
+/* Perfiles de comprador */
+.fbcrm-perfiles-sel{margin:0 0 4px}
+.fbcrm-perfiles-sel .fbcrm-chips button.on{background:var(--potrero);border-color:var(--potrero);color:#fff}
+.fbcrm-perfiles-admin-en{margin-top:12px;border:1px solid var(--linea);border-radius:14px;padding:14px;background:var(--hoja)}
+.fbcrm-perfiles-admin ul{list-style:none;margin:0;padding:0}
+.fbcrm-perfiles-admin li{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--linea2);flex-wrap:wrap}
+.fbcrm-perfiles-admin li:last-child{border-bottom:0}
+.fbcrm-perfiles-admin .fbcrm-cuerpo small{white-space:normal}
+.fbcrm-perfil-edit{flex:1}
+.fbcrm-tag.perfil{background:var(--potrero-cl);color:var(--potrero-osc);font-weight:600}
+.fbcrm-fecha-ingreso{color:var(--salvia);font-size:.78rem;white-space:nowrap}
+.fbcrm-etq-primera{margin-top:0}
+.fbcrm-rango{margin-top:-6px}
 `;
