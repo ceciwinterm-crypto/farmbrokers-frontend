@@ -1333,7 +1333,17 @@ function Equipo({ ctx }) {
   const { datos, api, cargar, usuario } = ctx;
   const [msg, setMsg] = useState('');
   const personas = datos.equipo || [];
-  if (!personas.length) return null;
+  const agregar = async () => {
+    const nombre = (window.prompt('Nombre completo de la persona (el mismo que escribirá al entrar al CRM):') || '').trim(); if (!nombre) return;
+    const telefono = window.prompt(`WhatsApp de ${nombre} (opcional, para avisarle de sus tareas):`, '') || '';
+    const email = window.prompt(`Correo de ${nombre} (opcional):`, '') || '';
+    try { await api('/equipo/persona', { method: 'POST', body: { nombre, telefono, email } }); await cargar(); setMsg(`${nombre} quedó en el equipo. Ya puedes asignarle tareas. Para entrar, debe escribir “${nombre}” y la clave del equipo.`); }
+    catch (e) { setMsg(e.message); }
+  };
+  const quitar = async (nombre) => {
+    if (!window.confirm(`¿Quitar a ${nombre} de la lista del equipo? Lo que hizo queda en el historial.`)) return;
+    try { await api('/equipo/persona', { method: 'DELETE', body: { nombre } }); await cargar(); setMsg(`${nombre} ya no aparece en la lista.`); } catch (e) { setMsg(e.message); }
+  };
   const contacto = async (nombre) => {
     const actual = (datos.contactos || {})[nombre] || {};
     const telefono = window.prompt(`WhatsApp de ${nombre} (para avisarle de sus tareas):`, actual.telefono || ''); if (telefono === null) return;
@@ -1348,15 +1358,16 @@ function Equipo({ ctx }) {
   };
   return (
     <div className="fbcrm-bloque fbcrm-equipo">
-      <h3>Equipo <span>{plural(personas.length, 'persona')}</span></h3>
-      <p className="fbcrm-nota-suave">Cada persona aparece con el nombre que escribió al entrar al CRM. Si alguno está incompleto, cámbialo aquí: se corrige en todo el historial.</p>
+      <h3>Equipo <span>{plural(personas.length, 'persona')}</span><button className="fbcrm-mini fbcrm-primario fbcrm-h3-accion" onClick={agregar}>Agregar persona</button></h3>
+      <p className="fbcrm-nota-suave">Cada persona entra al CRM con su nombre y la clave del equipo. Agrégala aquí para asignarle tareas aunque todavía no haya entrado. Si un nombre está incompleto, cámbialo: se corrige en todo el historial.</p>
       <ul>
         {personas.map((p) => (
           <li key={p.nombre}>
             <span className="fbcrm-avatar">{iniciales(p.nombre)}</span>
-            <span className="fbcrm-cuerpo"><strong>{p.nombre}{p.nombre === usuario ? ' (tú)' : ''}</strong><small>{plural(p.registros, 'registro')}</small></span>
+            <span className="fbcrm-cuerpo"><strong>{p.nombre}{p.nombre === usuario ? ' (tú)' : ''}{(datos.admins || []).includes(p.nombre) ? ' ★' : ''}</strong><small>{plural(p.registros, 'registro')}{p.ultimoIngreso ? `, último ingreso ${fmtFechaHora(p.ultimoIngreso)}` : ', aún no entra al CRM'}</small></span>
             <button className="fbcrm-mini" onClick={() => contacto(p.nombre)}>{(datos.contactos || {})[p.nombre] && (datos.contactos[p.nombre].telefono || datos.contactos[p.nombre].email) ? 'Editar contacto' : 'Agregar contacto'}</button>
             <button className="fbcrm-mini" onClick={() => renombrar(p.nombre)}>Cambiar nombre</button>
+            {datos.esAdmin && p.nombre !== usuario && <button className="fbcrm-mini fbcrm-peligro" onClick={() => quitar(p.nombre)}>Quitar</button>}
           </li>
         ))}
       </ul>
@@ -3770,4 +3781,8 @@ const CSS = `
 .fbcrm-rep-cambios .antes{color:var(--oxido);text-decoration:line-through;text-decoration-thickness:1px}
 .fbcrm-rep-cambios .despues{color:var(--potrero-osc);font-weight:600}
 @media (max-width:760px){.fbcrm-filtros-rep{grid-template-columns:1fr 1fr}.fbcrm-filtro-ancho{grid-column:1/-1}}
+.fbcrm .fbcrm-h3-accion{margin-left:auto}
+.fbcrm-equipo li{flex-wrap:wrap}
+.fbcrm-equipo .fbcrm-cuerpo{min-width:180px}
+.fbcrm-equipo .fbcrm-cuerpo small{white-space:normal}
 `;
