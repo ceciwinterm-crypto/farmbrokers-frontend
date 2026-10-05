@@ -118,7 +118,7 @@ export default function CRM() {
   const linkFicha = async (campo, avance = () => {}) => {
     const actual = (datos && datos.campos.find((x) => x.id === campo.id)) || campo;
     const f = actual.fichaPdf;
-    if (f && new Date(f.fecha).getTime() >= new Date(actual.actualizado || 0).getTime()) return linkPublicoFicha(f.token);
+    if (f && new Date(f.fecha).getTime() >= new Date(actual.actualizado || 0).getTime()) return linkPublicoFicha(f.token, datos && datos.fichasBase);
     avance('Generando la ficha…');
     const blob = await generarFicha(actual, avance);
     avance('Subiendo la ficha…');
@@ -2011,10 +2011,11 @@ async function descargarFichaPDF(nombre, avance) {
 }
 const nombreFicha = (c) => `Ficha ${((c.web && c.web.titulo) || c.nombre).replace(/[\\/:*?"<>|]/g, '')} - Farm Brokers.pdf`;
 const blobABase64 = (b) => new Promise((ok, mal) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => mal(new Error('No se pudo leer la ficha.')); fr.readAsDataURL(b); });
-const linkPublicoFicha = (token) => `${API_BASE}/api/crm/publico-ficha/${token}`;
+// Usa la dirección propia (fichas.farmbrokers.cl) cuando está configurada en Railway
+const linkPublicoFicha = (token, base) => (base ? `${base}/f/${token}` : `${API_BASE}/api/crm/publico-ficha/${token}`);
 async function subirFicha(api, campo, blob) {
   const r = await api(`/campos/${campo.id}/ficha-pdf`, { method: 'POST', body: { base64: await blobABase64(blob) } });
-  return linkPublicoFicha(r.token);
+  return r.link || linkPublicoFicha(r.token);
 }
 // Ficha armada fuera de la vista para generar el PDF desde cualquier parte del CRM
 function GeneradorFicha({ ctx, trabajo, alTerminar }) {
