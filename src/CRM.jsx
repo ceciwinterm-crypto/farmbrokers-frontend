@@ -31,6 +31,7 @@ const ICONOS = {
   cerrar: <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />,
   salir: <><path d="M10 5H7a2.5 2.5 0 0 0-2.5 2.5v9A2.5 2.5 0 0 0 7 19h3" /><path d="M14 8l4 4-4 4M18 12H9.5" /></>,
   pdf: <path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14" />,
+  campana: <><path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9z" /><path d="M10.3 20a2 2 0 0 0 3.4 0" /></>,
   enlace: <><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" /><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" /></>,
 };
 function Icono({ n, s = 22 }) {
@@ -70,7 +71,7 @@ function useApi(clave, usuario) {
   return async (ruta, opciones = {}) => {
     const r = await fetch(`${API_BASE}/api/crm${ruta}`, {
       ...opciones,
-      headers: { 'Content-Type': 'application/json', 'x-crm-key': clave, 'x-crm-user': encodeURIComponent(usuario) },
+      headers: { 'Content-Type': 'application/json', 'x-crm-key': clave, 'x-crm-user': encodeURIComponent(usuario), ...(leerLocal('fbcrm_admin') ? { 'x-crm-admin': leerLocal('fbcrm_admin') } : {}) },
       body: opciones.body ? JSON.stringify(opciones.body) : undefined,
     });
     const data = await r.json().catch(() => ({}));
@@ -96,6 +97,7 @@ export default function CRM() {
     try {
       setError(''); const d = await api('/'); if (d.tipos) Object.assign(TIPOS, d.tipos);
       if (d.alias && d.alias[usuario] && d.alias[usuario] !== usuario) { guardarLocal('fbcrm_usuario', d.alias[usuario]); setUsuario(d.alias[usuario]); }
+      avisarNuevas(d.notificaciones || []);
       setDatos(d);
     }
     catch (e) { setError(e.message); if (/clave/i.test(e.message)) { setClave(''); guardarLocal('fbcrm_clave', ''); } }
@@ -129,8 +131,9 @@ export default function CRM() {
   const ctx = { datos, api, usuario, guardar, cargar, abrir: (col, item) => setAbierto({ col, item }), imprimir: setImpresion, linkFicha };
   if (impresion && datos) return <Impresion ctx={ctx} imp={impresion} cerrar={() => setImpresion(null)} />;
 
-  const VISTAS = [['agenda', 'Agenda'], ['calendario', 'Calendario'], ['campos', 'Campos'], ['clientes', 'Clientes'], ['tasaciones', 'Tasaciones'], ['actividad', 'Actividad']];
-  const urgentes = datos ? accionesConFecha(datos).filter((i) => i.x.proximaFecha <= hoyISO()).length : 0;
+  const VISTAS = [['agenda', 'Agenda'], ['calendario', 'Calendario'], ['campos', 'Campos'], ['clientes', 'Clientes'], ['tasaciones', 'Tasaciones'], ['actividad', 'Equipo']];
+  const urgentes = datos ? accionesConFecha(datos).filter((i) => i.x.proximaFecha <= hoyISO()).length + (datos.tareas || []).filter((t) => t.asignadoA === usuario && t.estado !== 'hecha').length : 0;
+  const pendEquipo = datos ? (datos.esAdmin ? (datos.solicitudes || []).filter((x) => x.estado === 'pendiente').length : 0) : 0;
   const volver = (e) => { e.preventDefault(); window.location.hash = ''; window.location.reload(); };
 
   return (
@@ -138,24 +141,26 @@ export default function CRM() {
       <style>{CSS}</style>
       <div className="fbcrm-app">
         <aside className="fbcrm-nav">
-          <div className="fbcrm-marca"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-logo-img" /></div>
+          <div className="fbcrm-marca fbcrm-marca-con"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-logo-img" />{datos && <Campana ctx={ctx} />}</div>
           <nav className="fbcrm-tabs" role="tablist" aria-label="Secciones">
             {VISTAS.map(([k, l]) => (
               <button key={k} role="tab" aria-selected={vista === k} className={vista === k ? 'on' : ''} onClick={() => { setVista(k); window.scrollTo && window.scrollTo(0, 0); }}>
                 <span className="fbcrm-tab-ico"><Icono n={k} /></span><span className="fbcrm-tab-txt">{l}</span>
                 {k === 'agenda' && urgentes > 0 && <span className="fbcrm-cuenta" aria-label={`${urgentes} pendientes para hoy o atrasados`}>{urgentes}</span>}
+                {k === 'actividad' && pendEquipo > 0 && <span className="fbcrm-cuenta" aria-label={`${pendEquipo} solicitudes por aprobar`}>{pendEquipo}</span>}
               </button>
             ))}
           </nav>
           <div className="fbcrm-yo">
             <span className="fbcrm-avatar">{iniciales(usuario)}</span>
-            <span className="fbcrm-yo-txt"><strong>{usuario}</strong><a href="#" onClick={volver}>Volver a la plataforma</a></span>
+            <span className="fbcrm-yo-txt"><strong>{usuario}{datos && datos.esAdmin ? ' ★' : ''}</strong><a href="#" onClick={volver}>Volver a la plataforma</a></span>
           </div>
         </aside>
 
         <main className="fbcrm-main">
           <div className="fbcrm-movil-top">
             <div className="fbcrm-marca"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-logo-img" /></div>
+            {datos && <Campana ctx={ctx} />}
             <a className="fbcrm-salir" href="#" onClick={volver} aria-label="Volver a la plataforma"><Icono n="salir" /></a>
           </div>
           {vista !== 'agenda' && <h1 className="fbcrm-h1">{VISTAS.find(([k]) => k === vista)[1]}</h1>}
@@ -168,7 +173,7 @@ export default function CRM() {
       {datos && vista === 'campos' && <ListaCampos ctx={ctx} importar={() => setImportando(true)} />}
       {datos && vista === 'clientes' && <ListaClientes ctx={ctx} />}
       {datos && vista === 'tasaciones' && <ListaTasaciones ctx={ctx} />}
-      {datos && vista === 'actividad' && <Actividad ctx={ctx} />}
+      {datos && vista === 'actividad' && <VistaEquipo ctx={ctx} />}
         </main>
       </div>
 
@@ -266,6 +271,9 @@ function Agenda({ ctx, irA, importar }) {
   return (
     <section>
       {banda}
+      <Solicitudes ctx={ctx} soloPendientes />
+      {(() => { const mias = (datos.tareas || []).filter((t) => t.asignadoA === ctx.usuario && t.estado !== 'hecha').sort((a, b) => (a.vence || '9999').localeCompare(b.vence || '9999'));
+        return mias.length > 0 && <div className="fbcrm-bloque"><h3>Mis tareas <span>{mias.length}</span></h3><ul className="fbcrm-tareas">{mias.map((t) => <TarjetaTarea key={t.id} ctx={ctx} t={t} />)}</ul></div>; })()}
       {grupos.every(([, l]) => !l.length) && <p className="fbcrm-vacio">No hay seguimientos con fecha. Define la próxima acción en cada campo, cliente o tasación y aparecerá aquí.</p>}
       {grupos.map(([titulo, lista, clase]) => lista.length > 0 && (
         <div key={titulo} className="fbcrm-grupo">
@@ -458,6 +466,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
   const [msg, setMsg] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const [verMandato, setVerMandato] = useState(false);
+  const [tareaForm, setTareaForm] = useState(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const esNuevo = !f.id;
   const sinGuardar = !esNuevo && huella(f) !== base;
@@ -471,7 +480,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
   };
   const eliminar = async () => {
     if (!window.confirm(`¿Eliminar ${f.nombre} con todo su historial?`)) return;
-    try { await api(`/campos/${f.id}`, { method: 'DELETE' }); await cargar(); cerrar(); } catch (e) { setMsg(e.message); }
+    try { const r = await api(`/campos/${f.id}`, { method: 'DELETE', body: ctx.datos.esAdmin ? {} : { motivo: window.prompt('¿Por qué hay que eliminarlo? (lo verá la administradora)') || '' } }); await cargar(); if (r.pendiente) { setMsg(r.mensaje); return; } cerrar(); } catch (e) { setMsg(e.message); }
   };
   const [redactando, setRedactando] = useState(false);
   const [msgDesc, setMsgDesc] = useState('');
@@ -499,12 +508,15 @@ function FichaCampo({ ctx, inicial, cerrar }) {
             <select value={f.etapa} disabled={ocupado} onChange={(e) => grabar({ etapa: e.target.value })}>{datos.etapas.campos.map((et) => <option key={et}>{et}</option>)}</select>
           </label>
           <button onClick={() => ctx.imprimir({ tipo: 'campo', id: f.id })}><Icono n="pdf" s={18} />Ficha PDF</button>
+          <button className={tareaForm ? 'on' : ''} onClick={() => setTareaForm(tareaForm ? null : { titulo: '' })}>Tarea</button>
           <button className={verMandato ? 'on' : ''} aria-expanded={verMandato} onClick={() => setVerMandato(!verMandato)}>
             Mandato {cap ? <span className={`fbcrm-badge est-${cap.estado}`}>{ETIQUETA_CAP[cap.estado]}</span> : <span className="fbcrm-badge gris">Sin link</span>}
           </button>
           {linkWeb && <a className="fbcrm-btn-link" href={linkWeb} target="_blank" rel="noreferrer">Ver en la web</a>}
         </div>
       )}
+      {!esNuevo && tareaForm && <FormTarea ctx={ctx} refInicial={{ col: 'campos', id: f.id, nombre: f.nombre }} tituloInicial={tareaForm.titulo} alListo={() => setTareaForm(null)} />}
+      {!esNuevo && <TareasDe ctx={ctx} refId={f.id} />}
       {!esNuevo && verMandato && <Captacion ctx={ctx} campo={f} setCampo={setCampo} />}
 
       {foto && <img src={foto} alt="" className="fbcrm-ficha-foto" />}
@@ -582,6 +594,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
             {datos.checklist.map(([k, l]) => (
               <label key={k} className={f.checklist[k] ? 'ok' : ''}>
                 <input type="checkbox" checked={!!f.checklist[k]} disabled={ocupado} onChange={() => grabar({ checklist: { ...f.checklist, [k]: !f.checklist[k] } })} />{l}
+                {!f.checklist[k] && <button type="button" className="fbcrm-pedir" onClick={(e) => { e.preventDefault(); setTareaForm({ titulo: `Conseguir ${l.toLowerCase()} de ${f.nombre}` }); window.scrollTo && window.scrollTo(0, 0); }}>Pedir</button>}
               </label>
             ))}
           </div>
@@ -868,7 +881,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
   };
   const eliminar = async () => {
     if (!window.confirm(`¿Eliminar a ${f.nombre}?`)) return;
-    try { await api(`/clientes/${f.id}`, { method: 'DELETE' }); await cargar(); cerrar(); } catch (e) { setMsg(e.message); }
+    try { const r = await api(`/clientes/${f.id}`, { method: 'DELETE', body: ctx.datos.esAdmin ? {} : { motivo: window.prompt('¿Por qué hay que eliminarlo? (lo verá la administradora)') || '' } }); await cargar(); if (r.pendiente) { setMsg(r.mensaje); return; } cerrar(); } catch (e) { setMsg(e.message); }
   };
   const camposQueCalzan = esNuevo ? [] : Object.entries(datos.matches).map(([cid, l]) => ({ campo: datos.campos.find((c) => c.id === cid), m: l.find((x) => x.clienteId === f.id) }))
     .filter((x) => x.m && x.campo).sort((a, b) => b.m.score - a.m.score);
@@ -989,7 +1002,7 @@ function FichaTasacion({ ctx, inicial, cerrar }) {
   };
   const eliminar = async () => {
     if (!window.confirm('¿Eliminar esta tasación?')) return;
-    try { await api(`/tasaciones/${f.id}`, { method: 'DELETE' }); await cargar(); cerrar(); } catch (e) { setMsg(e.message); }
+    try { const r = await api(`/tasaciones/${f.id}`, { method: 'DELETE', body: ctx.datos.esAdmin ? {} : { motivo: window.prompt('¿Por qué hay que eliminarlo? (lo verá la administradora)') || '' } }); await cargar(); if (r.pendiente) { setMsg(r.mensaje); return; } cerrar(); } catch (e) { setMsg(e.message); }
   };
   return (
     <Hoja titulo={esNuevo ? 'Nueva tasación' : f.titulo} sub={[f.cliente, f.codigo].filter(Boolean).join(', ')} cerrar={cerrar}>
@@ -1026,6 +1039,274 @@ function FichaTasacion({ ctx, inicial, cerrar }) {
   );
 }
 
+// ════════════════════════════ Trabajo en equipo ════════════════════════════
+const vistas = new Set();
+function avisarNuevas(lista) {
+  const nuevas = lista.filter((n) => !n.leida && !vistas.has(n.id));
+  const primeraVez = vistas.size === 0;
+  lista.forEach((n) => vistas.add(n.id));
+  if (primeraVez || !nuevas.length) return;
+  try { if (window.Notification && Notification.permission === 'granted') nuevas.slice(0, 3).forEach((n) => new Notification('Farm Brokers', { body: n.texto })); } catch (e) { /* sin avisos del navegador */ }
+}
+function personasDelEquipo(datos, usuario) {
+  return [...new Set([usuario, ...(datos.equipo || []).map((p) => p.nombre), ...Object.keys(datos.contactos || {}), ...(datos.admins || [])].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+}
+function Campana({ ctx }) {
+  const { datos, api, cargar, abrir } = ctx;
+  const [abierta, setAbierta] = useState(false);
+  const lista = datos.notificaciones || [];
+  const sinLeer = lista.filter((n) => !n.leida).length;
+  const marcar = async (ids) => { try { await api('/notificaciones/leidas', { method: 'POST', body: ids ? { ids } : {} }); cargar(); } catch (e) { /* reintenta luego */ } };
+  const ir = (n) => {
+    marcar([n.id]); setAbierta(false);
+    if (n.ref && n.ref.tarea) { const t = (datos.tareas || []).find((x) => x.id === n.ref.tarea); if (t && t.ref) { const x = (datos[t.ref.col] || []).find((y) => y.id === t.ref.id); if (x) abrir(t.ref.col, x); } }
+  };
+  return (
+    <div className="fbcrm-campana">
+      <button className="fbcrm-campana-btn" onClick={() => setAbierta(!abierta)} aria-label={`Notificaciones${sinLeer ? `, ${sinLeer} sin leer` : ''}`} aria-expanded={abierta}>
+        <Icono n="campana" s={20} />{sinLeer > 0 && <span className="fbcrm-cuenta">{sinLeer}</span>}
+      </button>
+      {abierta && (
+        <div className="fbcrm-campana-panel" role="dialog" aria-label="Notificaciones">
+          <div className="fbcrm-campana-top"><strong>Notificaciones</strong>{sinLeer > 0 && <button className="fbcrm-texto" onClick={() => marcar()}>Marcar todas como leídas</button>}</div>
+          {!lista.length && <p className="fbcrm-nota-suave">No tienes notificaciones.</p>}
+          <ul>{lista.slice(0, 30).map((n) => (
+            <li key={n.id} className={n.leida ? '' : 'nueva'}><button onClick={() => ir(n)}><span>{n.texto}</span><small>{fmtFechaHora(n.fecha)}</small></button></li>
+          ))}</ul>
+          {window.Notification && Notification.permission === 'default' && <button className="fbcrm-mini" onClick={() => Notification.requestPermission()}>Activar avisos en este equipo</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+function FormTarea({ ctx, refInicial, tituloInicial, alListo }) {
+  const { datos, api, cargar, usuario } = ctx;
+  const personas = personasDelEquipo(datos, usuario).filter((n) => n !== usuario).concat(usuario);
+  const [f, setF] = useState({ titulo: tituloInicial || '', detalle: '', asignadoA: personas[0] || '', vence: '', ref: refInicial || null });
+  const [msg, setMsg] = useState('');
+  const crear = async () => {
+    try {
+      let para = f.asignadoA;
+      if (para === '__otra') { para = (window.prompt('Nombre de la persona (tal como entra al CRM):') || '').trim(); if (!para) return; }
+      const t = await api('/tareas', { method: 'POST', body: { ...f, asignadoA: para } });
+      await cargar();
+      const c = (datos.contactos || {})[para];
+      setMsg(`Tarea asignada a ${para}. Le llegará la notificación en el CRM.`);
+      if (c && fonoWa(c.telefono) && window.confirm(`¿Avisarle también a ${para} por WhatsApp?`)) {
+        window.open(`https://wa.me/${fonoWa(c.telefono)}?text=${encodeURIComponent(`Hola ${para.split(' ')[0]}, te asigné una tarea en el CRM de Farm Brokers: ${t.titulo}${t.ref ? ` (${t.ref.nombre})` : ''}${t.vence ? `, para el ${fmtFecha(t.vence)}` : ''}.\n${window.location.origin}${window.location.pathname}#crm`)}`, '_blank', 'noopener');
+      }
+      if (alListo) setTimeout(alListo, 1500);
+    } catch (e) { setMsg(e.message); }
+  };
+  return (
+    <div className="fbcrm-bloque fbcrm-form-tarea">
+      <h3>Nueva tarea{f.ref ? ` para ${f.ref.nombre}` : ''}</h3>
+      <div className="fbcrm-form">
+        <Campo label="Qué hay que hacer" ancho><input value={f.titulo} onChange={(e) => setF({ ...f, titulo: e.target.value })} placeholder="Ej. Conseguir fotos del campo" autoFocus /></Campo>
+        <Campo label="Para"><select value={f.asignadoA} onChange={(e) => setF({ ...f, asignadoA: e.target.value })}>{personas.map((n) => <option key={n} value={n}>{n === usuario ? `${n} (yo)` : n}</option>)}<option value="__otra">Otra persona…</option></select></Campo>
+        <Campo label="Para cuándo"><input type="date" value={f.vence} onChange={(e) => setF({ ...f, vence: e.target.value })} /></Campo>
+        {!refInicial && <Campo label="Campo relacionado (opcional)" ancho><select value={f.ref ? f.ref.id : ''} onChange={(e) => { const c = datos.campos.find((x) => x.id === e.target.value); setF({ ...f, ref: c ? { col: 'campos', id: c.id, nombre: c.nombre } : null }); }}><option value="">Ninguno</option>{[...datos.campos].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></Campo>}
+        <Campo label="Detalle (opcional)" ancho><textarea rows={2} value={f.detalle} onChange={(e) => setF({ ...f, detalle: e.target.value })} /></Campo>
+      </div>
+      <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={f.titulo.trim().length < 3 || !f.asignadoA} onClick={crear}>Asignar tarea</button>{alListo && <button onClick={alListo}>Cancelar</button>}</div>
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+    </div>
+  );
+}
+function TarjetaTarea({ ctx, t }) {
+  const { datos, api, cargar, usuario, abrir } = ctx;
+  const [comentario, setComentario] = useState('');
+  const [ver, setVer] = useState(false);
+  const atrasada = t.estado !== 'hecha' && t.vence && t.vence < hoyISO();
+  const cambiar = async (estado) => { try { await api(`/tareas/${t.id}`, { method: 'PUT', body: { estado } }); cargar(); } catch (e) { alert(e.message); } };
+  const comentar = async () => { try { await api(`/tareas/${t.id}/comentario`, { method: 'POST', body: { texto: comentario } }); setComentario(''); cargar(); } catch (e) { alert(e.message); } };
+  const borrar = async () => { if (!window.confirm('¿Borrar esta tarea?')) return; try { await api(`/tareas/${t.id}`, { method: 'DELETE' }); cargar(); } catch (e) { alert(e.message); } };
+  const irRef = () => { const x = t.ref && (datos[t.ref.col] || []).find((y) => y.id === t.ref.id); if (x) abrir(t.ref.col, x); };
+  return (
+    <li className={`fbcrm-tarea ${t.estado === 'hecha' ? 'hecha' : ''} ${atrasada ? 'atrasada' : ''}`}>
+      <input type="checkbox" checked={t.estado === 'hecha'} onChange={() => cambiar(t.estado === 'hecha' ? 'pendiente' : 'hecha')} aria-label={`Marcar “${t.titulo}” como ${t.estado === 'hecha' ? 'pendiente' : 'hecha'}`} />
+      <div className="fbcrm-cuerpo">
+        <strong>{t.titulo}</strong>
+        <small>{t.asignadoA === usuario ? 'Para ti' : `Para ${t.asignadoA}`}{t.creadoPor !== t.asignadoA ? `, pedida por ${t.creadoPor === usuario ? 'ti' : t.creadoPor}` : ''}{t.vence ? `, vence el ${fmtFecha(t.vence)}` : ''}{t.estado === 'hecha' && t.hechaPor ? `. Hecha por ${t.hechaPor} el ${fmtFecha(t.hechaEn.slice(0, 10))}` : ''}</small>
+        {t.ref && <button className="fbcrm-texto fbcrm-tarea-ref" onClick={irRef}>{t.ref.nombre}</button>}
+        {t.detalle && <p className="fbcrm-tarea-detalle">{t.detalle}</p>}
+        {(t.comentarios || []).length > 0 && !ver && <button className="fbcrm-texto" onClick={() => setVer(true)}>{plural(t.comentarios.length, 'comentario')}</button>}
+        {ver && <ul className="fbcrm-tarea-coment">{t.comentarios.map((c, i) => <li key={i}><b>{c.autor}:</b> {c.texto} <small>{fmtFechaHora(c.fecha)}</small></li>)}</ul>}
+        <div className="fbcrm-tarea-acc">
+          <input value={comentario} onChange={(e) => setComentario(e.target.value)} placeholder="Comentar…" aria-label="Comentario" onKeyDown={(e) => e.key === 'Enter' && comentario.trim() && comentar()} />
+          {comentario.trim() && <button className="fbcrm-mini" onClick={comentar}>Enviar</button>}
+          {t.estado === 'pendiente' && t.asignadoA === usuario && <button className="fbcrm-mini" onClick={() => cambiar('en curso')}>Estoy en eso</button>}
+          {(t.creadoPor === usuario || datos.esAdmin) && <button className="fbcrm-mini fbcrm-peligro" onClick={borrar}>Borrar</button>}
+        </div>
+      </div>
+      <span className={`fbcrm-badge ${t.estado === 'hecha' ? 'est-firmado' : atrasada ? 'est-tasacion' : t.estado === 'en curso' ? 'est-en_progreso' : 'est-completado'}`}>{t.estado === 'hecha' ? 'Hecha' : atrasada ? 'Atrasada' : t.estado === 'en curso' ? 'En curso' : 'Pendiente'}</span>
+    </li>
+  );
+}
+function TareasDe({ ctx, refId }) {
+  const lista = (ctx.datos.tareas || []).filter((t) => t.ref && t.ref.id === refId && t.estado !== 'hecha');
+  if (!lista.length) return null;
+  return <div className="fbcrm-bloque"><h3>Tareas abiertas <span>{lista.length}</span></h3><ul className="fbcrm-tareas">{lista.map((t) => <TarjetaTarea key={t.id} ctx={ctx} t={t} />)}</ul></div>;
+}
+function Solicitudes({ ctx, soloPendientes }) {
+  const { datos, api, cargar, usuario } = ctx;
+  const lista = (datos.solicitudes || []).filter((x) => (soloPendientes ? x.estado === 'pendiente' : true) && (datos.esAdmin || x.solicitadoPor === usuario));
+  if (!lista.length) return null;
+  const resolver = async (x, accion) => {
+    const comentario = accion === 'rechazar' ? (window.prompt('¿Quieres dejarle un comentario? (opcional)') || '') : '';
+    try { await api(`/solicitudes/${x.id}/${accion}`, { method: 'POST', body: { comentario } }); cargar(); } catch (e) { alert(e.message); }
+  };
+  return (
+    <div className="fbcrm-bloque fbcrm-solicitudes">
+      <h3>{datos.esAdmin ? 'Solicitudes por aprobar' : 'Mis solicitudes de eliminación'} <span>{lista.length}</span></h3>
+      <ul>{lista.map((x) => (
+        <li key={x.id}>
+          <div className="fbcrm-cuerpo"><strong>Eliminar {x.ref.singular}: {x.ref.nombre}</strong><small>Pedido por {x.solicitadoPor}, {fmtFechaHora(x.fecha)}{x.motivo ? `. Motivo: ${x.motivo}` : ''}{x.estado !== 'pendiente' ? `. ${x.estado.charAt(0).toUpperCase() + x.estado.slice(1)} por ${x.resueltaPor}${x.comentario ? `: ${x.comentario}` : ''}` : ''}</small></div>
+          {x.estado === 'pendiente' && datos.esAdmin ? (
+            <span className="fbcrm-envio-acc"><button className="fbcrm-mini fbcrm-peligro" onClick={() => window.confirm(`¿Eliminar definitivamente ${x.ref.nombre}?`) && resolver(x, 'aprobar')}>Aprobar y eliminar</button><button className="fbcrm-mini" onClick={() => resolver(x, 'rechazar')}>Rechazar</button></span>
+          ) : <span className={`fbcrm-badge ${x.estado === 'pendiente' ? 'est-completado' : x.estado === 'rechazada' ? 'gris' : 'est-firmado'}`}>{x.estado === 'pendiente' ? 'Esperando aprobación' : x.estado}</span>}
+        </li>
+      ))}</ul>
+    </div>
+  );
+}
+function VistaEquipo({ ctx }) {
+  const { datos, usuario } = ctx;
+  const [sec, setSec] = useState('tareas');
+  const misPend = (datos.tareas || []).filter((t) => t.asignadoA === usuario && t.estado !== 'hecha').length;
+  const sols = (datos.solicitudes || []).filter((x) => x.estado === 'pendiente' && datos.esAdmin).length;
+  return (
+    <section>
+      <div className="fbcrm-chips fbcrm-sec-equipo" role="tablist">
+        {[['tareas', `Tareas${misPend ? ` (${misPend})` : ''}`], ['reporte', 'Reporte'], ['actividad', 'Actividad'], ['personas', `Personas${sols ? ` (${sols})` : ''}`]].map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} className={sec === k ? 'on' : ''} onClick={() => setSec(k)}>{l}</button>)}
+      </div>
+      {sec === 'tareas' && <Tareas ctx={ctx} />}
+      {sec === 'reporte' && <Reporte ctx={ctx} />}
+      {sec === 'actividad' && <Actividad ctx={ctx} />}
+      {sec === 'personas' && <><Solicitudes ctx={ctx} /><ModoAdmin ctx={ctx} /><Equipo ctx={ctx} /></>}
+    </section>
+  );
+}
+function Tareas({ ctx }) {
+  const { datos, usuario } = ctx;
+  const [filtro, setFiltro] = useState('mias');
+  const [nueva, setNueva] = useState(false);
+  const todas = datos.tareas || [];
+  const lista = todas.filter((t) => (filtro === 'mias' ? t.asignadoA === usuario : filtro === 'pedidas' ? t.creadoPor === usuario && t.asignadoA !== usuario : true))
+    .sort((a, b) => (a.estado === 'hecha') - (b.estado === 'hecha') || (a.vence || '9999').localeCompare(b.vence || '9999') || b.fecha.localeCompare(a.fecha));
+  const abiertas = lista.filter((t) => t.estado !== 'hecha'), hechas = lista.filter((t) => t.estado === 'hecha').slice(0, 20);
+  return (
+    <>
+      <div className="fbcrm-barra">
+        <div className="fbcrm-chips">{[['mias', 'Para mí'], ['pedidas', 'Las que pedí'], ['todas', 'Todo el equipo']].map(([k, l]) => <button key={k} className={filtro === k ? 'on' : ''} onClick={() => setFiltro(k)}>{l}</button>)}</div>
+        <button className="fbcrm-primario" onClick={() => setNueva(!nueva)}>{nueva ? 'Cerrar' : 'Nueva tarea'}</button>
+      </div>
+      {nueva && <FormTarea ctx={ctx} alListo={() => setNueva(false)} />}
+      {!abiertas.length && <p className="fbcrm-vacio">{filtro === 'mias' ? 'No tienes tareas pendientes.' : 'No hay tareas pendientes.'}</p>}
+      {abiertas.length > 0 && <ul className="fbcrm-tareas fbcrm-bloque">{abiertas.map((t) => <TarjetaTarea key={t.id} ctx={ctx} t={t} />)}</ul>}
+      {hechas.length > 0 && <details className="fbcrm-aviso"><summary><strong>Hechas</strong> <span>{plural(hechas.length, 'tarea')}</span></summary><ul className="fbcrm-tareas">{hechas.map((t) => <TarjetaTarea key={t.id} ctx={ctx} t={t} />)}</ul></details>}
+    </>
+  );
+}
+const NOMBRE_CAMPO_REP = { precioUF: 'Precio UF', precioCLP: 'Precio $', precioTexto: 'Precio publicado', hectareas: 'Hectáreas', agua: 'Agua', fuenteAgua: 'Fuente de agua', plantaciones: 'Plantaciones', aptitud: 'Aptitud',
+  sector: 'Comuna', region: 'Región', rol: 'Rol', codigo: 'Código', nombre: 'Nombre', tipo: 'Tipo', propietario: 'Propietario', telefono: 'Teléfono', email: 'Email', responsable: 'Responsable',
+  proximaAccion: 'Próxima acción', proximaFecha: 'Fecha próxima acción', descripcionFicha: 'Descripción', infraestructura: 'Infraestructura', acceso: 'Acceso', observaciones: 'Observaciones',
+  linkWeb: 'Link web', coordenadas: 'Coordenadas', perfiles: 'Perfiles', requerimiento: 'Requerimiento', regiones: 'Regiones', cultivos: 'Cultivos', haMin: 'Ha mínimo', haMax: 'Ha máximo', zona: 'Zona', presupuesto: 'Presupuesto' };
+const valorRep = (v) => (v === '' || v == null ? '(vacío)' : /^\d{4,}(\.\d+)?$/.test(String(v)) ? Number(v).toLocaleString('es-CL') : v);
+function Reporte({ ctx }) {
+  const { datos, api, abrir, usuario } = ctx;
+  const hace30 = new Date(Date.now() - 30 * 864e5).toLocaleDateString('en-CA');
+  const [f, setF] = useState({ persona: '', desde: hace30, hasta: hoyISO(), col: '', q: '' });
+  const [r, setR] = useState(null);
+  const [error, setError] = useState('');
+  const buscar = async () => {
+    setError('');
+    try { setR(await api(`/reporte?${new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString()}`)); } catch (e) { setError(e.message); }
+  };
+  useEffect(() => { buscar(); }, [f.persona, f.desde, f.hasta, f.col]);
+  const csv = () => {
+    const filas = [['Fecha', 'Persona', 'Acción', 'Tipo', 'Registro', 'Campo modificado', 'Antes', 'Después']];
+    for (const a of r.registros) {
+      const base = [new Date(a.fecha).toLocaleString('es-CL'), a.autor, a.accion, a.ref ? a.ref.col : '', a.ref ? a.ref.nombre : ''];
+      if (a.detalle && a.detalle.length) a.detalle.forEach((d) => filas.push([...base, NOMBRE_CAMPO_REP[d.campo] || d.campo, d.antes, d.despues]));
+      else filas.push([...base, '', '', '']);
+    }
+    const texto = '\ufeff' + filas.map((fl) => fl.map((v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([texto], { type: 'text/csv;charset=utf-8' }));
+    const el = document.createElement('a'); el.href = url; el.download = `Reporte equipo Farm Brokers ${f.desde || ''} a ${f.hasta || ''}.csv`; document.body.appendChild(el); el.click(); el.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
+  const ir = (ref) => { const x = ref && (datos[ref.col] || []).find((y) => y.id === ref.id); if (x) abrir(ref.col, x); };
+  return (
+    <>
+      <div className="fbcrm-filtros fbcrm-filtros-rep">
+        <label><span>Persona</span><select value={f.persona} onChange={(e) => setF({ ...f, persona: e.target.value })}><option value="">Todo el equipo</option>{personasDelEquipo(datos, usuario).map((n) => <option key={n}>{n}</option>)}</select></label>
+        <label><span>Desde</span><input type="date" value={f.desde} onChange={(e) => setF({ ...f, desde: e.target.value })} /></label>
+        <label><span>Hasta</span><input type="date" value={f.hasta} onChange={(e) => setF({ ...f, hasta: e.target.value })} /></label>
+        <label><span>En</span><select value={f.col} onChange={(e) => setF({ ...f, col: e.target.value })}><option value="">Todo</option><option value="campos">Campos</option><option value="clientes">Clientes</option><option value="tasaciones">Tasaciones</option></select></label>
+        <label className="fbcrm-filtro-ancho"><span>Buscar</span><input value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && buscar()} placeholder="Ej. Pilares, precio, mandato" /></label>
+      </div>
+      {error && <p className="fbcrm-error">{error}</p>}
+      {r && (
+        <>
+          <div className="fbcrm-barra"><p className="fbcrm-conteo">{plural(r.total, 'acción', 'acciones')} registradas</p>{r.total > 0 && <button onClick={csv}>Descargar para Excel</button>}</div>
+          {r.resumen.length > 0 && (
+            <div className="fbcrm-rep-resumen">
+              {r.resumen.map((x) => (
+                <button key={x.persona} className={`fbcrm-rep-persona ${f.persona === x.persona ? 'on' : ''}`} onClick={() => setF({ ...f, persona: f.persona === x.persona ? '' : x.persona })}>
+                  <span className="fbcrm-avatar">{iniciales(x.persona)}</span>
+                  <span className="fbcrm-cuerpo"><strong>{x.persona}</strong><small>{plural(x.acciones, 'acción', 'acciones')}, {plural(x.ediciones, 'edición', 'ediciones')}, {plural(x.campos, 'campo')} con cambios{x.envios ? `, ${plural(x.envios, 'envío')}` : ''}{x.tareasHechas ? `, ${plural(x.tareasHechas, 'tarea hecha', 'tareas hechas')}` : ''}</small><small>Última acción: {fmtFechaHora(x.ultima)}</small></span>
+                </button>
+              ))}
+            </div>
+          )}
+          {!r.total && <p className="fbcrm-vacio">No hay acciones registradas con estos filtros. El registro detallado empieza desde que se instala esta versión.</p>}
+          <ul className="fbcrm-feed fbcrm-rep-lista">
+            {r.registros.slice(0, 400).map((a, i) => (
+              <li key={i}>
+                <span className="fbcrm-avatar">{iniciales(a.autor)}</span>
+                <div>
+                  <p>{a.ref && a.ref.nombre && datos[a.ref.col] && datos[a.ref.col].some((y) => y.id === a.ref.id) ? <><button className="fbcrm-texto" onClick={() => ir(a.ref)}>{a.accion}</button></> : a.accion}</p>
+                  {a.detalle && a.detalle.length > 0 && <ul className="fbcrm-rep-cambios">{a.detalle.map((d, j) => <li key={j}><b>{NOMBRE_CAMPO_REP[d.campo] || d.campo}:</b> <span className="antes">{valorRep(d.antes)}</span> → <span className="despues">{valorRep(d.despues)}</span></li>)}</ul>}
+                  <span>{a.autor}, {fmtFechaHora(a.fecha)}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {r.registros.length > 400 && <p className="fbcrm-nota-suave">Se muestran las 400 más recientes. Descarga el archivo para Excel para verlas todas.</p>}
+        </>
+      )}
+    </>
+  );
+}
+function ModoAdmin({ ctx }) {
+  const { datos, api, cargar } = ctx;
+  const [clave, setClave] = useState('');
+  const [msg, setMsg] = useState('');
+  const activar = async () => {
+    guardarLocal('fbcrm_admin', clave);
+    try { await api('/admin/verificar', { method: 'POST' }); await cargar(); setClave(''); setMsg('Modo administradora activo en este navegador.'); }
+    catch (e) { guardarLocal('fbcrm_admin', ''); setMsg(e.message); }
+  };
+  const salir = async () => { guardarLocal('fbcrm_admin', ''); await cargar(); setMsg('Saliste del modo administradora en este navegador.'); };
+  return (
+    <div className="fbcrm-bloque">
+      <h3>Modo administradora {datos.esAdmin && <span className="fbcrm-badge est-firmado">Activo</span>}</h3>
+      {!datos.adminConfigurada && <p className="fbcrm-nota-suave">Para activarlo, crea en Railway la variable <b>CRM_ADMIN_KEY</b> con una clave que solo tú conozcas.</p>}
+      {datos.esAdmin ? (
+        <><p className="fbcrm-nota-suave">Puedes eliminar directamente y aprobar o rechazar las solicitudes del equipo. Las notificaciones de solicitudes te llegan a ti.</p><button onClick={salir}>Salir del modo administradora</button></>
+      ) : datos.adminConfigurada && (
+        <>
+          <p className="fbcrm-nota-suave">Con la clave de administradora puedes aprobar eliminaciones. El resto del equipo puede pedirlas, pero no ejecutarlas.</p>
+          <div className="fbcrm-form"><Campo label="Clave de administradora"><input type="password" value={clave} onChange={(e) => setClave(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && clave && activar()} /></Campo></div>
+          <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={!clave} onClick={activar}>Activar en este navegador</button></div>
+        </>
+      )}
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+    </div>
+  );
+}
+
 // ════════════════════════════ Actividad ════════════════════════════
 function Actividad({ ctx }) {
   const { datos, abrir } = ctx;
@@ -1033,7 +1314,6 @@ function Actividad({ ctx }) {
   const ir = (ref) => { if (!ref) return; const x = (datos[ref.col] || []).find((y) => y.id === ref.id); if (x) abrir(ref.col, x); };
   return (
     <>
-    <Equipo ctx={ctx} />
     <ul className="fbcrm-feed">
       {datos.actividad.map((a, i) => (
         <li key={i}>
@@ -1054,6 +1334,12 @@ function Equipo({ ctx }) {
   const [msg, setMsg] = useState('');
   const personas = datos.equipo || [];
   if (!personas.length) return null;
+  const contacto = async (nombre) => {
+    const actual = (datos.contactos || {})[nombre] || {};
+    const telefono = window.prompt(`WhatsApp de ${nombre} (para avisarle de sus tareas):`, actual.telefono || ''); if (telefono === null) return;
+    const email = window.prompt(`Correo de ${nombre}:`, actual.email || ''); if (email === null) return;
+    try { await api('/equipo/contacto', { method: 'PUT', body: { nombre, telefono, email } }); await cargar(); setMsg(`Contacto de ${nombre} guardado.`); } catch (e) { setMsg(e.message); }
+  };
   const renombrar = async (de) => {
     const a = (window.prompt(`Nombre nuevo para “${de}”. Se cambiará en todo el historial del CRM.`, de) || '').trim();
     if (!a || a === de) return;
@@ -1069,6 +1355,7 @@ function Equipo({ ctx }) {
           <li key={p.nombre}>
             <span className="fbcrm-avatar">{iniciales(p.nombre)}</span>
             <span className="fbcrm-cuerpo"><strong>{p.nombre}{p.nombre === usuario ? ' (tú)' : ''}</strong><small>{plural(p.registros, 'registro')}</small></span>
+            <button className="fbcrm-mini" onClick={() => contacto(p.nombre)}>{(datos.contactos || {})[p.nombre] && (datos.contactos[p.nombre].telefono || datos.contactos[p.nombre].email) ? 'Editar contacto' : 'Agregar contacto'}</button>
             <button className="fbcrm-mini" onClick={() => renombrar(p.nombre)}>Cambiar nombre</button>
           </li>
         ))}
@@ -2325,7 +2612,7 @@ function ArchivosCampo({ ctx, campo, setCampo }) {
   };
   const borrar = async (a) => {
     if (!window.confirm(`¿Eliminar ${a.nombre}?`)) return;
-    try { const r = await api(`/campos/${campo.id}/archivos/${a.id}`, { method: 'DELETE' }); setCampo(r); cargar(); } catch (e) { setMsg(e.message); }
+    try { const r = await api(`/campos/${campo.id}/archivos/${a.id}`, { method: 'DELETE', body: ctx.datos.esAdmin ? {} : { motivo: window.prompt('¿Por qué hay que eliminarlo? (lo verá la administradora)') || '' } }); if (r.pendiente) { setMsg(r.mensaje); cargar(); return; } setCampo(r); cargar(); } catch (e) { setMsg(e.message); }
   };
   return (
     <div className="fbcrm-bloque">
@@ -3433,4 +3720,54 @@ const CSS = `
 .fbcrm-fecha-ingreso{color:var(--salvia);font-size:.78rem;white-space:nowrap}
 .fbcrm-etq-primera{margin-top:0}
 .fbcrm-rango{margin-top:-6px}
+/* Trabajo en equipo */
+.fbcrm-marca-con{justify-content:space-between}
+.fbcrm-campana{position:relative}
+.fbcrm .fbcrm-campana-btn{position:relative;border:0;background:none;padding:6px;border-radius:10px;color:var(--salvia);display:inline-flex}
+.fbcrm .fbcrm-campana-btn:hover{background:var(--hoja)}
+.fbcrm-campana-btn .fbcrm-cuenta{position:absolute;top:-2px;right:-4px;margin:0;min-width:18px;height:18px;font-size:.66rem}
+.fbcrm-campana-panel{position:absolute;top:40px;left:0;z-index:1200;width:min(360px,86vw);max-height:70vh;overflow-y:auto;background:var(--papel);border:1px solid var(--linea);border-radius:14px;box-shadow:0 12px 40px rgba(23,38,29,.18);padding:12px}
+.fbcrm-movil-top .fbcrm-campana-panel{left:auto;right:0}
+.fbcrm-campana-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px}
+.fbcrm-campana-panel ul{list-style:none;margin:0 0 8px;padding:0}
+.fbcrm-campana-panel li button{display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;border:0;background:none;padding:9px 8px;border-radius:10px;font-size:.9rem}
+.fbcrm-campana-panel li.nueva button{background:var(--potrero-cl)}
+.fbcrm-campana-panel li button:hover{background:var(--hoja)}
+.fbcrm-campana-panel small{color:var(--salvia);font-size:.78rem}
+.fbcrm-movil-top{gap:8px}
+.fbcrm-movil-top .fbcrm-marca{flex:1}
+.fbcrm .fbcrm-pedir{margin-left:auto;border:0;background:none;color:var(--potrero);font-size:.8rem;font-weight:600;padding:0 2px;text-decoration:underline;text-underline-offset:2px}
+.fbcrm-check label{position:relative}
+.fbcrm-tareas{list-style:none;margin:0;padding:0}
+.fbcrm-tareas.fbcrm-bloque{padding:6px 16px}
+.fbcrm-tarea{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--linea2)}
+.fbcrm-tarea:last-child{border-bottom:0}
+.fbcrm-tarea>input{margin-top:3px}
+.fbcrm-tarea.hecha strong{text-decoration:line-through;color:var(--salvia)}
+.fbcrm-tarea.atrasada small{color:var(--oxido)}
+.fbcrm-tarea .fbcrm-cuerpo small{white-space:normal}
+.fbcrm .fbcrm-tarea-ref{font-size:.86rem;margin-top:2px}
+.fbcrm-tarea-detalle{margin:4px 0 0;font-size:.9rem}
+.fbcrm-tarea-coment{list-style:none;margin:6px 0 0;padding:6px 10px;background:var(--hoja);border-radius:10px;font-size:.86rem}
+.fbcrm-tarea-coment small{color:var(--salvia)}
+.fbcrm-tarea-acc{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.fbcrm .fbcrm-tarea-acc input{flex:1;min-width:150px;padding:6px 10px;font-size:.88rem}
+.fbcrm-form-tarea{box-shadow:0 0 0 3px var(--cielo-cl);border-color:#C9DCEA}
+.fbcrm-solicitudes{box-shadow:0 0 0 3px var(--oxido-cl);border-color:#EBC9BE}
+.fbcrm-solicitudes ul{list-style:none;margin:0;padding:0}
+.fbcrm-solicitudes li{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--linea2)}
+.fbcrm-solicitudes li:last-child{border-bottom:0}
+.fbcrm-solicitudes .fbcrm-cuerpo{min-width:220px}
+.fbcrm-solicitudes .fbcrm-cuerpo small{white-space:normal}
+.fbcrm-sec-equipo{margin-bottom:16px}
+.fbcrm-filtros-rep{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) minmax(0,1.5fr);gap:10px;margin-bottom:12px}
+.fbcrm-filtros-rep label{display:flex;flex-direction:column;gap:4px;font-size:.82rem;color:var(--salvia)}
+.fbcrm-rep-resumen{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-bottom:16px}
+.fbcrm .fbcrm-rep-persona{display:flex;gap:12px;align-items:flex-start;text-align:left;padding:12px 14px;border-radius:14px;background:var(--papel)}
+.fbcrm .fbcrm-rep-persona.on{border-color:var(--potrero);box-shadow:0 0 0 2px var(--potrero-cl)}
+.fbcrm-rep-persona small{white-space:normal}
+.fbcrm-rep-cambios{list-style:none;margin:4px 0 2px;padding:6px 10px;background:var(--hoja);border-radius:10px;font-size:.86rem}
+.fbcrm-rep-cambios .antes{color:var(--oxido);text-decoration:line-through;text-decoration-thickness:1px}
+.fbcrm-rep-cambios .despues{color:var(--potrero-osc);font-weight:600}
+@media (max-width:760px){.fbcrm-filtros-rep{grid-template-columns:1fr 1fr}.fbcrm-filtro-ancho{grid-column:1/-1}}
 `;
