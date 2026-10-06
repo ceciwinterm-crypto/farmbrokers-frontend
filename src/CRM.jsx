@@ -619,7 +619,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           </div>
         </div>
       )}
-      {!esNuevo && <Seguimiento f={f} setF={setF} ocupado={ocupado} onGuardar={() => grabar()} />}
+      {!esNuevo && <Seguimiento ctx={ctx} f={f} setF={setF} ocupado={ocupado} onGuardar={() => grabar()} />}
       {!esNuevo && <Historial col="campos" f={f} setF={setCampo} api={api} cargar={cargar} />}
 
       {sinGuardar && (
@@ -967,7 +967,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         </div>
         {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
       </div>
-      {!esNuevo && <Seguimiento f={f} setF={setF} ocupado={ocupado} onGuardar={() => grabar()} />}
+      {!esNuevo && <Seguimiento ctx={ctx} f={f} setF={setF} ocupado={ocupado} onGuardar={() => grabar()} />}
       {camposQueCalzan.length > 0 && (
         <div className="fbcrm-bloque">
           <h3>Campos que le calzan <span>{camposQueCalzan.length}</span></h3>
@@ -1070,7 +1070,7 @@ function FichaTasacion({ ctx, inicial, cerrar }) {
         </div>
         {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
       </div>
-      {!esNuevo && <Seguimiento f={f} setF={setF} ocupado={ocupado} onGuardar={() => grabar()} />}
+      {!esNuevo && <Seguimiento ctx={ctx} f={f} setF={setF} ocupado={ocupado} onGuardar={() => grabar()} />}
       {!esNuevo && <Historial col="tasaciones" f={f} setF={setF} api={api} cargar={cargar} />}
     </Hoja>
   );
@@ -1683,17 +1683,43 @@ function Etapas({ lista, actual, ocupado, onCambio }) {
   );
 }
 
-function Seguimiento({ f, setF, ocupado, onGuardar }) {
+function Seguimiento({ ctx, f, setF, ocupado, onGuardar }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const { datos, usuario } = ctx;
+  const personas = personasDelEquipo(datos, usuario);
+  const opciones = f.responsable && !personas.includes(f.responsable) ? [...personas, f.responsable] : personas;
+  const para = f.responsable || '';
+  const otro = para && para !== usuario;
+  const contacto = otro && (datos.contactos || {})[para];
+  const tarea = f.accionTareaId && (datos.tareas || []).find((t) => t.id === f.accionTareaId);
+  const elegir = (e) => {
+    if (e.target.value !== '__otra') { setF({ ...f, responsable: e.target.value }); return; }
+    const n = (window.prompt('Nombre de la persona (tal como entra al CRM):') || '').trim();
+    if (n) setF({ ...f, responsable: n });
+  };
+  const avisarWa = () => {
+    const nombre = f.nombre || f.titulo || '';
+    window.open(`https://wa.me/${fonoWa(contacto.telefono)}?text=${encodeURIComponent(`Hola ${para.split(' ')[0]}, te dejé una acción en el CRM de Farm Brokers${nombre ? ` (${nombre})` : ''}: ${f.proximaAccion}${f.proximaFecha ? `, para el ${fmtFecha(f.proximaFecha)}` : ''}.\n${window.location.origin}${window.location.pathname}#crm`)}`, '_blank', 'noopener');
+  };
   return (
     <div className="fbcrm-bloque">
-      <h3>Próxima acción</h3>
+      <h3>Próxima acción {tarea && <span className={`fbcrm-badge ${tarea.estado === 'en curso' ? 'est-en_progreso' : 'est-completado'}`}>{tarea.estado === 'en curso' ? `${tarea.asignadoA} está en eso` : `Asignada a ${tarea.asignadoA}`}</span>}</h3>
       <div className="fbcrm-form">
         <Campo label="Qué hay que hacer" ancho><input value={f.proximaAccion || ''} onChange={set('proximaAccion')} placeholder="Ej. Pedir certificado de dominio vigente" /></Campo>
         <Campo label="Fecha"><input type="date" value={f.proximaFecha || ''} onChange={set('proximaFecha')} /></Campo>
-        <Campo label="Responsable"><input value={f.responsable || ''} onChange={set('responsable')} /></Campo>
+        <Campo label="Para">
+          <select value={para} onChange={elegir}>
+            <option value="">Sin asignar</option>
+            {opciones.map((n) => <option key={n} value={n}>{n === usuario ? `${n} (yo)` : n}</option>)}
+            <option value="__otra">Otra persona…</option>
+          </select>
+        </Campo>
       </div>
-      <div className="fbcrm-acciones"><button disabled={ocupado} onClick={onGuardar}>Guardar próxima acción</button></div>
+      {otro && f.proximaAccion && <p className="fbcrm-nota-suave">Al guardar, a {para} le llega la notificación y la acción aparece en sus tareas. Cuando la marque como hecha, te avisamos.</p>}
+      <div className="fbcrm-acciones">
+        <button disabled={ocupado} onClick={onGuardar}>Guardar próxima acción</button>
+        {otro && f.proximaAccion && contacto && fonoWa(contacto.telefono) && <button className="fbcrm-texto" onClick={avisarWa}>Avisarle también por WhatsApp</button>}
+      </div>
     </div>
   );
 }
