@@ -521,7 +521,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
         <div className="fbcrm-barra-ficha">
           <label className={`fbcrm-etapa-sel fbcrm-visib-sel v-${visibDe(f)}`} title={VISIB[visibDe(f)][1]}>
             <span>Visibilidad</span>
-            <select value={visibDe(f)} disabled={ocupado || (visibDe(f) === 'publica' && !!linkPublicadoDe(f))} onChange={(e) => grabar({ visibilidad: e.target.value })}>
+            <select value={visibDe(f)} disabled={ocupado} onChange={(e) => grabar({ visibilidad: e.target.value })}>
               {Object.entries(VISIB).map(([k, [l]]) => <option key={k} value={k}>{k === 'reservada' ? '🔒 ' : ''}{l}</option>)}
             </select>
           </label>
@@ -4099,4 +4099,7 @@ const CSS = `
 .fbcrm-visib-sel.v-publica select{background:var(--cielo-cl);color:var(--cielo)}
 .fbcrm-visib-sel.v-interna select{background:var(--hoja);color:var(--salvia)}
 .tc-etapa .fbcrm-visib{display:inline-flex;margin-top:2px}
+.fbcrm-aviso-reservado{background:#F6E4DE;border:1px solid #EBC9BE;color:#5E2A18;border-radius:14px;padding:12px 14px;margin:0 0 14px}
+.fbcrm-aviso-reservado p{margin:0 0 8px;font-size:.92rem;line-height:1.5}
+.fbcrm-aviso-reservado .fbcrm-acciones{margin:0}
 `;
