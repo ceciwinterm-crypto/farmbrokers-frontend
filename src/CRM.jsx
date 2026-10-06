@@ -467,6 +467,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
   const [ocupado, setOcupado] = useState(false);
   const [verMandato, setVerMandato] = useState(false);
   const [tareaForm, setTareaForm] = useState(null);
+  const [verPublicar, setVerPublicar] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const esNuevo = !f.id;
   const sinGuardar = !esNuevo && huella(f) !== base;
@@ -509,6 +510,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           </label>
           <button onClick={() => ctx.imprimir({ tipo: 'campo', id: f.id })}><Icono n="pdf" s={18} />Ficha PDF</button>
           <button className={tareaForm ? 'on' : ''} onClick={() => setTareaForm(tareaForm ? null : { titulo: '' })}>Tarea</button>
+          <button className={verPublicar ? 'on' : ''} onClick={() => setVerPublicar(!verPublicar)}>Publicar en web{f.wp ? ' ✓' : ''}</button>
           <button className={verMandato ? 'on' : ''} aria-expanded={verMandato} onClick={() => setVerMandato(!verMandato)}>
             Mandato {cap ? <span className={`fbcrm-badge est-${cap.estado}`}>{ETIQUETA_CAP[cap.estado]}</span> : <span className="fbcrm-badge gris">Sin link</span>}
           </button>
@@ -516,6 +518,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
         </div>
       )}
       {!esNuevo && tareaForm && <FormTarea ctx={ctx} refInicial={{ col: 'campos', id: f.id, nombre: f.nombre }} tituloInicial={tareaForm.titulo} alListo={() => setTareaForm(null)} />}
+      {!esNuevo && verPublicar && <PublicarWeb ctx={ctx} campo={f} setCampo={setCampo} sinGuardar={sinGuardar} />}
       {!esNuevo && <TareasDe ctx={ctx} refId={f.id} />}
       {!esNuevo && verMandato && <Captacion ctx={ctx} campo={f} setCampo={setCampo} />}
 
@@ -1036,6 +1039,99 @@ function FichaTasacion({ ctx, inicial, cerrar }) {
       {!esNuevo && <Seguimiento f={f} setF={setF} ocupado={ocupado} onGuardar={() => grabar()} />}
       {!esNuevo && <Historial col="tasaciones" f={f} setF={setF} api={api} cargar={cargar} />}
     </Hoja>
+  );
+}
+
+// ════════════════════════════ Publicar en farmbrokers.cl ════════════════════════════
+const TIPOS_WEB = ['Agrícolas', 'Campos con Subdivisión', 'Parcelas', 'Forestales', 'Conservación', 'Terrenos Agroindustriales', 'Derechos de Agua', 'Terrenos Urbanos'];
+const ESTADOS_WEB = ['Venta', 'Arriendo', 'Vendido'];
+const REGIONES_WEB = ['Región de Arica y Parinacota', 'Región de Tarapacá', 'Región de Antofagasta', 'Región de Atacama', 'Región de Coquimbo', 'Región de Valparaíso', 'Región Metropolitana',
+  "Región de O'Higgins", 'Región del Maule', 'Región de Ñuble', 'Región del Biobío', 'Región de la Araucanía', 'Región de los Ríos', 'Región de los Lagos', 'Región de Aysén', 'Región de Magallanes'];
+function PublicarWeb({ ctx, campo, setCampo, sinGuardar }) {
+  const { datos, api, cargar } = ctx;
+  const [p, setP] = useState(null);
+  const [estado, setEstado] = useState('');
+  const [error, setError] = useState('');
+  const [prueba, setPrueba] = useState(null);
+  const [resultado, setResultado] = useState(null);
+  const [enviando, setEnviando] = useState(false);
+  useEffect(() => { api(`/campos/${campo.id}/publicar-web`).then(setP).catch((e) => setError(e.message)); }, [campo.id, campo.actualizado]);
+  const set = (k) => (e) => setP({ ...p, [k]: e.target.value });
+  const probar = async () => { setPrueba({ cargando: true }); try { setPrueba(await api('/wp/estado')); } catch (e) { setPrueba({ error: e.message }); } };
+  const enviar = async () => {
+    setEnviando(true); setError(''); setResultado(null);
+    const elegidas = p.fotos.filter((x) => x.elegida).map((x) => x.id);
+    setEstado(elegidas.length ? `Creando el borrador y subiendo ${plural(elegidas.filter((id) => !p.fotos.find((x) => x.id === id).subida).length, 'foto')}… puede tardar un minuto.` : 'Creando el borrador…');
+    try {
+      const r = await api(`/campos/${campo.id}/publicar-web`, { method: 'POST', body: { ...p, fotos: elegidas, principal: (p.fotos.find((x) => x.principal && x.elegida) || {}).id } });
+      setResultado(r); setCampo(r.campo); cargar();
+      setEstado('');
+    } catch (e) { setError(e.message); setEstado(''); }
+    setEnviando(false);
+  };
+  const wp = (resultado && resultado.wp) || campo.wp;
+  return (
+    <div className="fbcrm-bloque fbcrm-publicar">
+      <h3>Publicar en farmbrokers.cl {wp && <span className={`fbcrm-badge ${wp.estado === 'publish' ? 'est-firmado' : 'est-completado'}`}>{wp.estado === 'publish' ? 'Publicada' : 'Borrador creado'}</span>}</h3>
+      {!datos.wpConfigurado && (
+        <p className="fbcrm-aviso-linea">Falta conectar WordPress: crea en Railway las variables <b>WP_USER</b> y <b>WP_APP_PASSWORD</b> y presiona Deploy.</p>
+      )}
+      <p className="fbcrm-nota-suave">El CRM crea la publicación como <b>borrador</b>: no se ve en la web hasta que tú la revises y presiones <b>Publicar</b> en WordPress. Si la envías de nuevo, actualiza el mismo borrador.</p>
+      {wp && (
+        <div className="fbcrm-wp-links">
+          <span>{wp.fecha ? `Último envío: ${fmtFechaHora(wp.fecha)}${wp.autor ? `, ${wp.autor}` : ''}. ` : ''}{plural((wp.fotos || []).length, 'foto subida', 'fotos subidas')}.</span>
+          <a className="fbcrm-btn-link" href={wp.editar} target="_blank" rel="noreferrer">Revisar en WordPress</a>
+          {wp.previa && <a className="fbcrm-btn-link" href={wp.previa} target="_blank" rel="noreferrer">Vista previa</a>}
+        </div>
+      )}
+      {sinGuardar && <p className="fbcrm-aviso-linea">Tienes cambios sin guardar en la información del campo. Guárdalos primero para que se incluyan.</p>}
+      {error && <p className="fbcrm-error">{error}</p>}
+      {!p && !error && <p className="fbcrm-nota-suave">Preparando los datos…</p>}
+      {p && (
+        <>
+          <div className="fbcrm-form">
+            <Campo label="Título de la publicación" ancho><input value={p.titulo} onChange={set('titulo')} /></Campo>
+            <Campo label="Tipo"><select value={p.tipo} onChange={set('tipo')}>{[...new Set([p.tipo, ...TIPOS_WEB])].filter(Boolean).map((t) => <option key={t}>{t}</option>)}</select></Campo>
+            <Campo label="Estado"><select value={p.estado} onChange={set('estado')}>{ESTADOS_WEB.map((t) => <option key={t}>{t}</option>)}</select></Campo>
+            <Campo label="Comuna"><input value={p.comuna} onChange={set('comuna')} /></Campo>
+            <Campo label="Región"><select value={p.region} onChange={set('region')}><option value="">Sin región</option>{[...new Set([p.region, ...REGIONES_WEB])].filter(Boolean).map((t) => <option key={t}>{t}</option>)}</select></Campo>
+            <Campo label="Moneda"><select value={p.precioPrefijo} onChange={set('precioPrefijo')}><option value="UF">UF</option><option value="$">$</option></select></Campo>
+            <Campo label="Precio"><input value={p.precio} onChange={set('precio')} placeholder="280.000" /></Campo>
+            <Campo label="Superficie (ha)"><input value={p.superficie} onChange={set('superficie')} /></Campo>
+            <Campo label="ID de propiedad"><input value={p.idPropiedad} onChange={set('idPropiedad')} placeholder="HZ06MALR" /></Campo>
+            <Campo label="Agua"><input value={p.agua} onChange={set('agua')} placeholder="240 l/s" /></Campo>
+            <Campo label="Plantaciones"><input value={p.plantaciones} onChange={set('plantaciones')} placeholder="45 Has" /></Campo>
+            <Campo label="Latitud"><input value={p.lat} onChange={set('lat')} /></Campo>
+            <Campo label="Longitud"><input value={p.lng} onChange={set('lng')} /></Campo>
+            <Campo label="Descripción (un párrafo por línea)" ancho><textarea rows={8} value={p.descripcion} onChange={set('descripcion')} placeholder="Usa “✨ Redactar con IA” en la información del campo para armarla." /></Campo>
+          </div>
+          <p className="fbcrm-etq">Fotos ({p.fotos.length})</p>
+          {!p.fotos.length && <p className="fbcrm-nota-suave">Este campo no tiene fotos en el CRM. Súbelas en “Archivos y plano” con el tipo “Foto”, o pídelas con una tarea.</p>}
+          {p.fotos.length > 0 && (
+            <ul className="fbcrm-wp-fotos">
+              {p.fotos.map((x) => (
+                <li key={x.id}>
+                  <label><input type="checkbox" checked={x.elegida} onChange={() => setP({ ...p, fotos: p.fotos.map((y) => (y.id === x.id ? { ...y, elegida: !y.elegida } : y)) })} />{x.nombre}</label>
+                  <label className="fbcrm-wp-principal"><input type="radio" name="principal" checked={x.principal} onChange={() => setP({ ...p, fotos: p.fotos.map((y) => ({ ...y, principal: y.id === x.id })) })} />Principal</label>
+                  {x.subida && <span className="fbcrm-badge est-firmado">Ya subida</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="fbcrm-acciones">
+            <button className="fbcrm-primario" disabled={enviando || !datos.wpConfigurado || !p.titulo} onClick={enviar}>{enviando ? 'Enviando…' : wp ? 'Actualizar el borrador' : 'Crear borrador en farmbrokers.cl'}</button>
+            <button disabled={!datos.wpConfigurado} onClick={probar}>Probar conexión</button>
+          </div>
+          {estado && <p className="fbcrm-msg" role="status">{estado}</p>}
+          {prueba && (prueba.cargando ? <p className="fbcrm-msg">Probando…</p>
+            : prueba.error ? <p className="fbcrm-error">{prueba.error}</p>
+            : <p className="fbcrm-geo-ok">Conectado a WordPress como <b>{prueba.usuario}</b>{prueba.houzez ? ', con Houzez' : ', pero no se encontró Houzez'}. Código del CRM versión {prueba.version}.</p>)}
+          {resultado && (
+            <p className="fbcrm-geo-ok">Borrador listo en WordPress{resultado.fotosNuevas ? ` con ${plural(resultado.fotosNuevas, 'foto nueva', 'fotos nuevas')}` : ''}. Revísalo y presiona <b>Publicar</b> en WordPress.{resultado.errores && resultado.errores.length ? ` No se pudieron subir: ${resultado.errores.join('; ')}` : ''}</p>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -3785,4 +3881,13 @@ const CSS = `
 .fbcrm-equipo li{flex-wrap:wrap}
 .fbcrm-equipo .fbcrm-cuerpo{min-width:180px}
 .fbcrm-equipo .fbcrm-cuerpo small{white-space:normal}
+.fbcrm-publicar{box-shadow:0 0 0 3px var(--cielo-cl);border-color:#C9DCEA}
+.fbcrm-wp-links{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px;font-size:.9rem;color:var(--salvia)}
+.fbcrm-wp-links span{flex-basis:100%}
+.fbcrm-wp-fotos{list-style:none;margin:0;padding:0}
+.fbcrm-wp-fotos li{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--linea2);font-size:.9rem}
+.fbcrm-wp-fotos li:last-child{border-bottom:0}
+.fbcrm-wp-fotos label{display:flex;gap:8px;align-items:center;cursor:pointer}
+.fbcrm-wp-fotos label:first-child{flex:1;min-width:180px;overflow-wrap:anywhere}
+.fbcrm-wp-principal{color:var(--salvia);font-size:.84rem}
 `;
