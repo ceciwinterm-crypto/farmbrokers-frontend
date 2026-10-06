@@ -485,10 +485,13 @@ function FichaCampo({ ctx, inicial, cerrar }) {
   };
   const [redactando, setRedactando] = useState(false);
   const [msgDesc, setMsgDesc] = useState('');
+  const nombresPerfil = (f.perfiles || []).map((pid) => norm(((datos.perfiles || []).find((x) => x.id === pid) || {}).nombre || ''));
+  const [verEstilo, setVerEstilo] = useState(false);
+  const [tono, setTono] = useState(nombresPerfil.some((n) => /agrado/.test(n)) ? 'agrado' : nombresPerfil.some((n) => /export|productiv|inversi/.test(n)) ? 'inversion' : 'comercial');
   const redactar = async () => {
     setRedactando(true); setMsgDesc('');
     try {
-      const r = await api(`/campos/${f.id}/redactar`, { method: 'POST', body: { campo: Object.fromEntries(CAMPOS_EDITABLES.map((k) => [k, f[k]])) } });
+      const r = await api(`/campos/${f.id}/redactar`, { method: 'POST', body: { tono, campo: Object.fromEntries(CAMPOS_EDITABLES.map((k) => [k, f[k]])) } });
       if (f.descripcionFicha && f.descripcionFicha.trim() && !window.confirm('¿Reemplazar la descripción actual por el texto nuevo?')) { setRedactando(false); return; }
       setF((x) => ({ ...x, descripcionFicha: r.texto }));
       setMsgDesc('Texto listo. Revísalo, corrige lo que quieras y guarda.');
@@ -561,7 +564,19 @@ function FichaCampo({ ctx, inicial, cerrar }) {
         </div>
         <p className="fbcrm-seccion">Descripción para la ficha PDF</p>
         <div className="fbcrm-desc-acciones">
-          {!esNuevo && <button type="button" className="fbcrm-ia" disabled={redactando} onClick={redactar}>{redactando ? 'Redactando…' : '✨ Redactar con IA'}</button>}
+          {!esNuevo && (
+            <span className="fbcrm-ia-grupo">
+              <select value={tono} onChange={(e) => setTono(e.target.value)} aria-label="Enfoque del texto">
+                <option value="comercial">Comercial (para vender)</option>
+                <option value="inversion">Inversión / productivo</option>
+                <option value="agrado">Agrado / estilo de vida</option>
+                <option value="tecnico">Técnico (sobrio)</option>
+              </select>
+              <button type="button" className="fbcrm-ia" disabled={redactando} onClick={redactar}>{redactando ? 'Redactando…' : '✨ Redactar con IA'}</button>
+              <button type="button" className="fbcrm-texto" onClick={() => setVerEstilo(!verEstilo)}>Estilo de referencia</button>
+            </span>
+          )}
+          {verEstilo && <EstiloReferencia ctx={ctx} cerrar={() => setVerEstilo(false)} />}
           {f.web && f.web.descripcion && f.web.descripcion.length > 0 && <button type="button" onClick={() => setF({ ...f, descripcionFicha: f.web.descripcion.join('\n') })}>Copiar desde farmbrokers.cl</button>}
         </div>
         <textarea rows={9} aria-label="Descripción para la ficha PDF" value={f.descripcionFicha || ''} onChange={set('descripcionFicha')} placeholder={'Escribe aquí el texto para el cliente, o usa “Redactar con IA” para armarlo con los datos del campo, de la web y de la tasación.\nUn párrafo por línea. Para destacar un título escribe, por ejemplo, "Suelos: …"'} />
@@ -1057,6 +1072,13 @@ function PublicarWeb({ ctx, campo, setCampo, sinGuardar }) {
   const [enviando, setEnviando] = useState(false);
   useEffect(() => { api(`/campos/${campo.id}/publicar-web`).then(setP).catch((e) => setError(e.message)); }, [campo.id, campo.actualizado]);
   const set = (k) => (e) => setP({ ...p, [k]: e.target.value });
+  const [sugiriendo, setSugiriendo] = useState(false);
+  const sugerirSeo = async () => {
+    setSugiriendo(true); setError('');
+    try { const r = await api(`/campos/${campo.id}/seo-ia`, { method: 'POST', body: { titulo: p.titulo, descripcion: p.descripcion } }); setP((x) => ({ ...x, metaDescripcion: r.meta || x.metaDescripcion, slug: r.slug || x.slug, fraseClave: r.frase || x.fraseClave })); }
+    catch (e) { setError(e.message); }
+    setSugiriendo(false);
+  };
   const probar = async () => { setPrueba({ cargando: true }); try { setPrueba(await api('/wp/estado')); } catch (e) { setPrueba({ error: e.message }); } };
   const enviar = async () => {
     setEnviando(true); setError(''); setResultado(null);
@@ -1065,7 +1087,7 @@ function PublicarWeb({ ctx, campo, setCampo, sinGuardar }) {
     try {
       const r = await api(`/campos/${campo.id}/publicar-web`, { method: 'POST', body: { ...p, fotos: elegidas, principal: (p.fotos.find((x) => x.principal && x.elegida) || {}).id } });
       setResultado(r); setCampo(r.campo); cargar();
-      setEstado('');
+      setEstado(r.aviso || '');
     } catch (e) { setError(e.message); setEstado(''); }
     setEnviando(false);
   };
@@ -1103,6 +1125,25 @@ function PublicarWeb({ ctx, campo, setCampo, sinGuardar }) {
             <Campo label="Plantaciones"><input value={p.plantaciones} onChange={set('plantaciones')} placeholder="45 Has" /></Campo>
             <Campo label="Latitud"><input value={p.lat} onChange={set('lat')} /></Campo>
             <Campo label="Longitud"><input value={p.lng} onChange={set('lng')} /></Campo>
+            <div className="ancho fbcrm-seo">
+              <p className="fbcrm-seccion fbcrm-lbl-fila">Google (Yoast SEO)
+                <button type="button" className="fbcrm-ia" disabled={sugiriendo} onClick={sugerirSeo}>{sugiriendo ? 'Pensando…' : '✨ Sugerir con IA'}</button>
+              </p>
+              <label>Slug (dirección de la página)
+                <span className="fbcrm-slug"><span>farmbrokers.cl/propiedad/</span><input value={p.slug || ''} onChange={(e) => setP({ ...p, slug: e.target.value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9-]+/g, '-') })} placeholder="venta-campo-pucon" /></span>
+              </label>
+              <label>Meta description <span className={`fbcrm-contador ${(p.metaDescripcion || '').length > 155 ? 'mal' : (p.metaDescripcion || '').length >= 120 ? 'bien' : ''}`}>{(p.metaDescripcion || '').length} de 155 caracteres</span>
+                <textarea rows={3} value={p.metaDescripcion || ''} onChange={set('metaDescripcion')} placeholder="Lo que aparece bajo el título en Google. Ideal entre 120 y 155 caracteres." />
+              </label>
+              <label>Frase clave (opcional)<input value={p.fraseClave || ''} onChange={set('fraseClave')} placeholder="campo en venta Pucón" /></label>
+              {(p.metaDescripcion || p.titulo) && (
+                <div className="fbcrm-serp" aria-label="Así se vería en Google">
+                  <small>farmbrokers.cl › propiedad › {p.slug || '…'}</small>
+                  <strong>{p.titulo} - Farm Brokers</strong>
+                  <span>{(p.metaDescripcion || '').length > 158 ? `${p.metaDescripcion.slice(0, 155)}…` : p.metaDescripcion}</span>
+                </div>
+              )}
+            </div>
             <Campo label="Descripción (un párrafo por línea)" ancho><textarea rows={8} value={p.descripcion} onChange={set('descripcion')} placeholder="Usa “✨ Redactar con IA” en la información del campo para armarla." /></Campo>
           </div>
           <p className="fbcrm-etq">Fotos ({p.fotos.length})</p>
@@ -1131,6 +1172,25 @@ function PublicarWeb({ ctx, campo, setCampo, sinGuardar }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function EstiloReferencia({ ctx, cerrar }) {
+  const { datos, api, cargar } = ctx;
+  const [d, setD] = useState(datos.estilo || { descripcion: '', meta: '' });
+  const [msg, setMsg] = useState('');
+  const guardar = async (base) => {
+    try { const r = await api('/config/estilo', { method: 'PUT', body: base ? { descripcion: '', meta: '' } : d }); setD(r); await cargar(); setMsg(base ? 'Se restauró el estilo de Pucón.' : 'Estilo guardado. La IA lo usará desde ahora en todos los campos.'); }
+    catch (e) { setMsg(e.message); }
+  };
+  return (
+    <div className="fbcrm-estilo">
+      <p className="fbcrm-nota-suave">La IA imita el tono y la estructura de estos ejemplos, nunca sus datos. Pega aquí una descripción y una meta description que te gusten.</p>
+      <label>Descripción modelo<textarea rows={7} value={d.descripcion} onChange={(e) => setD({ ...d, descripcion: e.target.value })} /></label>
+      <label>Meta description modelo<textarea rows={2} value={d.meta} onChange={(e) => setD({ ...d, meta: e.target.value })} /></label>
+      <div className="fbcrm-acciones"><button className="fbcrm-primario" onClick={() => guardar(false)}>Guardar estilo</button><button onClick={() => guardar(true)}>Restaurar el de Pucón</button><button className="fbcrm-texto" onClick={cerrar}>Cerrar</button></div>
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
     </div>
   );
 }
@@ -2573,6 +2633,7 @@ function precioPorHa(c, d, ha) {
   if (clp && clp > 1e6) return `$${Math.round(clp / ha).toLocaleString('es-CL')} por ha`;
   return '';
 }
+const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 const fmtHa = (n) => Number(n).toLocaleString('es-CL', { maximumFractionDigits: 2 });
 function limpiarUbic(t) {
   const vistos = new Set(), partes = [];
@@ -3890,4 +3951,19 @@ const CSS = `
 .fbcrm-wp-fotos label{display:flex;gap:8px;align-items:center;cursor:pointer}
 .fbcrm-wp-fotos label:first-child{flex:1;min-width:180px;overflow-wrap:anywhere}
 .fbcrm-wp-principal{color:var(--salvia);font-size:.84rem}
+.fbcrm-form .fbcrm-seo{grid-column:1/-1;display:flex;flex-direction:column;gap:10px;background:var(--hoja);border-radius:14px;padding:4px 14px 14px}
+.fbcrm-seo .fbcrm-seccion{border-top:0;padding-top:8px;margin:4px 0 0}
+.fbcrm-slug{display:flex;align-items:center;border:1px solid var(--linea);border-radius:11px;background:#fff;overflow:hidden}
+.fbcrm-slug>span{padding:0 4px 0 12px;color:var(--salvia);font-size:.88rem;white-space:nowrap}
+.fbcrm .fbcrm-slug input{border:0;border-radius:0;padding-left:2px;box-shadow:none}
+.fbcrm-contador{float:right;font-size:.78rem;color:var(--salvia)}
+.fbcrm-contador.bien{color:var(--potrero)}
+.fbcrm-contador.mal{color:var(--oxido);font-weight:600}
+.fbcrm-serp{background:#fff;border:1px solid var(--linea);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;font-family:Arial,sans-serif}
+.fbcrm-serp small{color:#4d5156;font-size:.78rem}
+.fbcrm-serp strong{color:#1a0dab;font-weight:400;font-size:1.08rem}
+.fbcrm-serp span{color:#4d5156;font-size:.86rem;line-height:1.45}
+.fbcrm-ia-grupo{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
+.fbcrm .fbcrm-ia-grupo select{width:auto;padding:8px 10px;font-size:.88rem}
+.fbcrm-estilo{display:flex;flex-direction:column;gap:10px;background:var(--hoja);border-radius:14px;padding:12px 14px;margin:0 0 10px;width:100%}
 `;
