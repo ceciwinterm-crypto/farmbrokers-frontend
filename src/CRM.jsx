@@ -209,7 +209,7 @@ function pendientesEnvio(datos, campo) {
   const enviados = new Set((campo.envios || []).map((e) => e.clienteId));
   return (datos.matches[campo.id] || []).filter((m) => m.nivel === 'fuerte' && !enviados.has(m.clienteId));
 }
-function faltantes(datos, campo) { return datos.checklist.filter(([k]) => !(campo.checklist || {})[k]).map(([, l]) => l); }
+function faltantes(datos, campo) { return datos.checklist.filter(([k]) => !(campo.checklist || {})[k] && !(k === 'publicacion' && campo.visibilidad !== 'publica')).map(([, l]) => l); }
 
 function Agenda({ ctx, irA, importar }) {
   const { datos, abrir } = ctx;
@@ -226,7 +226,7 @@ function Agenda({ ctx, irA, importar }) {
     ['Próximos 7 días', conFecha.filter((i) => i.x.proximaFecha > hoy && (new Date(i.x.proximaFecha) - new Date(hoy)) / 864e5 <= 7), ''],
   ];
   const porEnviar = datos.campos.filter((c) => datos.ofrecibles.includes(c.etapa)).map((c) => ({ c, n: pendientesEnvio(datos, c).length })).filter((p) => p.n).sort((a, b) => b.n - a.n);
-  const conFaltas = datos.campos.filter((c) => ['Documentación', 'Mandato firmado', 'Publicado', 'En negociación'].includes(c.etapa)).map((c) => ({ c, f: faltantes(datos, c) })).filter((p) => p.f.length);
+  const conFaltas = datos.campos.filter((c) => ['Documentación', 'Mandato firmado', 'En venta', 'En negociación'].includes(c.etapa)).map((c) => ({ c, f: faltantes(datos, c) })).filter((p) => p.f.length);
   const sinAccion = items.filter((i) => i.col !== 'clientes' && !i.x.proximaFecha);
   const porCompletar = datos.clientes.filter((c) => c.revisar && c.etapa === 'Activo');
   const sy = datos.sync;
@@ -372,13 +372,14 @@ function ListaCampos({ ctx, importar }) {
   const [fRegion, setFRegion] = useState('');
   const [fTipo, setFTipo] = useState('');
   const [fPerfiles, setFPerfiles] = useState([]);
-  const FILTROS = { activos: ['Activos', datos.activas], captacion: ['Captación', ['Prospección', 'Captación', 'Documentación']], publicados: ['Publicados', ['Mandato firmado', 'Publicado', 'En negociación']], cerrados: ['Cerrados', ['Vendido', 'Arrendado', 'Suspendido', 'Retirado de la web', 'Descartado']], todos: ['Todos', datos.etapas.campos] };
+  const [fVisib, setFVisib] = useState([]);
+  const FILTROS = { activos: ['Activos', datos.activas], captacion: ['Captación', ['Prospección', 'Captación', 'Documentación']], publicados: ['En venta', ['Mandato firmado', 'En venta', 'En negociación']], cerrados: ['Cerrados', ['Vendido', 'Arrendado', 'Suspendido', 'Retirado de la web', 'Descartado']], todos: ['Todos', datos.etapas.campos] };
   const nq = q.toLowerCase();
   const enEtapa = datos.campos.filter((c) => FILTROS[filtro][1].includes(c.etapa));
   const idxR = (r) => { const i = datos.regiones.indexOf(r); return i < 0 ? 99 : i; };
   const cmp = (a, b) => String(a || '').localeCompare(String(b || ''), 'es', { sensitivity: 'base' });
   const lista = enEtapa.filter((c) => (!fRegion || (c.region || '') === fRegion) && (!fTipo || c.tipo === fTipo) &&
-    pasaPerfiles(c, fPerfiles) &&
+    pasaPerfiles(c, fPerfiles) && (!fVisib.length || fVisib.includes(visibDe(c))) &&
     (!nq || [c.nombre, c.sector, c.codigo, c.rol, c.plantaciones, c.aptitud, c.propietario, REG_NOMBRE[c.region], TIPOS[c.tipo]].join(' ').toLowerCase().includes(nq)));
   const porRegion = (a, b) => idxR(a.region) - idxR(b.region) || cmp(a.sector, b.sector) || cmp(a.nombre, b.nombre);
   const ordenes = {
@@ -399,7 +400,7 @@ function ListaCampos({ ctx, importar }) {
   const tituloGrupo = (k) => (orden === 'region' ? (k ? `${REG_NOMBRE[k] || k}` : 'Sin región') : orden === 'etapa' ? k : orden === 'tipo' ? TIPOS[k] || k || 'Sin tipo' : '');
   const regionesHay = [...new Set(enEtapa.map((c) => c.region || ''))].sort((a, b) => idxR(a) - idxR(b));
   const tiposHay = [...new Set(enEtapa.map((c) => c.tipo))].sort((a, b) => cmp(TIPOS[a], TIPOS[b]));
-  const hayFiltros = fRegion || fTipo || fPerfiles.length || q;
+  const hayFiltros = fRegion || fTipo || fPerfiles.length || fVisib.length || q;
   return (
     <section>
       <SyncWeb ctx={ctx} />
@@ -420,7 +421,17 @@ function ListaCampos({ ctx, importar }) {
         </select></label>
       </div>
       <FiltroPerfiles datos={datos} elegidos={fPerfiles} setElegidos={setFPerfiles} />
-      <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); setFPerfiles([]); }}>Quitar filtros</button></>}</p>
+      <div className="fbcrm-filtro-perfiles" role="group" aria-label="Filtrar por visibilidad">
+        <span>Visibilidad</span>
+        {Object.entries(VISIB).map(([k, [l, d]]) => <button key={k} type="button" title={d} aria-pressed={fVisib.includes(k)} className={`fbcrm-visib v-${k} ${fVisib.includes(k) ? 'on' : ''}`} onClick={() => setFVisib(fVisib.includes(k) ? fVisib.filter((x) => x !== k) : [...fVisib, k])}>{k === 'reservada' ? '🔒 ' : ''}{l}</button>)}
+        {fVisib.length > 0 && <button type="button" className="fbcrm-texto" onClick={() => setFVisib([])}>Todas</button>}
+      </div>
+      {(() => {
+        const enVenta = datos.campos.filter((c) => ['Mandato firmado', 'En venta', 'En negociación'].includes(c.etapa));
+        const n = (v) => enVenta.filter((c) => visibDe(c) === v).length;
+        return enVenta.length > 0 && <p className="fbcrm-resumen-venta"><b>{plural(enVenta.length, 'campo')} para ofrecer:</b> {plural(n('publica'), 'público', 'públicos')} en la web, {plural(n('reservada'), 'reservado', 'reservados')}{n('interna') ? `, ${n('interna')} sin definir` : ''}.</p>;
+      })()}
+      <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); setFPerfiles([]); setFVisib([]); }}>Quitar filtros</button></>}</p>
       {!lista.length && <p className="fbcrm-vacio">{datos.campos.length ? 'Ningún campo coincide con el filtro.' : 'Aún no hay campos. Importa la planilla o usa “Nuevo campo”.'}</p>}
       {lista.length > 0 && (
         <div className="fbcrm-tabla">
@@ -440,7 +451,7 @@ function ListaCampos({ ctx, importar }) {
                     <span className="tc-comuna">{c.sector || <em>Sin comuna</em>}</span>
                     <span className="tc-tipo"><span className={`fbcrm-tipo-tag tt-${c.tipo}`}>{TIPOS[c.tipo] || c.tipo}</span></span>
                     <span className="tc-perfil">{(c.perfiles || []).length ? <EtiquetasPerfil datos={datos} ids={c.perfiles} /> : <em>Sin perfil</em>}</span>
-                    <span className={`tc-etapa et-${(datos.activas.includes(c.etapa) ? 'activa' : ['Vendido', 'Arrendado'].includes(c.etapa) ? 'cerrada' : 'otra')}`}>{c.etapa}</span>
+                    <span className={`tc-etapa et-${(datos.activas.includes(c.etapa) ? 'activa' : ['Vendido', 'Arrendado'].includes(c.etapa) ? 'cerrada' : 'otra')}`}>{c.etapa}{datos.activas.includes(c.etapa) && <EtiquetaVisib c={c} />}</span>
                     <span className="tc-precio" title={fmtPrecio(c)}>{fmtPrecio(c) || '–'}</span>
                     <span className="tc-match">{nM > 0 ? <span className="fbcrm-badge" title={`${nM} clientes calzan`}>{nM}</span> : ''}</span>
                   </button>
@@ -457,7 +468,7 @@ function ListaCampos({ ctx, importar }) {
 
 const CAMPOS_EDITABLES = ['perfiles', 'nombre', 'tipo', 'etapa', 'codigo', 'rol', 'region', 'sector', 'coordenadas', 'acceso', 'hectareas', 'precioUF', 'precioCLP', 'precioTexto',
   'agua', 'fuenteAgua', 'plantaciones', 'aptitud', 'infraestructura', 'descripcionFicha', 'propietario', 'telefono', 'email', 'corredor', 'asociado', 'linkWeb', 'linkPortal', 'observaciones'];
-const grupoEtapaCampo = (e) => (['Mandato firmado', 'Publicado', 'En negociación'].includes(e) ? 'pub' : ['Prospección', 'Captación', 'Documentación'].includes(e) ? 'cap' : ['Vendido', 'Arrendado'].includes(e) ? 'cer' : 'fuera');
+const grupoEtapaCampo = (e) => (['Mandato firmado', 'En venta', 'En negociación'].includes(e) ? 'pub' : ['Prospección', 'Captación', 'Documentación'].includes(e) ? 'cap' : ['Vendido', 'Arrendado'].includes(e) ? 'cer' : 'fuera');
 const huella = (f) => JSON.stringify(CAMPOS_EDITABLES.map((k) => (f[k] == null ? '' : String(f[k]))));
 
 function FichaCampo({ ctx, inicial, cerrar }) {
@@ -508,13 +519,19 @@ function FichaCampo({ ctx, inicial, cerrar }) {
     <Hoja titulo={esNuevo ? 'Nuevo campo' : f.nombre} sub={esNuevo ? '' : [f.codigo, f.sector, f.region && REG_NOMBRE[f.region], f.hectareas && `${fmtNum(f.hectareas)} ha`, fmtPrecio(f)].filter(Boolean).join(', ')} cerrar={salir}>
       {!esNuevo && (
         <div className="fbcrm-barra-ficha">
+          <label className={`fbcrm-etapa-sel fbcrm-visib-sel v-${visibDe(f)}`} title={VISIB[visibDe(f)][1]}>
+            <span>Visibilidad</span>
+            <select value={visibDe(f)} disabled={ocupado || (visibDe(f) === 'publica' && !!linkPublicadoDe(f))} onChange={(e) => grabar({ visibilidad: e.target.value })}>
+              {Object.entries(VISIB).map(([k, [l]]) => <option key={k} value={k}>{k === 'reservada' ? '🔒 ' : ''}{l}</option>)}
+            </select>
+          </label>
           <label className={`fbcrm-etapa-sel e-${grupoEtapaCampo(f.etapa)}`}>
             <span>Etapa</span>
             <select value={f.etapa} disabled={ocupado} onChange={(e) => grabar({ etapa: e.target.value })}>{datos.etapas.campos.map((et) => <option key={et}>{et}</option>)}</select>
           </label>
           <button onClick={() => ctx.imprimir({ tipo: 'campo', id: f.id })}><Icono n="pdf" s={18} />Ficha PDF</button>
           <button className={tareaForm ? 'on' : ''} onClick={() => setTareaForm(tareaForm ? null : { titulo: '' })}>Tarea</button>
-          <button className={verPublicar ? 'on' : ''} onClick={() => setVerPublicar(!verPublicar)}>{linkPublicadoDe(f) ? 'Publicado en web ✓' : f.wp ? 'Borrador web ✓' : 'Publicar en web'}</button>
+          <button className={verPublicar ? 'on' : ''} onClick={() => setVerPublicar(!verPublicar)}>{linkPublicadoDe(f) ? 'Publicado en web ✓' : visibDe(f) === 'reservada' ? 'Web: reservada 🔒' : f.wp ? 'Borrador web ✓' : 'Publicar en web'}</button>
           <button className={verMandato ? 'on' : ''} aria-expanded={verMandato} onClick={() => setVerMandato(!verMandato)}>
             Mandato {cap ? <span className={`fbcrm-badge est-${cap.estado}`}>{ETIQUETA_CAP[cap.estado]}</span> : <span className="fbcrm-badge gris">Sin link</span>}
           </button>
@@ -728,6 +745,9 @@ const fechaIngresoCliente = (c) => {
   if (r && /^\d{4}-\d{2}/.test(r)) return new Date(r.length === 7 ? `${r}-01T12:00:00` : `${r.slice(0, 10)}T12:00:00`);
   return c.creado ? new Date(c.creado) : null;
 };
+const VISIB = { publica: ['Pública', 'Se publica en farmbrokers.cl'], reservada: ['Reservada', 'Se ofrece solo a clientes elegidos, sin publicar'], interna: ['Interna', 'Todavía no se ofrece'] };
+const visibDe = (c) => c.visibilidad || 'interna';
+const EtiquetaVisib = ({ c }) => <span className={`fbcrm-visib v-${visibDe(c)}`} title={VISIB[visibDe(c)][1]}>{visibDe(c) === 'reservada' ? '🔒 ' : ''}{VISIB[visibDe(c)][0]}</span>;
 const colorPerfil = (datos, id) => { const i = (datos.perfiles || []).findIndex((p) => p.id === id); return `pc-${(i < 0 ? 0 : i) % 7}`; };
 function EtiquetasPerfil({ datos, ids }) {
   if (!(ids || []).length) return null;
@@ -1124,6 +1144,12 @@ function PublicarWeb({ ctx, campo, setCampo, sinGuardar }) {
       else setEnlazando('Todavía no aparece publicada en la web. Revisa que en WordPress diga “Publicado” (no “Borrador” ni “Pendiente”) y vuelve a intentarlo en unos minutos.');
     } catch (e) { setEnlazando(''); setError(e.message); }
   };
+  if (visibDe(campo) === 'reservada' && !publicado) return (
+    <div className="fbcrm-bloque fbcrm-publicar">
+      <h3>Venta reservada <span className="fbcrm-visib v-reservada">🔒 No se publica</span></h3>
+      <p className="fbcrm-nota-suave">El propietario pidió que este campo no esté en la web. Se ofrece solo a clientes elegidos con la ficha PDF y el plano con confidencialidad. Si eso cambió, pasa la visibilidad a <b>Pública</b> arriba, junto a la etapa, y aquí podrás preparar la publicación.</p>
+    </div>
+  );
   if (publicado) return (
     <div className="fbcrm-bloque fbcrm-publicar">
       <h3>Publicado en farmbrokers.cl <span className="fbcrm-badge est-firmado">En la web</span></h3>
@@ -2012,7 +2038,7 @@ function DocInforme({ datos, usuario }) {
   const proximas = acciones.filter((i) => i.x.proximaFecha >= hoy && (new Date(i.x.proximaFecha) - new Date(hoy)) / 864e5 <= 14);
   const cuenta = (lista, etapas) => etapas.map((e) => [e, lista.filter((x) => x.etapa === e).length]).filter(([, n]) => n);
   const porEnviar = datos.campos.filter((c) => datos.ofrecibles.includes(c.etapa)).map((c) => ({ c, n: pendientesEnvio(datos, c).length })).filter((p) => p.n).sort((a, b) => b.n - a.n);
-  const conFaltas = datos.campos.filter((c) => ['Documentación', 'Mandato firmado', 'Publicado', 'En negociación'].includes(c.etapa)).map((c) => ({ c, f: faltantes(datos, c) })).filter((p) => p.f.length);
+  const conFaltas = datos.campos.filter((c) => ['Documentación', 'Mandato firmado', 'En venta', 'En negociación'].includes(c.etapa)).map((c) => ({ c, f: faltantes(datos, c) })).filter((p) => p.f.length);
   const hace7 = Date.now() - 7 * 864e5;
   const actividad = datos.actividad.filter((a) => new Date(a.fecha).getTime() >= hace7);
   const tablaAcciones = (lista) => (
@@ -4060,4 +4086,17 @@ const CSS = `
 .fbcrm .fbcrm-filtro-perfiles .fbcrm-perfil-tag.sin{background:#fff;border-color:var(--linea);color:var(--salvia)}
 .fbcrm-fila .fbcrm-perfiles-tags{margin-top:4px}
 .fbcrm-link-pegado{flex-basis:100%;font-size:.9rem;color:var(--potrero-osc);font-weight:600;word-break:break-all}
+/* Visibilidad */
+.fbcrm-visib{display:inline-flex;align-items:center;border-radius:999px;padding:1px 8px;font-size:.74rem;font-weight:600;margin-left:6px;white-space:nowrap;border:1px solid transparent}
+.fbcrm-visib.v-publica{background:var(--cielo-cl);color:var(--cielo)}
+.fbcrm-visib.v-reservada{background:#F6E4DE;color:#8A3A22}
+.fbcrm-visib.v-interna{background:var(--hoja);color:var(--salvia)}
+.fbcrm .fbcrm-filtro-perfiles button.fbcrm-visib{cursor:pointer;padding:5px 12px;font-size:.84rem;margin-left:0;opacity:.65}
+.fbcrm .fbcrm-filtro-perfiles button.fbcrm-visib.on{opacity:1;border-color:currentColor;box-shadow:0 0 0 1px currentColor}
+.fbcrm .fbcrm-filtro-perfiles button.fbcrm-visib.on::before{content:'✓';margin-right:5px}
+.fbcrm-resumen-venta{margin:-2px 0 6px;font-size:.92rem;color:var(--tinta)}
+.fbcrm-visib-sel.v-reservada select{background:#F6E4DE;color:#8A3A22}
+.fbcrm-visib-sel.v-publica select{background:var(--cielo-cl);color:var(--cielo)}
+.fbcrm-visib-sel.v-interna select{background:var(--hoja);color:var(--salvia)}
+.tc-etapa .fbcrm-visib{display:inline-flex;margin-top:2px}
 `;
