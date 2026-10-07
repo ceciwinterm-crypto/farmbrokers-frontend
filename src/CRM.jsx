@@ -16,6 +16,9 @@ const hoyISO = () => new Date().toLocaleDateString('en-CA');
 const fmtFecha = (iso) => (iso ? new Date(iso.length === 10 ? iso + 'T12:00:00' : iso).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' }) : '');
 const fmtFechaHora = (iso) => new Date(iso).toLocaleString('es-CL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const fmtNum = (n) => Number(n).toLocaleString('es-CL', { maximumFractionDigits: 1 });
+// Precio por hectárea (UF o pesos), para mostrar bajo el precio
+const precioHaNum = (c) => (c.hectareas > 0 ? (c.precioUF ? c.precioUF / c.hectareas : c.precioCLP ? c.precioCLP / c.hectareas : null) : null);
+const fmtPrecioHa = (c) => { const v = precioHaNum(c); if (!v) return ''; return c.precioUF ? `UF ${Math.round(v).toLocaleString('es-CL')}/ha` : v >= 1e6 ? `$${(v / 1e6).toLocaleString('es-CL', { maximumFractionDigits: 1 })} MM/ha` : `$${Math.round(v).toLocaleString('es-CL')}/ha`; };
 const fmtPrecio = (c) => (c.precioUF ? `UF ${fmtNum(c.precioUF)}` : c.precioCLP ? `$${fmtNum(c.precioCLP / 1e6)} MM` : c.precioTexto || '');
 const plural = (n, s, p) => `${n} ${n === 1 ? s : p || s + 's'}`;
 const emailsDe = (t) => (String(t || '').match(/[^\s,;<>]+@[^\s,;<>]+\.[a-z]{2,}/gi) || []);
@@ -374,13 +377,15 @@ function ListaCampos({ ctx, importar }) {
   const [fPerfiles, setFPerfiles] = useState([]);
   const [fVisib, setFVisib] = useState([]);
   const [fOper, setFOper] = useState('');
+  const [fCorredor, setFCorredor] = useState('');
+  const corredores = [...new Set(datos.campos.map((c) => (c.corredor || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
   const FILTROS = { activos: ['Activos', ['Mandato firmado', 'En venta', 'En arriendo', 'En negociación']], captacion: ['Captación', ['Prospección', 'Captación', 'Documentación']], cerrados: ['Cerrados', ['Vendido', 'Arrendado', 'Suspendido', 'Retirado de la web', 'Descartado']], todos: ['Todos', datos.etapas.campos] };
   const nq = q.toLowerCase();
   const enEtapa = datos.campos.filter((c) => FILTROS[filtro][1].includes(c.etapa));
   const idxR = (r) => { const i = datos.regiones.indexOf(r); return i < 0 ? 99 : i; };
   const cmp = (a, b) => String(a || '').localeCompare(String(b || ''), 'es', { sensitivity: 'base' });
   const lista = enEtapa.filter((c) => (!fRegion || (c.region || '') === fRegion) && (!fTipo || c.tipo === fTipo) &&
-    pasaPerfiles(c, fPerfiles) && (!fVisib.length || fVisib.includes(visibDe(c))) && (!fOper || operDe(c) === fOper || operDe(c) === 'ambas') &&
+    pasaPerfiles(c, fPerfiles) && (!fVisib.length || fVisib.includes(visibDe(c))) && (!fOper || operDe(c) === fOper || operDe(c) === 'ambas') && (!fCorredor || (fCorredor === '__sin' ? !(c.corredor || '').trim() : (c.corredor || '').trim() === fCorredor)) &&
     (!nq || [c.nombre, c.sector, c.codigo, c.rol, c.plantaciones, c.aptitud, c.propietario, REG_NOMBRE[c.region], TIPOS[c.tipo]].join(' ').toLowerCase().includes(nq)));
   const porRegion = (a, b) => idxR(a.region) - idxR(b.region) || cmp(a.sector, b.sector) || cmp(a.nombre, b.nombre);
   const ordenes = {
@@ -389,6 +394,7 @@ function ListaCampos({ ctx, importar }) {
     tipo: (a, b) => cmp(TIPOS[a.tipo], TIPOS[b.tipo]) || porRegion(a, b),
     nombre: (a, b) => cmp(a.nombre, b.nombre),
     hectareas: (a, b) => (b.hectareas || 0) - (a.hectareas || 0),
+    precioHa: (a, b) => (!!b.precioUF - !!a.precioUF) || ((precioHaNum(a) ?? 1e15) - (precioHaNum(b) ?? 1e15)),
   };
   const ordenados = [...lista].sort(ordenes[orden]);
   const grupos = [];
@@ -401,7 +407,7 @@ function ListaCampos({ ctx, importar }) {
   const tituloGrupo = (k) => (orden === 'region' ? (k ? `${REG_NOMBRE[k] || k}` : 'Sin región') : orden === 'etapa' ? k : orden === 'tipo' ? TIPOS[k] || k || 'Sin tipo' : '');
   const regionesHay = [...new Set(enEtapa.map((c) => c.region || ''))].sort((a, b) => idxR(a) - idxR(b));
   const tiposHay = [...new Set(enEtapa.map((c) => c.tipo))].sort((a, b) => cmp(TIPOS[a], TIPOS[b]));
-  const hayFiltros = fRegion || fTipo || fPerfiles.length || fVisib.length || fOper || q;
+  const hayFiltros = fRegion || fTipo || fPerfiles.length || fVisib.length || fOper || fCorredor || q;
   return (
     <section>
       <SyncWeb ctx={ctx} />
@@ -417,8 +423,9 @@ function ListaCampos({ ctx, importar }) {
         <input className="fbcrm-buscar" placeholder="Buscar por nombre, comuna, código, rol, plantación o propietario" value={q} onChange={(e) => setQ(e.target.value)} />
         <label><span>Región</span><select value={fRegion} onChange={(e) => setFRegion(e.target.value)}><option value="">Todas</option>{regionesHay.map((r) => <option key={r || 'sin'} value={r}>{r ? REG_NOMBRE[r] || r : 'Sin región'}</option>)}</select></label>
         <label><span>Tipo</span><select value={fTipo} onChange={(e) => setFTipo(e.target.value)}><option value="">Todos</option>{tiposHay.map((t) => <option key={t} value={t}>{TIPOS[t] || t}</option>)}</select></label>
+        <label><span>Corredor</span><select value={fCorredor} onChange={(e) => setFCorredor(e.target.value)}><option value="">Todos</option>{corredores.map((n) => <option key={n} value={n}>{n}</option>)}<option value="__sin">Sin corredor</option></select></label>
         <label><span>Ordenar</span><select value={orden} onChange={(e) => setOrden(e.target.value)}>
-          <option value="region">Región, de norte a sur</option><option value="etapa">Etapa</option><option value="tipo">Tipo de propiedad</option><option value="nombre">Nombre</option><option value="hectareas">Hectáreas, mayor a menor</option>
+          <option value="region">Región, de norte a sur</option><option value="etapa">Etapa</option><option value="tipo">Tipo de propiedad</option><option value="nombre">Nombre</option><option value="hectareas">Hectáreas, mayor a menor</option><option value="precioHa">Precio por hectárea, menor a mayor</option>
         </select></label>
       </div>
       <FiltroPerfiles datos={datos} elegidos={fPerfiles} setElegidos={setFPerfiles} />
@@ -435,7 +442,7 @@ function ListaCampos({ ctx, importar }) {
         const arr = enVenta.filter((c) => c.etapa === 'En arriendo').length, ven = enVenta.filter((c) => c.etapa === 'En venta').length;
         return enVenta.length > 0 && <p className="fbcrm-resumen-venta"><b>{plural(enVenta.length, 'campo activo', 'campos activos')}:</b> {ven} en venta, {arr} en arriendo{enVenta.length - ven - arr ? `, ${enVenta.length - ven - arr} con mandato o en negociación` : ''}. {plural(n('publica'), 'público', 'públicos')} en la web, {plural(n('reservada'), 'reservado', 'reservados')}{n('interna') ? `, ${n('interna')} sin definir` : ''}.</p>;
       })()}
-      <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); setFPerfiles([]); setFVisib([]); setFOper(''); }}>Quitar filtros</button></>}</p>
+      <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); setFPerfiles([]); setFVisib([]); setFOper(''); setFCorredor(''); }}>Quitar filtros</button></>}</p>
       {!lista.length && <p className="fbcrm-vacio">{datos.campos.length ? 'Ningún campo coincide con el filtro.' : 'Aún no hay campos. Importa la planilla o usa “Nuevo campo”.'}</p>}
       {lista.length > 0 && (
         <div className="fbcrm-tabla">
@@ -456,7 +463,7 @@ function ListaCampos({ ctx, importar }) {
                     <span className="tc-tipo"><span className={`fbcrm-tipo-tag tt-${c.tipo}`}>{TIPOS[c.tipo] || c.tipo}</span></span>
                     <span className="tc-perfil">{(c.perfiles || []).length ? <EtiquetasPerfil datos={datos} ids={c.perfiles} /> : <em>Sin perfil</em>}</span>
                     <span className={`tc-etapa et-${(datos.activas.includes(c.etapa) ? 'activa' : ['Vendido', 'Arrendado'].includes(c.etapa) ? 'cerrada' : 'otra')}`}>{c.etapa}{operDe(c) === 'ambas' && <span className="fbcrm-oper">{OPER.ambas}</span>}{datos.activas.includes(c.etapa) && <EtiquetaVisib c={c} />}</span>
-                    <span className="tc-precio" title={fmtPrecio(c)}>{fmtPrecio(c) || '–'}</span>
+                    <span className="tc-precio" title={[fmtPrecio(c), fmtPrecioHa(c)].filter(Boolean).join(', ')}>{fmtPrecio(c) || '–'}{fmtPrecioHa(c) && <small className="tc-precio-ha">{fmtPrecioHa(c)}</small>}</span>
                     <span className="tc-match">{nM > 0 ? <span className="fbcrm-badge" title={`${nM} clientes calzan`}>{nM}</span> : ''}</span>
                   </button>
                 );
@@ -520,7 +527,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
   const linkWeb = f.linkWeb || f.linkPortal;
 
   return (
-    <Hoja titulo={esNuevo ? 'Nuevo campo' : f.nombre} sub={esNuevo ? '' : [f.codigo, f.sector, f.region && REG_NOMBRE[f.region], f.hectareas && `${fmtNum(f.hectareas)} ha`, fmtPrecio(f)].filter(Boolean).join(', ')} cerrar={salir}>
+    <Hoja titulo={esNuevo ? 'Nuevo campo' : f.nombre} sub={esNuevo ? '' : [f.codigo, f.sector, f.region && REG_NOMBRE[f.region], f.hectareas && `${fmtNum(f.hectareas)} ha`, fmtPrecio(f), fmtPrecioHa(f)].filter(Boolean).join(', ')} cerrar={salir}>
       {!esNuevo && (
         <div className="fbcrm-barra-ficha">
           <label className={`fbcrm-etapa-sel fbcrm-visib-sel v-${visibDe(f)}`} title={VISIB[visibDe(f)][1]}>
@@ -779,6 +786,8 @@ function ListaClientes({ ctx }) {
   const [q, setQ] = useState('');
   const [fPerfiles, setFPerfiles] = useState([]);
   const [fFecha, setFFecha] = useState('');
+  const [fCorredor, setFCorredor] = useState('');
+  const corredores = [...new Set(datos.clientes.map((c) => (c.corredor || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [orden, setOrden] = useState('nombre');
@@ -801,11 +810,11 @@ function ListaClientes({ ctx }) {
     return true;
   };
   const base = datos.clientes.filter((c) => filtro === 'todos' || (filtro === 'revisar' ? c.revisar : c.etapa === filtro));
-  const lista = base.filter((c) => pasaPerfiles(c, fPerfiles) && enFecha(c) &&
+  const lista = base.filter((c) => pasaPerfiles(c, fPerfiles) && enFecha(c) && (!fCorredor || (fCorredor === '__sin' ? !(c.corredor || '').trim() : (c.corredor || '').trim() === fCorredor)) &&
     (!nq || [c.nombre, c.contactoNombre, c.requerimiento, c.zona, c.email, c.observaciones].join(' ').toLowerCase().includes(nq)))
     .sort(orden === 'nombre' ? (a, b) => a.nombre.localeCompare(b.nombre, 'es')
       : (a, b) => ((fechaIngresoCliente(orden === 'recientes' ? b : a) || 0) - (fechaIngresoCliente(orden === 'recientes' ? a : b) || 0)));
-  const hayFiltros = q || fPerfiles.length || fFecha;
+  const hayFiltros = q || fPerfiles.length || fFecha || fCorredor;
   const fmtMes = (d) => (d ? d.toLocaleDateString('es-CL', { month: 'short', year: 'numeric' }) : '');
   return (
     <section>
@@ -821,6 +830,7 @@ function ListaClientes({ ctx }) {
       {verPerfiles && <div className="fbcrm-bloque"><PerfilesAdmin ctx={ctx} /></div>}
       <div className="fbcrm-filtros">
         <input className="fbcrm-buscar" placeholder="Buscar por nombre, requerimiento, zona o email" value={q} onChange={(e) => setQ(e.target.value)} />
+        <label><span>Corredor</span><select value={fCorredor} onChange={(e) => setFCorredor(e.target.value)}><option value="">Todos</option>{corredores.map((n) => <option key={n} value={n}>{n}</option>)}<option value="__sin">Sin corredor</option></select></label>
         <label><span>Fecha de ingreso</span><select value={fFecha} onChange={(e) => setFFecha(e.target.value)}>
           <option value="">Todas</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="365">Último año</option><option value="anio">Este año</option><option value="rango">Entre fechas…</option>
         </select></label>
@@ -833,7 +843,7 @@ function ListaClientes({ ctx }) {
         </div>
       )}
       <FiltroPerfiles datos={datos} elegidos={fPerfiles} setElegidos={setFPerfiles} />
-      <p className="fbcrm-conteo">{plural(lista.length, 'cliente')}{hayFiltros ? ` de ${base.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFPerfiles([]); setFFecha(''); setDesde(''); setHasta(''); }}>Quitar filtros</button></>}</p>
+      <p className="fbcrm-conteo">{plural(lista.length, 'cliente')}{hayFiltros ? ` de ${base.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFPerfiles([]); setFCorredor(''); setFFecha(''); setDesde(''); setHasta(''); }}>Quitar filtros</button></>}</p>
       {!lista.length && <p className="fbcrm-vacio">{datos.clientes.length ? 'Ningún cliente coincide.' : 'Aún no hay clientes. Importa la planilla o usa “Nuevo cliente”.'}</p>}
       <div className="fbcrm-grupo">
         {lista.map((c) => (
@@ -4117,4 +4127,6 @@ const CSS = `
 .fbcrm .fbcrm-filtro-perfiles button.v-oper{background:#FBEFD9;color:#7A5410}
 .fbcrm-sep-filtro{font-size:.82rem;color:var(--salvia);margin:0 4px 0 12px}
 .fbcrm-oper-sel select{background:#FBEFD9;color:#7A5410}
+.tc-precio-ha{display:block;font-size:.76rem;color:var(--salvia);font-weight:400}
+@media (max-width:760px){.tc-precio-ha{display:inline;margin-left:6px}}
 `;
