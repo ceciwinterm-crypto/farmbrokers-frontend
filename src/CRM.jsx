@@ -3026,8 +3026,9 @@ function DocFichaCliente({ campo: c, fotosProp, planos = [], usuario, mostrarRol
     <p className="doc-ficha-legal">Estoril 120, of. 615, Las Condes. Información referencial, sujeta a verificación durante el proceso de compra.</p>
   </footer>);
   const pie = `Farm Brokers Chile, farmbrokers.cl${idProp ? `. Ficha ${idProp}` : ''}`;
-  const tituloPlano = c.tipo === 'loteo' || loteos.length || /loteo|parcela|lotes/i.test(`${titulo} ${d.tipo || ''}`) ? 'Plano de loteo' : 'Plano';
+  const esLoteo = c.tipo === 'loteo' || loteos.length || /loteo|parcela|lotes|subdivisi/i.test(`${titulo} ${d.tipo || ''}`);
   const anexos = planos.map((p, k) => (num, total) => {
+    const tituloPlano = esLoteo || /loteo|parcela|lotes|subdivisi/i.test(p.nombre || '') ? 'Plano de loteo' : 'Plano';
     const sub = `${titulo}${planos.length > 1 ? `, ${k + 1} de ${planos.length}` : ''}`, apaisado = p.w > p.h;
     return (
       <section className={`doc-pagina doc-pagina-plano ${apaisado ? 'apaisada' : ''}`} data-plano={p.src} data-w={p.w} data-h={p.h} data-titulo={tituloPlano} data-sub={sub} data-pie={pie} data-num={`Página ${num} de ${total}`}>
