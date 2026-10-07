@@ -2567,7 +2567,7 @@ async function descargarFichaPDF(nombre, avance) {
   const pdf = await pdfDeFicha(document.querySelector('.fbcrm-doc') || document.body, avance);
   pdf.save(nombre);
 }
-const nombreFicha = (c) => `Ficha ${((c.web && c.web.titulo) || c.nombre).replace(/[\\/:*?"<>|]/g, '')} - Farm Brokers.pdf`;
+const nombreFicha = (c) => `Ficha ${sinProtegido((c.web && c.web.titulo) || c.nombre).replace(/[\\/:*?"<>|]/g, '')} - Farm Brokers.pdf`;
 const blobABase64 = (b) => new Promise((ok, mal) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => mal(new Error('No se pudo leer la ficha.')); fr.readAsDataURL(b); });
 // Usa la dirección propia (fichas.farmbrokers.cl) cuando está configurada en Railway
 const linkPublicoFicha = (token, base) => (base ? `${base}/f/${token}` : `${API_BASE}/api/crm/publico-ficha/${token}`);
@@ -2738,6 +2738,7 @@ function precioPorHa(c, d, ha) {
   return '';
 }
 const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+const sinProtegido = (t) => String(t || '').replace(/^\s*(Protegido|Privado|Protected|Private)\s*:\s*/i, '').trim();
 const fmtHa = (n) => Number(n).toLocaleString('es-CL', { maximumFractionDigits: 2 });
 function limpiarUbic(t) {
   const vistos = new Set(), partes = [];
@@ -2754,7 +2755,7 @@ function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
   const w = c.web || null, d = (w && w.detalle) || {}, g = c.geo || null;
   const fotos = w && w.fotos.length ? w.fotos : fotosProp;
   const coord = coordsDe(c) || (g ? { ...g.centro, aprox: false } : null);
-  const titulo = (w && w.titulo) || c.nombre;
+  const titulo = sinProtegido((w && w.titulo) || c.nombre);
   const ubic = limpiarUbic([(w && w.direccion) || '', (w && w.comuna) || c.sector, (w && w.region) || REG_NOMBRE[c.region]].join(', '));
   const precio = d.precio || fmtPrecio(c);
   const haNum = c.hectareas || numeroDe(d.superficie) || (g && g.areaHa) || null;
