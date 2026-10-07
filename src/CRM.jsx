@@ -118,16 +118,17 @@ export default function CRM() {
     const r = obj.id ? await api(`/${col}/${obj.id}`, { method: 'PUT', body: obj }) : await api(`/${col}`, { method: 'POST', body: obj });
     await cargar(); return r;
   };
-  const generarFicha = (campo, avance = () => {}) => new Promise((ok, mal) => setTrabajoFicha({ campo, avance, ok, mal }));
+  const generarFicha = (campo, avance = () => {}, opciones = OPC_FICHA) => new Promise((ok, mal) => setTrabajoFicha({ campo, avance, ok, mal, opciones }));
   // Devuelve el link público del PDF; si el campo no cambió desde la última ficha, la reutiliza
-  const linkFicha = async (campo, avance = () => {}) => {
+  const linkFicha = async (campo, avance = () => {}, opciones = OPC_FICHA) => {
     const actual = (datos && datos.campos.find((x) => x.id === campo.id)) || campo;
-    const f = actual.fichaPdf;
+    const clave = claveOpciones(opciones);
+    const f = [...(actual.fichasPdf || [])].reverse().find((x) => x.opciones === clave);
     if (f && new Date(f.fecha).getTime() >= new Date(actual.actualizado || 0).getTime()) return linkPublicoFicha(f.token, datos && datos.fichasBase);
     avance('Generando la ficha…');
-    const blob = await generarFicha(actual, avance);
+    const blob = await generarFicha(actual, avance, opciones);
     avance('Subiendo la ficha…');
-    const link = await subirFicha(api, actual, blob);
+    const link = await subirFicha(api, actual, blob, clave);
     cargar();
     return link;
   };
@@ -465,7 +466,7 @@ function ListaCampos({ ctx, importar }) {
                     <span className="tc-comuna">{c.sector || <em>Sin comuna</em>}</span>
                     <span className="tc-tipo"><span className={`fbcrm-tipo-tag tt-${c.tipo}`}>{TIPOS[c.tipo] || c.tipo}</span></span>
                     <span className="tc-perfil">{(c.perfiles || []).length ? <EtiquetasPerfil datos={datos} ids={c.perfiles} /> : <em>Sin perfil</em>}</span>
-                    <span className="tc-corredor">{(c.corredor || '').trim() ? <span className="fbcrm-corredor-tag">{c.corredor}</span> : <em>Sin corredor</em>}</span>
+                    <span className="tc-corredor">{(c.corredor || '').trim() ? <span className="fbcrm-corredor-tag" title={c.corredor}><span className="cor-corto">{nombreCorto(c.corredor)}</span><span className="cor-largo">{c.corredor}</span></span> : <em>Sin corredor</em>}</span>
                     <span className={`tc-etapa et-${(datos.activas.includes(c.etapa) ? 'activa' : ['Vendido', 'Arrendado'].includes(c.etapa) ? 'cerrada' : 'otra')}`}>{c.etapa}{operDe(c) === 'ambas' && <span className="fbcrm-oper">{OPER.ambas}</span>}{datos.activas.includes(c.etapa) && <EtiquetaVisib c={c} />}</span>
                     <span className="tc-precio" title={[fmtPrecio(c), fmtPrecioHa(c)].filter(Boolean).join(', ')}>{fmtPrecio(c) || '–'}{fmtPrecioHa(c) && <small className="tc-precio-ha">{fmtPrecioHa(c)}</small>}</span>
                     <span className="tc-match">{nM > 0 ? <span className="fbcrm-badge" title={`${nM} clientes calzan`}>{nM}</span> : ''}</span>
@@ -676,6 +677,8 @@ function Match({ ctx, campo, setCampo }) {
   }, [campo.envios]);
   const [sel, setSel] = useState(() => new Set(lista.filter((m) => m.nivel === 'fuerte' && !enviados[m.clienteId]).map((m) => m.clienteId)));
   const [verParciales, setVerParciales] = useState(false);
+  const [opcEnvio, setOpcEnvio] = useState(OPC_FICHA);
+  const tienePlano = (campo.archivos || []).some((a) => esArchivoPlano(a) && a.enFicha !== false && (a.vistas || []).length);
   const [msg, setMsg] = useState('');
   const cli = (id) => datos.clientes.find((c) => c.id === id) || {};
   const ofrecible = datos.ofrecibles.includes(campo.etapa);
@@ -692,7 +695,7 @@ function Match({ ctx, campo, setCampo }) {
     const sinCorreo = sel.size - ids.length;
     setEnviando('correo'); setMsg('');
     try {
-      const link = await ctx.linkFicha(campo, setMsg);
+      const link = await ctx.linkFicha(campo, setMsg, opcEnvio);
       const asunto = `Campo en venta: ${campo.nombre}${campo.sector ? `, ${campo.sector}` : ''}`;
       window.location.href = `mailto:?bcc=${encodeURIComponent(correos.join(','))}&subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensajeCampo(campo, usuario, null, link))}`;
       registrar(ids, 'correo');
@@ -707,7 +710,7 @@ function Match({ ctx, campo, setCampo }) {
     if (win) { try { win.document.title = 'Farm Brokers'; win.document.body.innerHTML = '<p style="font-family:system-ui,sans-serif;padding:28px;color:#1F4D31;font-size:17px">Preparando la ficha de Farm Brokers…</p>'; } catch (e) { /* sin acceso */ } }
     setEnviando(id); setMsg('');
     try {
-      const link = await ctx.linkFicha(campo, setMsg);
+      const link = await ctx.linkFicha(campo, setMsg, opcEnvio);
       const url = `https://wa.me/${n}?text=${encodeURIComponent(mensajeCampo(campo, usuario, c, link))}`;
       if (win && !win.closed) win.location.href = url; else window.location.href = url;
       registrar([id], 'whatsapp');
@@ -743,10 +746,18 @@ function Match({ ctx, campo, setCampo }) {
       <ul>{fuertes.map(fila)}</ul>
       {parciales.length > 0 && <button className="fbcrm-plegable" aria-expanded={verParciales} onClick={() => setVerParciales(!verParciales)}>{verParciales ? 'Ocultar calces parciales' : `Ver ${plural(parciales.length, 'calce parcial', 'calces parciales')}`}</button>}
       {verParciales && <ul>{parciales.map(fila)}</ul>}
+      {lista.length > 0 && (campo.geo || tienePlano) && (
+        <div className="fbcrm-opc-envio">
+          <span>La ficha que se envía lleva:</span>
+          {campo.geo && <label><input type="checkbox" checked={opcEnvio.kmz} onChange={(e) => setOpcEnvio({ ...opcEnvio, kmz: e.target.checked })} />Contorno del KMZ</label>}
+          {tienePlano && <label><input type="checkbox" checked={opcEnvio.plano} onChange={(e) => setOpcEnvio({ ...opcEnvio, plano: e.target.checked })} />Plano</label>}
+          {campo.geo && !opcEnvio.kmz && <small>Sin el contorno, el mapa muestra solo la ubicación{campo.coordenadas ? '' : ' aproximada'}.</small>}
+        </div>
+      )}
       {lista.length > 0 && (
         <div className="fbcrm-acciones">
           <button className="fbcrm-primario" disabled={!sel.size || !!enviando} onClick={enviarCorreo}>{enviando === 'correo' ? 'Preparando la ficha…' : `Enviar ficha por correo a ${plural(sel.size, 'seleccionado')}`}</button>
-          <button className="fbcrm-texto" disabled={!!enviando} onClick={async () => { try { const link = await ctx.linkFicha(campo, setMsg); await navigator.clipboard.writeText(mensajeCampo(campo, usuario, null, link)); setMsg('Mensaje con el link de la ficha copiado.'); } catch (e) { setMsg(e.message); } }}>Copiar mensaje con la ficha</button>
+          <button className="fbcrm-texto" disabled={!!enviando} onClick={async () => { try { const link = await ctx.linkFicha(campo, setMsg, opcEnvio); await navigator.clipboard.writeText(mensajeCampo(campo, usuario, null, link)); setMsg('Mensaje con el link de la ficha copiado.'); } catch (e) { setMsg(e.message); } }}>Copiar mensaje con la ficha</button>
         </div>
       )}
       {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
@@ -953,6 +964,7 @@ const nombresCorredores = (datos) => {
   for (const col of ['campos', 'clientes']) for (const x of datos[col] || []) { const n = (x.corredor || '').trim(); if (n && !m.has(n.toLowerCase())) m.set(n.toLowerCase(), n); }
   return [...m.values()].sort((a, b) => a.localeCompare(b, 'es'));
 };
+const nombreCorto = (n) => { const p = String(n || '').trim().split(/\s+/); return p.length > 1 ? `${p[0]} ${p[p.length - 1][0]}.` : p[0] || ''; };
 const pasaCorredor = (c, f) => !f || (f === '__sin' ? !(c.corredor || '').trim() : (c.corredor || '').trim().toLowerCase() === f.toLowerCase());
 function SelectorCorredor({ ctx, value, onChange }) {
   const { datos, api, cargar } = ctx;
@@ -1984,6 +1996,8 @@ function Impresion({ ctx, imp, cerrar }) {
   const { datos, usuario } = ctx;
   const [variante, setVariante] = useState('cliente');
   const [mostrarRol, setMostrarRol] = useState(false);
+  const [conKmz, setConKmz] = useState(true);
+  const [conPlano, setConPlano] = useState(true);
   const [generando, setGenerando] = useState('');
   const campoBase = imp.tipo === 'campo' ? datos.campos.find((c) => c.id === imp.id) : null;
   const [campoWeb, setCampoWeb] = useState(null);
@@ -2061,7 +2075,7 @@ function Impresion({ ctx, imp, cerrar }) {
               try {
                 const pdf = await pdfDeFicha(document.querySelector('.fbcrm-doc'), setGenerando);
                 setGenerando('Subiendo…');
-                const link = await subirFicha(ctx.api, campo, pdf.output('blob'));
+                const link = await subirFicha(ctx.api, campo, pdf.output('blob'), claveOpciones({ kmz: conKmz, plano: conPlano }));
                 await navigator.clipboard.writeText(link); ctx.cargar();
                 alert(`Link de la ficha copiado:\n${link}`);
               } catch (e) { alert(e.message); }
@@ -2070,6 +2084,8 @@ function Impresion({ ctx, imp, cerrar }) {
           </>
         )}
         {campo && variante === 'cliente' && <label className="fbcrm-imp-opcion"><input type="checkbox" checked={mostrarRol} onChange={(e) => setMostrarRol(e.target.checked)} />Mostrar rol SII</label>}
+        {campo && variante === 'cliente' && campo.geo && <label className="fbcrm-imp-opcion"><input type="checkbox" checked={conKmz} onChange={(e) => setConKmz(e.target.checked)} />Contorno del KMZ</label>}
+        {campo && variante === 'cliente' && planos.length > 0 && <label className="fbcrm-imp-opcion"><input type="checkbox" checked={conPlano} onChange={(e) => setConPlano(e.target.checked)} />Plano</label>}
         {campo && variante === 'cliente' && <p className="fbcrm-imp-estado">{estadoWeb || resumenWeb(campo, fotosProp)}</p>}
         {campo && variante === 'cliente' && imp.tipo === 'campo'
           ? <p>“Descargar PDF” arma el archivo con las mismas páginas que ves abajo. “Compartir” lo adjunta directo en WhatsApp u otra app (desde el celular). “Copiar link” sube la ficha y copia un link que puedes pegar en cualquier chat.</p>
@@ -2080,7 +2096,7 @@ function Impresion({ ctx, imp, cerrar }) {
         <Marco pie={imp.tipo === 'mandato' ? PIE_MANDATO : <><span>Farm Brokers Chile, farmbrokers.cl, +56 9 7193 9040</span><span>{campo ? `Ficha de propiedad${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo ? ` ${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo}` : ''}` : 'Informe de seguimiento'}</span></>}>
         {imp.tipo === 'mandato'
           ? (mandato ? <DocMandato m={mandato} /> : <p>{errorMandato || 'Preparando el mandato…'}</p>)
-          : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} planos={planos} usuario={usuario} mostrarRol={mostrarRol} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
+          : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} planos={conPlano ? planos : []} conKmz={conKmz} usuario={usuario} mostrarRol={mostrarRol} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
             : imp.tipo === 'campo' ? <p>El campo ya no existe.</p> : <DocInforme datos={datos} usuario={usuario} />}
         </Marco>
       </article>
@@ -2743,8 +2759,10 @@ const nombreFicha = (c) => `Ficha ${sinProtegido((c.web && c.web.titulo) || c.no
 const blobABase64 = (b) => new Promise((ok, mal) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => mal(new Error('No se pudo leer la ficha.')); fr.readAsDataURL(b); });
 // Usa la dirección propia (fichas.farmbrokers.cl) cuando está configurada en Railway
 const linkPublicoFicha = (token, base) => (base ? `${base}/f/${token}` : `${API_BASE}/api/crm/publico-ficha/${token}`);
-async function subirFicha(api, campo, blob) {
-  const r = await api(`/campos/${campo.id}/ficha-pdf`, { method: 'POST', body: { base64: await blobABase64(blob) } });
+const OPC_FICHA = { kmz: true, plano: true };
+const claveOpciones = (o) => `k${o && o.kmz === false ? 0 : 1}p${o && o.plano === false ? 0 : 1}`;
+async function subirFicha(api, campo, blob, opciones = 'k1p1') {
+  const r = await api(`/campos/${campo.id}/ficha-pdf`, { method: 'POST', body: { base64: await blobABase64(blob), opciones } });
   return r.link || linkPublicoFicha(r.token);
 }
 // Ficha armada fuera de la vista para generar el PDF desde cualquier parte del CRM
@@ -2767,7 +2785,7 @@ function GeneradorFicha({ ctx, trabajo, alTerminar }) {
             .then((r) => (r.ok ? r.blob() : null)).then((b) => (b ? URL.createObjectURL(b) : null)).catch(() => null)));
           if (vivo) setFotosProp(urls.filter(Boolean));
         }
-        const pl = await cargarPlanos(c, ctx.usuario); if (vivo && pl.length) setPlanos(pl);
+        const pl = trabajo.opciones && trabajo.opciones.plano === false ? [] : await cargarPlanos(c, ctx.usuario); if (vivo && pl.length) setPlanos(pl);
         await new Promise((r) => setTimeout(r, 1200));
         const pdf = await pdfDeFicha(ref.current, trabajo.avance);
         if (vivo) alTerminar(pdf.output('blob'), null, c);
@@ -2775,7 +2793,7 @@ function GeneradorFicha({ ctx, trabajo, alTerminar }) {
     })();
     return () => { vivo = false; };
   }, []);
-  return <div className="fbcrm-generador" ref={ref} aria-hidden="true"><div className="fbcrm-doc doc-ficha-hoja"><DocFichaCliente campo={campo} fotosProp={fotosProp} planos={planos} usuario={ctx.usuario} mostrarRol={false} /></div></div>;
+  return <div className="fbcrm-generador" ref={ref} aria-hidden="true"><div className="fbcrm-doc doc-ficha-hoja"><DocFichaCliente campo={campo} fotosProp={fotosProp} planos={planos} conKmz={!(trabajo.opciones && trabajo.opciones.kmz === false)} usuario={ctx.usuario} mostrarRol={false} /></div></div>;
 }
 async function imprimirConImagenes() {
   const imgs = [...document.querySelectorAll('.fbcrm-doc img')];
@@ -2926,10 +2944,10 @@ function limpiarUbic(t) {
 }
 const PIE_MANDATO = <><span>www.farmbrokers.cl</span><span>Phone +569 7193 90 40</span><span>Email: contacto@farmbrokers.cl</span></>;
 function Marco({ children }) { return <>{children}</>; }
-function DocFichaCliente({ campo: c, fotosProp, planos = [], usuario, mostrarRol }) {
-  const w = c.web || null, d = (w && w.detalle) || {}, g = c.geo || null;
+function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usuario, mostrarRol }) {
+  const w = c.web || null, d = (w && w.detalle) || {}, g = conKmz ? c.geo || null : null;
   const fotos = w && w.fotos.length ? w.fotos : fotosProp;
-  const coord = coordsDe(c) || (g ? { ...g.centro, aprox: false } : null);
+  const coord = coordsDe(c) || (c.geo ? { ...c.geo.centro, aprox: !g } : null);
   const titulo = sinProtegido((w && w.titulo) || c.nombre);
   const ubic = limpiarUbic([(w && w.direccion) || '', (w && w.comuna) || c.sector, (w && w.region) || REG_NOMBRE[c.region]].join(', '));
   const precio = d.precio || fmtPrecio(c);
@@ -4002,7 +4020,7 @@ const CSS = `
 .fbcrm-filtros label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--salvia);font-weight:500;flex:0 1 190px}
 .fbcrm-conteo{font-size:.88rem;color:var(--salvia);margin:6px 2px 10px;display:flex;gap:10px;align-items:baseline}
 .fbcrm-tabla{background:var(--papel);border:1px solid var(--linea);border-radius:16px;overflow:hidden}
-.fbcrm-tabla-cab,.fbcrm .fbcrm-tabla-fila{display:grid;grid-template-columns:minmax(220px,2.2fr) minmax(100px,1fr) minmax(95px,.95fr) minmax(100px,.9fr) minmax(120px,1.2fr) minmax(90px,.8fr) minmax(95px,.9fr) minmax(100px,.85fr) 54px;gap:14px;align-items:center;padding:10px 16px}
+.fbcrm-tabla-cab,.fbcrm .fbcrm-tabla-fila{display:grid;grid-template-columns:minmax(190px,2.2fr) minmax(80px,1fr) minmax(80px,.95fr) minmax(80px,.85fr) minmax(100px,1.2fr) minmax(76px,.8fr) minmax(86px,.9fr) minmax(92px,.85fr) 40px;gap:10px;align-items:center;padding:10px 14px}
 .fbcrm-tabla-cab{font-size:.78rem;color:var(--salvia);font-weight:600;background:var(--hoja);border-bottom:1px solid var(--linea)}
 .fbcrm-tabla-cab .der,.tc-precio,.tc-match{text-align:right;justify-self:end}
 .fbcrm-tabla-grupo{display:flex;gap:8px;align-items:baseline;padding:14px 16px 6px;border-top:1px solid var(--linea2)}
@@ -4024,7 +4042,7 @@ const CSS = `
 .fbcrm-tipo-tag.tt-forestal,.fbcrm-tipo-tag.tt-conservacion{background:#E6EEE3;color:#3F5A33}
 .fbcrm-tipo-tag.tt-energia,.fbcrm-tipo-tag.tt-derechos_agua{background:var(--cielo-cl);color:var(--cielo)}
 .fbcrm-tipo-tag.tt-agroindustrial{background:#EFEAF3;color:#5B4A70}
-@media (max-width:980px){
+@media (max-width:1240px){
   .fbcrm-tabla-cab{display:none}
   .fbcrm .fbcrm-tabla-fila{display:flex;flex-wrap:wrap;gap:6px 10px;padding:12px 14px 12px 76px}
   .tc-campo{flex:0 0 calc(100% + 18px);margin-left:-62px;min-width:0}
@@ -4219,9 +4237,16 @@ const CSS = `
 .fbcrm-equipo .fbcrm-avatar{width:34px;height:34px;font-size:.75rem}
 .fbcrm-generador{position:fixed;left:0;top:0;width:230mm;z-index:-10;pointer-events:none;opacity:1}
 /* Corredores */
-.tc-corredor{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tc-corredor,.tc-tipo,.tc-perfil,.tc-etapa{min-width:0;overflow:hidden}
+.tc-corredor{text-overflow:ellipsis;white-space:nowrap}
 .tc-corredor em{font-size:.8rem;color:var(--salvia);font-style:normal}
 .fbcrm-corredor-tag{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;padding:2px 9px;border-radius:999px;background:#EAF0F7;color:#2E4A6B;font-size:.82rem;font-weight:600}
+.fbcrm-corredor-tag .cor-largo{display:none}
+@media (max-width:1240px){.fbcrm-corredor-tag .cor-largo{display:inline}.fbcrm-corredor-tag .cor-corto{display:none}}
+.fbcrm-opc-envio{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:12px 0 0;padding:10px 12px;background:var(--hoja);border-radius:11px;font-size:.9rem}
+.fbcrm-opc-envio>span{color:var(--salvia)}
+.fbcrm-opc-envio label{display:inline-flex;align-items:center;gap:6px;font-weight:500;cursor:pointer}
+.fbcrm-opc-envio small{flex:0 0 100%;color:var(--salvia)}
 .fbcrm-corredor-nuevo{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .fbcrm-corredor-nuevo input{flex:1 1 140px;min-width:0}
 /* Perfiles de comprador */
