@@ -502,6 +502,27 @@ function FichaCampo({ ctx, inicial, cerrar }) {
   const esNuevo = !f.id;
   const sinGuardar = !esNuevo && huella(f) !== base;
   const setCampo = (r) => { setF(r); setBase(huella(r)); };
+  const enlazadoWeb = /farmbrokers\.cl\/propiedad\//.test(f.linkWeb || f.linkPortal || '');
+  const vw = (enlazadoWeb && f.web && f.web.valores) || {};
+  const deWeb = (k) => (k === 'precioUF' || k === 'precioCLP' || k === 'precioTexto' ? 'precio' : k) in vw;
+  const etqWeb = (l, k) => (deWeb(k) ? <span>{l} <span className="fbcrm-de-web" title="Viene de farmbrokers.cl. Para cambiarlo, edítalo en WordPress.">web</span></span> : l);
+  const [leyendoWeb, setLeyendoWeb] = useState(false);
+  const traerDeWeb = async () => {
+    setLeyendoWeb(true);
+    try {
+      const r = await api(`/campos/${f.id}/web`, { method: 'POST' });
+      const datosWeb = Object.fromEntries(['hectareas', 'precioUF', 'precioCLP', 'precioTexto', 'agua', 'plantaciones', 'sector', 'region', 'codigo', 'tipo', 'operacion', 'etapa'].map((k) => [k, r[k]]));
+      setF((x) => ({ ...x, ...datosWeb, web: r.web, historial: r.historial }));
+      setBase((b) => { let o = {}; try { const arr = JSON.parse(b); o = Object.fromEntries(CAMPOS_EDITABLES.map((k, i) => [k, arr[i]])); } catch (e) {} return huella({ ...o, ...datosWeb }); });
+      cargar();
+      return r;
+    } finally { setLeyendoWeb(false); }
+  };
+  useEffect(() => {
+    if (esNuevo || !enlazadoWeb) return;
+    const viejo = !f.web || !f.web.valores || !f.web.fecha || Date.now() - new Date(f.web.fecha).getTime() > 6 * 3600 * 1000;
+    if (viejo) traerDeWeb().catch(() => {});
+  }, []);
 
   const grabar = async (extra = {}) => {
     setOcupado(true); setMsg('');
@@ -565,7 +586,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
 
       <div className="fbcrm-bloque fbcrm-info">
         <h3>Información del campo</h3>
-        {!esNuevo && /farmbrokers\.cl\/propiedad\//.test(linkWeb || '') && <ComparaWeb ctx={ctx} f={f} setF={setF} />}
+        {!esNuevo && enlazadoWeb && <ComparaWeb ctx={ctx} f={f} setF={setF} leyendo={leyendoWeb} leer={traerDeWeb} />}
         <p className="fbcrm-seccion">Perfil de comprador</p>
         <p className="fbcrm-nota-suave">¿Para qué tipo de comprador sirve este campo? Puedes marcar más de uno.</p>
         <SelectorPerfiles ctx={ctx} valor={f.perfiles || []} onChange={(v) => setF((x) => ({ ...x, perfiles: v }))} />
@@ -576,27 +597,27 @@ function FichaCampo({ ctx, inicial, cerrar }) {
         <p className="fbcrm-seccion">Ubicación</p>
         <div className="fbcrm-form">
           <Campo label="Nombre" ancho><input value={f.nombre || ''} onChange={set('nombre')} placeholder="Ej. Fundo Mahuidanche" /></Campo>
-          <Campo label="Tipo de propiedad"><SelectTipo ctx={ctx} value={f.tipo || 'agricola'} onChange={(v) => setF((x) => ({ ...x, tipo: v }))} /></Campo>
+          <Campo label={etqWeb('Tipo de propiedad', 'tipo')}>{deWeb('tipo') ? <input value={(datos.tipos || {})[f.tipo] || TIPOS[f.tipo] || f.tipo || ''} disabled /> : <SelectTipo ctx={ctx} value={f.tipo || 'agricola'} onChange={(v) => setF((x) => ({ ...x, tipo: v }))} />}</Campo>
           {esNuevo && <Campo label="Etapa"><select value={f.etapa} onChange={set('etapa')}>{datos.etapas.campos.map((e) => <option key={e}>{e}</option>)}</select></Campo>}
-          <Campo label="Región"><select value={f.region || ''} onChange={set('region')}><option value="">Sin región</option>{datos.regiones.map((r) => <option key={r} value={r}>{r}, {REG_NOMBRE[r]}</option>)}</select></Campo>
-          <Campo label="Comuna o sector"><input value={f.sector || ''} onChange={set('sector')} /></Campo>
+          <Campo label={etqWeb('Región', 'region')}><select value={f.region || ''} disabled={deWeb('region')} onChange={set('region')}><option value="">Sin región</option>{datos.regiones.map((r) => <option key={r} value={r}>{r}, {REG_NOMBRE[r]}</option>)}</select></Campo>
+          <Campo label={etqWeb('Comuna o sector', 'sector')}><input value={f.sector || ''} disabled={deWeb('sector')} onChange={set('sector')} /></Campo>
           <Campo label="Rol SII"><input value={f.rol || ''} onChange={set('rol')} placeholder="28-95" /></Campo>
-          <Campo label="Código"><input value={f.codigo || ''} onChange={set('codigo')} /></Campo>
+          <Campo label={etqWeb('Código', 'codigo')}><input value={f.codigo || ''} disabled={deWeb('codigo')} onChange={set('codigo')} /></Campo>
           <Campo label="Coordenadas (pega desde Google Maps)" ancho><input value={f.coordenadas || ''} onChange={set('coordenadas')} placeholder="-34.3963, -71.6152" /></Campo>
           <Campo label="Acceso" ancho><input value={f.acceso || ''} onChange={set('acceso')} placeholder="Ej. 3 km de camino pavimentado desde la Ruta 66" /></Campo>
         </div>
         <p className="fbcrm-seccion">Superficie y precio</p>
         <div className="fbcrm-form">
-          <Campo label="Hectáreas"><input type="number" inputMode="decimal" value={f.hectareas ?? ''} onChange={set('hectareas')} /></Campo>
-          <Campo label="Precio en UF"><input type="number" inputMode="decimal" value={f.precioUF ?? ''} onChange={set('precioUF')} /></Campo>
-          <Campo label="Precio en pesos"><input type="number" inputMode="numeric" value={f.precioCLP ?? ''} onChange={set('precioCLP')} /></Campo>
-          <Campo label="Precio (como se publica)"><input value={f.precioTexto || ''} onChange={set('precioTexto')} placeholder="Ej. UF 280.000" /></Campo>
+          <Campo label={etqWeb('Hectáreas', 'hectareas')}><input type="number" inputMode="decimal" value={f.hectareas ?? ''} disabled={deWeb('hectareas')} onChange={set('hectareas')} /></Campo>
+          <Campo label={etqWeb('Precio en UF', 'precioUF')}><input type="number" inputMode="decimal" value={f.precioUF ?? ''} disabled={deWeb('precioUF')} onChange={set('precioUF')} /></Campo>
+          <Campo label={etqWeb('Precio en pesos', 'precioCLP')}><input type="number" inputMode="numeric" value={f.precioCLP ?? ''} disabled={deWeb('precioCLP')} onChange={set('precioCLP')} /></Campo>
+          <Campo label={etqWeb('Precio (como se publica)', 'precioTexto')}><input value={f.precioTexto || ''} disabled={deWeb('precioTexto')} onChange={set('precioTexto')} placeholder="Ej. UF 280.000" /></Campo>
         </div>
         <p className="fbcrm-seccion">Agua y producción</p>
         <div className="fbcrm-form">
-          <Campo label="Derechos de agua"><input value={f.agua || ''} onChange={set('agua')} placeholder="Ej. 31 l/s" /></Campo>
+          <Campo label={etqWeb('Derechos de agua', 'agua')}><input value={f.agua || ''} disabled={deWeb('agua')} onChange={set('agua')} placeholder="Ej. 31 l/s" /></Campo>
           <Campo label="Fuente del agua"><input value={f.fuenteAgua || ''} onChange={set('fuenteAgua')} placeholder="Ej. Canal Cocalán, pozo profundo" /></Campo>
-          <Campo label="Plantaciones" ancho><input value={f.plantaciones || ''} onChange={set('plantaciones')} placeholder="Ej. 40 ha almendros, 20 ha nogales" /></Campo>
+          <Campo label={etqWeb('Plantaciones', 'plantaciones')} ancho><input value={f.plantaciones || ''} disabled={deWeb('plantaciones')} onChange={set('plantaciones')} placeholder="Ej. 40 ha almendros, 20 ha nogales" /></Campo>
           <Campo label="Aptitud" ancho><input value={f.aptitud || ''} onChange={set('aptitud')} placeholder="Ej. paltos, cítricos, uva de mesa" /></Campo>
           <Campo label="Infraestructura" ancho><textarea rows={2} value={f.infraestructura || ''} onChange={set('infraestructura')} placeholder="Ej. Casa patronal 250 m², bodega, galpón, tranque 30.000 m³" /></Campo>
         </div>
@@ -973,31 +994,31 @@ const mostrarDato = (datos, k, v) => {
   return v || '';
 };
 const datoDeWeb = (k, v) => (k === 'precio' ? { precioTexto: v.precioTexto || '', precioUF: v.precioUF || null, precioCLP: v.precioCLP || null } : { [k]: v });
-function ComparaWeb({ ctx, f, setF }) {
-  const { datos, api, cargar } = ctx;
-  const [leyendo, setLeyendo] = useState(false);
+function ComparaWeb({ ctx, f, setF, leyendo, leer }) {
+  const { datos } = ctx;
   const [msg, setMsg] = useState('');
   const v = f.web && f.web.valores;
   const difs = diferenciasWeb(f);
-  const leer = async () => {
-    setLeyendo(true); setMsg('');
+  const releer = async () => {
+    setMsg('');
     try {
-      const r = await api(`/campos/${f.id}/web`, { method: 'POST' });
-      setF((x) => ({ ...x, web: r.web })); cargar();
-      const n = diferenciasWeb({ ...f, web: r.web }).length;
-      setMsg(n ? `Leída. ${plural(n, 'dato no coincide', 'datos no coinciden')} con la web.` : 'Leída. Todo coincide con la web.');
+      const r = await leer();
+      const cm = (r && r.cambiosWeb) || [];
+      setMsg(cm.length ? `Actualizado desde la web: ${cm.join('; ')}.` : 'Leída. Los datos ya estaban iguales a la web.');
     } catch (e) { setMsg(e.message); }
-    setLeyendo(false);
   };
   const usar = (ks) => { setF((x) => ({ ...x, ...Object.assign({}, ...ks.map((k) => datoDeWeb(k, v[k]))) })); setMsg('Copiado desde la web. Presiona “Guardar información” para que quede.'); };
+  const enWeb = v ? Object.keys(ETQ_WEB).filter((k) => k in v).map((k) => ETQ_WEB[k].toLowerCase()) : [];
   return (
     <div className={`fbcrm-compara-web ${difs.length ? 'con-dif' : ''}`}>
       <div className="fbcrm-compara-cab">
-        <span><Icono n="enlace" s={16} />{!v ? 'Enlazado con farmbrokers.cl, pero aún no se lee la publicación.'
+        <span><Icono n="enlace" s={16} />{leyendo ? 'Leyendo la publicación en farmbrokers.cl…'
+          : !v ? 'Enlazado con farmbrokers.cl. Presiona “Leer la web” para traer sus datos.'
           : difs.length ? <><b>{plural(difs.length, 'dato no coincide', 'datos no coinciden')} con farmbrokers.cl</b>{f.web.fecha ? ` (web leída el ${fmtFecha(f.web.fecha)})` : ''}</>
-          : <>Coincide con farmbrokers.cl ✓{f.web.fecha ? ` (web leída el ${fmtFecha(f.web.fecha)})` : ''}</>}</span>
-        <button className="fbcrm-mini" disabled={leyendo} onClick={leer}>{leyendo ? 'Leyendo…' : v ? 'Volver a leer la web' : 'Traer información de la web'}</button>
+          : <>Igual a farmbrokers.cl ✓{f.web.fecha ? ` (leída el ${fmtFecha(f.web.fecha)}, ${new Date(f.web.fecha).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })})` : ''}</>}</span>
+        <button className="fbcrm-mini" disabled={leyendo} onClick={releer}>{leyendo ? 'Leyendo…' : v ? 'Volver a leer la web' : 'Leer la web'}</button>
       </div>
+      {v && !difs.length && enWeb.length > 0 && <p className="fbcrm-compara-nota">Se toman siempre de la web: {enWeb.join(', ')}. Para cambiarlos, edítalos en WordPress y aquí se actualizan solos.{!('agua' in v) ? ' La publicación no tiene el dato de agua: puedes escribirlo aquí.' : ''}</p>}
       {difs.length > 0 && (
         <>
           <table className="fbcrm-compara-tabla">
@@ -1013,7 +1034,7 @@ function ComparaWeb({ ctx, f, setF }) {
           </table>
           <div className="fbcrm-compara-pie">
             {difs.length > 1 && <button className="fbcrm-mini fbcrm-primario" onClick={() => usar(difs)}>Usar todos los de la web</button>}
-            <small>Si el correcto es el del CRM, corrígelo en WordPress. Mientras no coincidan, la revisión automática no reemplaza lo que pusiste en el CRM.</small>
+            <small>Presiona “Volver a leer la web” para igualarlos automáticamente.</small>
           </div>
         </>
       )}
@@ -4322,6 +4343,9 @@ const CSS = `
 .fbcrm-compara-pie{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .fbcrm-compara-pie small{color:#7A5A30;flex:1 1 260px}
 @media (max-width:620px){.fbcrm-compara-tabla thead{display:none}.fbcrm-compara-tabla tr{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;padding:8px 0;border-bottom:1px solid var(--linea2)}.fbcrm-compara-tabla th,.fbcrm-compara-tabla td{border:0;padding:2px 8px}.fbcrm-compara-tabla tbody th{grid-column:1/-1}.fbcrm-compara-tabla td:last-child{grid-column:1/-1;text-align:left}}
+.fbcrm-compara-nota{margin:6px 0 0;font-size:.82rem;color:var(--salvia)}
+.fbcrm-de-web{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;background:var(--cielo-cl);color:var(--cielo);font-size:.68rem;font-weight:700;letter-spacing:.02em;vertical-align:1px;cursor:help}
+.fbcrm-form input:disabled,.fbcrm-form select:disabled{background:#F3F6F4;color:var(--tinta);opacity:1;cursor:not-allowed}
 .fbcrm-dif-web{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:999px;background:#FBE7CF;color:#8A4F0A;font-size:.72rem;font-weight:700;vertical-align:2px;white-space:nowrap}
 .fbcrm .fbcrm-filtro-perfiles button.v-dif{background:#FBE7CF;color:#8A4F0A}
 .fbcrm-opc-envio{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:12px 0 0;padding:10px 12px;background:var(--hoja);border-radius:11px;font-size:.9rem}
