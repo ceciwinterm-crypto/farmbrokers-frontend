@@ -19,6 +19,16 @@ const fmtNum = (n) => Number(n).toLocaleString('es-CL', { maximumFractionDigits:
 // Precio por hectárea (UF o pesos), para mostrar bajo el precio
 const precioHaNum = (c) => (c.hectareas > 0 ? (c.precioUF ? c.precioUF / c.hectareas : c.precioCLP ? c.precioCLP / c.hectareas : null) : null);
 const fmtPrecioHa = (c) => { const v = precioHaNum(c); if (!v) return ''; return c.precioUF ? `UF ${Math.round(v).toLocaleString('es-CL')}/ha` : v >= 1e6 ? `$${(v / 1e6).toLocaleString('es-CL', { maximumFractionDigits: 1 })} MM/ha` : `$${Math.round(v).toLocaleString('es-CL')}/ha`; };
+// Hectáreas plantadas a partir del texto de plantaciones: "26,55 ha productivas" = 26,55; "40 ha almendros, 20 ha nogales" = 60
+const haPlantadas = (c) => {
+  const t = String(c.plantaciones || '');
+  let suma = 0, hay = false;
+  for (const m of t.matchAll(/(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d+))?\s*(?:ha|has|hás|hect[aá]reas?)\b/gi)) {
+    const n = Number(`${m[1].replace(/\./g, '')}${m[2] ? `.${m[2]}` : ''}`);
+    if (n > 0) { suma += n; hay = true; }
+  }
+  return hay ? Math.round(suma * 100) / 100 : null;
+};
 const fmtPrecio = (c) => (c.precioUF ? `UF ${fmtNum(c.precioUF)}` : c.precioCLP ? `$${fmtNum(c.precioCLP / 1e6)} MM` : c.precioTexto || '');
 const plural = (n, s, p) => `${n} ${n === 1 ? s : p || s + 's'}`;
 const emailsDe = (t) => (String(t || '').match(/[^\s,;<>]+@[^\s,;<>]+\.[a-z]{2,}/gi) || []);
@@ -397,6 +407,7 @@ function ListaCampos({ ctx, importar }) {
     tipo: (a, b) => cmp(TIPOS[a.tipo], TIPOS[b.tipo]) || porRegion(a, b),
     nombre: (a, b) => cmp(a.nombre, b.nombre),
     hectareas: (a, b) => (b.hectareas || 0) - (a.hectareas || 0),
+    plantadas: (a, b) => (haPlantadas(b) || 0) - (haPlantadas(a) || 0) || (b.hectareas || 0) - (a.hectareas || 0),
     precioHa: (a, b) => (!!b.precioUF - !!a.precioUF) || ((precioHaNum(a) ?? 1e15) - (precioHaNum(b) ?? 1e15)),
   };
   const ordenados = [...lista].sort(ordenes[orden]);
@@ -430,7 +441,7 @@ function ListaCampos({ ctx, importar }) {
         <label><span>Tipo</span><select value={fTipo} onChange={(e) => setFTipo(e.target.value)}><option value="">Todos</option>{tiposHay.map((t) => <option key={t} value={t}>{TIPOS[t] || t}</option>)}</select></label>
         <label><span>Corredor</span><select value={fCorredor} onChange={(e) => setFCorredor(e.target.value)}><option value="">Todos</option>{corredores.map((n) => <option key={n} value={n}>{n}</option>)}<option value="__sin">Sin corredor</option></select></label>
         <label><span>Ordenar</span><select value={orden} onChange={(e) => setOrden(e.target.value)}>
-          <option value="region">Región, de norte a sur</option><option value="etapa">Etapa</option><option value="tipo">Tipo de propiedad</option><option value="nombre">Nombre</option><option value="hectareas">Hectáreas, mayor a menor</option><option value="precioHa">Precio por hectárea, menor a mayor</option>
+          <option value="region">Región, de norte a sur</option><option value="etapa">Etapa</option><option value="tipo">Tipo de propiedad</option><option value="nombre">Nombre</option><option value="hectareas">Hectáreas, mayor a menor</option><option value="plantadas">Hectáreas plantadas, mayor a menor</option><option value="precioHa">Precio por hectárea, menor a mayor</option>
         </select></label>
       </div>
       <FiltroPerfiles datos={datos} elegidos={fPerfiles} setElegidos={setFPerfiles} />
@@ -455,14 +466,15 @@ function ListaCampos({ ctx, importar }) {
           <div className="fbcrm-tabla-cab" aria-hidden="true"><span>Campo</span><span>Región</span><span>Comuna</span><span>Tipo</span><span>Perfil</span><span>Corredor</span><span>Etapa</span><span className="der">Precio</span><span className="der">Calzan</span></div>
           {grupos.map((g) => (
             <div key={g.k} className="fbcrm-tabla-bloque">
-              {orden !== 'nombre' && orden !== 'hectareas' && <div className="fbcrm-tabla-grupo"><strong>{tituloGrupo(g.k)}</strong><span>{g.items.length}</span></div>}
+              {orden !== 'nombre' && orden !== 'hectareas' && orden !== 'plantadas' && <div className="fbcrm-tabla-grupo"><strong>{tituloGrupo(g.k)}</strong><span>{g.items.length}</span></div>}
               {g.items.map((c) => {
                 const nM = (datos.matches[c.id] || []).filter((m) => m.nivel === 'fuerte').length;
                 return (
                   <button key={c.id} className="fbcrm-tabla-fila" onClick={() => abrir('campos', c)}>
                     <span className="tc-campo">
                       <span className={`fbcrm-ha ha-${c.tipo}`}><b>{c.hectareas ? fmtNum(Math.round(c.hectareas)) : '–'}</b><i>ha</i></span>
-                      <span className="fbcrm-cuerpo"><strong>{c.nombre}{diferenciasWeb(c).length > 0 && <span className="fbcrm-dif-web" title={`No coincide con farmbrokers.cl: ${diferenciasWeb(c).map((k) => ETQ_WEB[k]).join(', ')}`}>≠ web</span>}</strong><small>{c.plantaciones || c.aptitud || c.codigo || ''}</small></span>
+                      <span className="fbcrm-cuerpo"><strong>{c.nombre}{diferenciasWeb(c).length > 0 && <span className="fbcrm-dif-web" title={`No coincide con farmbrokers.cl: ${diferenciasWeb(c).map((k) => ETQ_WEB[k]).join(', ')}`}>≠ web</span>}</strong>{(() => { const hp = haPlantadas(c); return hp ? <small className="tc-plantado" title={c.plantaciones}><b>🌱 {fmtNum(hp)} ha plantadas</b>{c.hectareas && hp <= c.hectareas ? ` · ${Math.round((hp / c.hectareas) * 100)}%` : ''}</small>
+                        : <small title={c.plantaciones || ''}>{c.plantaciones ? `Plantación: ${c.plantaciones}` : <em className="tc-sin-plant">Sin plantación indicada</em>}</small>; })()}</span>
                     </span>
                     <span className="tc-region">{c.region ? REG_NOMBRE[c.region] || c.region : <em>Sin región</em>}</span>
                     <span className="tc-comuna">{c.sector || <em>Sin comuna</em>}</span>
@@ -3068,6 +3080,7 @@ function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usua
     ['Derechos de agua', d.agua || c.agua],
     ['Fuente de agua', c.fuenteAgua],
     ['Plantaciones', d.plantaciones || c.plantaciones],
+    ['Superficie plantada', haPlantadas({ plantaciones: d.plantaciones || c.plantaciones }) ? `${fmtHa(haPlantadas({ plantaciones: d.plantaciones || c.plantaciones }))} ha` : ''],
     ['Aptitud', c.aptitud],
     ['Infraestructura', c.infraestructura || (cap && cap.infraestructura)],
     ['Acceso', c.acceso || ti.acceso],
@@ -4346,6 +4359,10 @@ const CSS = `
 .fbcrm-compara-nota{margin:6px 0 0;font-size:.82rem;color:var(--salvia)}
 .fbcrm-de-web{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;background:var(--cielo-cl);color:var(--cielo);font-size:.68rem;font-weight:700;letter-spacing:.02em;vertical-align:1px;cursor:help}
 .fbcrm-form input:disabled,.fbcrm-form select:disabled{background:#F3F6F4;color:var(--tinta);opacity:1;cursor:not-allowed}
+.tc-plantado{color:#3E6B2F}
+.fbcrm .tc-campo .fbcrm-cuerpo small.tc-plantado{white-space:normal;overflow:visible}
+.tc-plantado b{font-weight:600}
+.tc-sin-plant{font-style:normal;color:var(--salvia);opacity:.8}
 .fbcrm-dif-web{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:999px;background:#FBE7CF;color:#8A4F0A;font-size:.72rem;font-weight:700;vertical-align:2px;white-space:nowrap}
 .fbcrm .fbcrm-filtro-perfiles button.v-dif{background:#FBE7CF;color:#8A4F0A}
 .fbcrm-opc-envio{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:12px 0 0;padding:10px 12px;background:var(--hoja);border-radius:11px;font-size:.9rem}
