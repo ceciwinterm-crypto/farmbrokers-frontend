@@ -1,5 +1,5 @@
 // CRM.jsx — Farm Brokers v2: campos, clientes, match automático, tasaciones y seguimiento del equipo
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 // ⚠️ Cambia esta dirección por la URL de tu backend en Railway (la misma que usa la plataforma)
 const API_BASE = 'https://farmbrokers-backend-production.up.railway.app';
@@ -1990,6 +1990,8 @@ function Impresion({ ctx, imp, cerrar }) {
   const campo = campoWeb || campoBase;
   const [estadoWeb, setEstadoWeb] = useState('');
   const [fotosProp, setFotosProp] = useState([]);
+  const [planos, setPlanos] = useState([]);
+  useEffect(() => { if (campoBase) cargarPlanos(campoBase, usuario).then(setPlanos); }, []);
   const traerWeb = async () => {
     setEstadoWeb('Trayendo fotos y datos desde farmbrokers.cl…');
     try {
@@ -2078,7 +2080,7 @@ function Impresion({ ctx, imp, cerrar }) {
         <Marco pie={imp.tipo === 'mandato' ? PIE_MANDATO : <><span>Farm Brokers Chile, farmbrokers.cl, +56 9 7193 9040</span><span>{campo ? `Ficha de propiedad${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo ? ` ${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo}` : ''}` : 'Informe de seguimiento'}</span></>}>
         {imp.tipo === 'mandato'
           ? (mandato ? <DocMandato m={mandato} /> : <p>{errorMandato || 'Preparando el mandato…'}</p>)
-          : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} usuario={usuario} mostrarRol={mostrarRol} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
+          : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} planos={planos} usuario={usuario} mostrarRol={mostrarRol} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
             : imp.tipo === 'campo' ? <p>El campo ya no existe.</p> : <DocInforme datos={datos} usuario={usuario} />}
         </Marco>
       </article>
@@ -2199,7 +2201,7 @@ const ESTADO_CAP = {
   firmado: 'Mandato firmado por el propietario.',
 };
 const ETIQUETA_CAP = { enviado: 'Enviado', en_progreso: 'Completando', completado: 'Por firmar', tasacion: 'Pidió tasación', firmado: 'Firmado' };
-const TIPOS_ARCHIVO = { kmz: 'KMZ o plano', foto: 'Foto', dominio: 'Dominio vigente', hipotecas: 'Hipotecas y gravámenes', avaluo: 'Avalúo fiscal', aguas: 'Derechos de agua', plano: 'Plano', otro: 'Otro' };
+const TIPOS_ARCHIVO = { kmz: 'Plano y KMZ', foto: 'Foto', dominio: 'Dominio vigente', hipotecas: 'Hipotecas y gravámenes', avaluo: 'Avalúo fiscal', aguas: 'Derechos de agua', plano: 'Plano', otro: 'Otro' };
 const linkPropietario = (token) => `${window.location.origin}${window.location.pathname}#propietario/${token}`;
 const pesoArchivo = (b) => (b > 1048576 ? `${fmtNum(b / 1048576)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
@@ -2335,6 +2337,44 @@ function RutInput({ value, onChange, label }) {
   );
 }
 
+const esArchivoPlano = (a) => a.tipo === 'plano' && /pdf|image|\.(pdf|jpe?g|png|webp)$/i.test(`${a.mime || ''} ${a.nombre || ''}`);
+async function cargarPlanos(campo, usuario) {
+  const lista = (campo.archivos || []).filter((a) => esArchivoPlano(a) && a.enFicha !== false && (a.vistas || []).length);
+  const pedidos = lista.flatMap((a) => a.vistas.map((v, i) => ({ a, v, i }))).slice(0, 6);
+  const r = await Promise.all(pedidos.map(({ a, v, i }) => fetch(`${API_BASE}/api/crm/campos/${campo.id}/archivos/${a.id}/vista/${i}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(usuario) } })
+    .then((x) => (x.ok ? x.blob() : null)).then((b) => (b ? { src: URL.createObjectURL(b), w: v.w, h: v.h, nombre: a.nombre } : null)).catch(() => null)));
+  return r.filter(Boolean);
+}
+// Convierte un plano (PDF o imagen) en hasta 4 páginas JPG de buena resolución para la ficha
+async function vistasDePlano(blob, nombre) {
+  const LADO = 3000;
+  const aJPG = (cv) => ({ base64: cv.toDataURL('image/jpeg', 0.86), w: cv.width, h: cv.height });
+  const esPDF = /pdf/i.test(blob.type) || /\.pdf$/i.test(nombre || '');
+  if (!esPDF) {
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => mal(new Error('No se pudo abrir la imagen del plano.')); i.src = url; });
+      const esc = Math.min(1, LADO / Math.max(img.naturalWidth, img.naturalHeight));
+      const cv = document.createElement('canvas'); cv.width = Math.round(img.naturalWidth * esc); cv.height = Math.round(img.naturalHeight * esc);
+      const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(img, 0, 0, cv.width, cv.height);
+      return [aJPG(cv)];
+    } finally { URL.revokeObjectURL(url); }
+  }
+  const lib = await cargarScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', 'pdfjsLib');
+  lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const doc = await lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+  const salida = [];
+  for (let n = 1; n <= Math.min(doc.numPages, 4); n++) {
+    const pag = await doc.getPage(n);
+    const base = pag.getViewport({ scale: 1 });
+    const vp = pag.getViewport({ scale: Math.min(6, LADO / Math.max(base.width, base.height)) });
+    const cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+    const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+    await pag.render({ canvasContext: cx, viewport: vp }).promise;
+    salida.push(aJPG(cv));
+  }
+  return salida;
+}
 async function leerArchivo(file, tipo) {
   if (tipo === 'foto' && /^image\/(jpeg|png|webp|heic|heif)/.test(file.type)) {
     try {
@@ -2671,11 +2711,29 @@ async function pdfDeFicha(raiz, avance) {
   const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', compress: true });
   for (let i = 0; i < paginas.length; i++) {
     avance(`Armando página ${i + 1} de ${paginas.length}…`);
+    if (paginas[i].dataset.plano) { await hojaPlanoPDF(pdf, paginas[i], i > 0); continue; }
     const lienzo = await window.html2canvas(paginas[i], { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, windowWidth: 1280, scrollX: 0, scrollY: -window.scrollY });
     if (i) pdf.addPage();
     pdf.addImage(lienzo.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
   }
   return pdf;
+}
+async function hojaPlanoPDF(pdf, pag, nueva) {
+  const w = Number(pag.dataset.w), h = Number(pag.dataset.h), apaisado = w > h;
+  if (nueva) pdf.addPage('a4', apaisado ? 'l' : 'p');
+  const W = apaisado ? 297 : 210, H = apaisado ? 210 : 297;
+  const datos = await fetch(pag.dataset.plano).then((r) => r.blob()).then(blobABase64);
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(13); pdf.setTextColor(31, 58, 40);
+  pdf.text(pag.dataset.titulo || 'Plano', 12, 13);
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); pdf.setTextColor(94, 110, 100);
+  if (pag.dataset.sub) pdf.text(pag.dataset.sub, W - 12, 13, { align: 'right' });
+  const top = 18, bajo = 14, ancho = W - 20, alto = H - top - bajo;
+  const esc = Math.min(ancho / w, alto / h), iw = w * esc, ih = h * esc;
+  pdf.addImage(datos, 'JPEG', (W - iw) / 2, top + (alto - ih) / 2, iw, ih, undefined, 'MEDIUM');
+  pdf.setDrawColor(220, 227, 220); pdf.line(12, H - 11, W - 12, H - 11);
+  pdf.setFontSize(7.5);
+  pdf.text(pag.dataset.pie || '', 12, H - 6.5);
+  pdf.text(pag.dataset.num || '', W - 12, H - 6.5, { align: 'right' });
 }
 async function descargarFichaPDF(nombre, avance) {
   const pdf = await pdfDeFicha(document.querySelector('.fbcrm-doc') || document.body, avance);
@@ -2694,6 +2752,7 @@ function GeneradorFicha({ ctx, trabajo, alTerminar }) {
   const ref = useRef(null);
   const [campo, setCampo] = useState(trabajo.campo);
   const [fotosProp, setFotosProp] = useState([]);
+  const [planos, setPlanos] = useState([]);
   useEffect(() => {
     let vivo = true;
     (async () => {
@@ -2708,6 +2767,7 @@ function GeneradorFicha({ ctx, trabajo, alTerminar }) {
             .then((r) => (r.ok ? r.blob() : null)).then((b) => (b ? URL.createObjectURL(b) : null)).catch(() => null)));
           if (vivo) setFotosProp(urls.filter(Boolean));
         }
+        const pl = await cargarPlanos(c, ctx.usuario); if (vivo && pl.length) setPlanos(pl);
         await new Promise((r) => setTimeout(r, 1200));
         const pdf = await pdfDeFicha(ref.current, trabajo.avance);
         if (vivo) alTerminar(pdf.output('blob'), null, c);
@@ -2715,7 +2775,7 @@ function GeneradorFicha({ ctx, trabajo, alTerminar }) {
     })();
     return () => { vivo = false; };
   }, []);
-  return <div className="fbcrm-generador" ref={ref} aria-hidden="true"><div className="fbcrm-doc doc-ficha-hoja"><DocFichaCliente campo={campo} fotosProp={fotosProp} usuario={ctx.usuario} mostrarRol={false} /></div></div>;
+  return <div className="fbcrm-generador" ref={ref} aria-hidden="true"><div className="fbcrm-doc doc-ficha-hoja"><DocFichaCliente campo={campo} fotosProp={fotosProp} planos={planos} usuario={ctx.usuario} mostrarRol={false} /></div></div>;
 }
 async function imprimirConImagenes() {
   const imgs = [...document.querySelectorAll('.fbcrm-doc img')];
@@ -2803,7 +2863,7 @@ function ValorTecnico({ v }) {
 }
 
 // Reparte bloques en hojas A4 fijas: nada se corta, cualquier navegador imprime igual
-function Paginado({ bloques, pie }) {
+function Paginado({ bloques, pie, anexos = [] }) {
   const medidor = useRef(null);
   const [paginas, setPaginas] = useState(null);
   const calcular = () => {
@@ -2835,9 +2895,10 @@ function Paginado({ bloques, pie }) {
       {(paginas || [bloques.map((_, i) => i)]).map((idx, n, todas) => (
         <section key={n} className="doc-pagina">
           <div className="doc-pagina-cuerpo">{idx.map((i) => <div key={i} className={`doc-bloque ${bloques[i].clase || ''}`}>{bloques[i].el}</div>)}</div>
-          <footer className="doc-pagina-pie"><span>{pie}</span><span>Página {n + 1} de {todas.length}</span></footer>
+          <footer className="doc-pagina-pie"><span>{pie}</span><span>Página {n + 1} de {todas.length + anexos.length}</span></footer>
         </section>
       ))}
+      {anexos.map((f, k) => { const total = (paginas || [0]).length + anexos.length, num = (paginas || [0]).length + k + 1; return <Fragment key={`a${k}`}>{f(num, total)}</Fragment>; })}
     </>
   );
 }
@@ -2865,7 +2926,7 @@ function limpiarUbic(t) {
 }
 const PIE_MANDATO = <><span>www.farmbrokers.cl</span><span>Phone +569 7193 90 40</span><span>Email: contacto@farmbrokers.cl</span></>;
 function Marco({ children }) { return <>{children}</>; }
-function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
+function DocFichaCliente({ campo: c, fotosProp, planos = [], usuario, mostrarRol }) {
   const w = c.web || null, d = (w && w.detalle) || {}, g = c.geo || null;
   const fotos = w && w.fotos.length ? w.fotos : fotosProp;
   const coord = coordsDe(c) || (g ? { ...g.centro, aprox: false } : null);
@@ -2964,7 +3025,22 @@ function DocFichaCliente({ campo: c, fotosProp, usuario, mostrarRol }) {
     </div>
     <p className="doc-ficha-legal">Estoril 120, of. 615, Las Condes. Información referencial, sujeta a verificación durante el proceso de compra.</p>
   </footer>);
-  return <div className="doc-ficha"><Paginado bloques={B} pie={`Farm Brokers Chile, farmbrokers.cl${idProp ? `. Ficha ${idProp}` : ''}`} /></div>;
+  const pie = `Farm Brokers Chile, farmbrokers.cl${idProp ? `. Ficha ${idProp}` : ''}`;
+  const tituloPlano = c.tipo === 'loteo' || loteos.length || /loteo|parcela|lotes/i.test(`${titulo} ${d.tipo || ''}`) ? 'Plano de loteo' : 'Plano';
+  const anexos = planos.map((p, k) => (num, total) => {
+    const sub = `${titulo}${planos.length > 1 ? `, ${k + 1} de ${planos.length}` : ''}`, apaisado = p.w > p.h;
+    return (
+      <section className={`doc-pagina doc-pagina-plano ${apaisado ? 'apaisada' : ''}`} data-plano={p.src} data-w={p.w} data-h={p.h} data-titulo={tituloPlano} data-sub={sub} data-pie={pie} data-num={`Página ${num} de ${total}`}>
+        <div className="doc-pagina-cuerpo">
+          <div className="doc-plano-cab"><h2 className="doc-h2">{tituloPlano}</h2><span>{sub}</span></div>
+          <div className="doc-plano-marco"><img src={p.src} alt={`${tituloPlano} de ${titulo}`} /></div>
+          {apaisado && <p className="doc-plano-nota">En el PDF esta hoja va horizontal, para que el plano se lea a tamaño completo.</p>}
+        </div>
+        <footer className="doc-pagina-pie"><span>{pie}</span><span>Página {num} de {total}</span></footer>
+      </section>
+    );
+  });
+  return <div className="doc-ficha"><Paginado bloques={B} pie={pie} anexos={anexos} /></div>;
 }
 
 // ════════════════════════════ Archivos del campo (equipo y propietario) ════════════════════════════
@@ -2975,19 +3051,47 @@ function ArchivosCampo({ ctx, campo, setCampo }) {
   const [subiendo, setSubiendo] = useState('');
   const archivos = campo.archivos || [];
   const g = campo.geo;
+  const prepararPlano = async (archivo, blob) => {
+    setSubiendo(`Preparando ${archivo.nombre} para la ficha…`);
+    const imagenes = await vistasDePlano(blob, archivo.nombre);
+    return api(`/campos/${campo.id}/archivos/${archivo.id}/vistas`, { method: 'POST', body: { imagenes } });
+  };
   const subir = async (files) => {
     setMsg('');
+    const avisos = [];
     for (const file of files) {
+      const esKmz = /\.(kmz|kml)$/i.test(file.name), esPlanoArch = /pdf|image/i.test(file.type) || /\.(pdf|jpe?g|png|webp)$/i.test(file.name);
+      const t = esKmz ? 'kmz' : (tipo === 'kmz' || tipo === 'plano') && esPlanoArch ? 'plano' : tipo;
       setSubiendo(`Subiendo ${file.name}…`);
       try {
-        const a = await leerArchivo(file, tipo);
-        const r = await api(`/campos/${campo.id}/archivo`, { method: 'POST', body: { ...a, tipo } });
+        const a = await leerArchivo(file, t);
+        const r = await api(`/campos/${campo.id}/archivo`, { method: 'POST', body: { ...a, tipo: t } });
         setCampo(r.campo);
-        if (r.avisoGeo) setMsg(`${file.name}: se guardó, pero no se pudo leer el contorno. ${r.avisoGeo}`);
-      } catch (e) { setMsg(e.message); }
+        if (r.avisoGeo) avisos.push(`${file.name}: se guardó, pero no se pudo leer el contorno. ${r.avisoGeo}`);
+        else if (esKmz) avisos.push(`${file.name}: contorno del predio listo, aparece sobre el mapa satelital de la ficha.`);
+        if (t === 'plano' && r.archivo) {
+          try { setCampo(await prepararPlano(r.archivo, file)); avisos.push(`${file.name}: el plano va como hoja aparte en la ficha.`); }
+          catch (e) { avisos.push(`${file.name}: se guardó, pero no se pudo preparar para la ficha (${e.message}). Usa “Poner en la ficha” para reintentar.`); }
+        }
+      } catch (e) { avisos.push(e.message); }
     }
-    setSubiendo(''); cargar();
+    setMsg(avisos.join(' ')); setSubiendo(''); cargar();
   };
+  const ponerEnFicha = async (a) => {
+    setMsg('');
+    try {
+      const r = await fetch(`${API_BASE}/api/crm/campos/${campo.id}/archivos/${a.id}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(usuario) } });
+      if (!r.ok) throw new Error('No se pudo leer el plano.');
+      const blob = await r.blob();
+      setCampo(await prepararPlano(a, blob.type ? blob : new Blob([blob], { type: a.mime || '' })));
+      setMsg(`${a.nombre} quedó en la ficha.`); cargar();
+    } catch (e) { setMsg(e.message); }
+    setSubiendo('');
+  };
+  const cambiarEnFicha = async (a) => {
+    try { setCampo(await api(`/campos/${campo.id}/archivos/${a.id}`, { method: 'PUT', body: { enFicha: a.enFicha === false } })); cargar(); } catch (e) { setMsg(e.message); }
+  };
+  const planosFicha = archivos.filter((a) => esArchivoPlano(a) && a.enFicha !== false && (a.vistas || []).length);
   const descargar = async (a) => {
     try {
       const r = await fetch(`${API_BASE}/api/crm/campos/${campo.id}/archivos/${a.id}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(usuario) } });
@@ -3004,13 +3108,16 @@ function ArchivosCampo({ ctx, campo, setCampo }) {
   return (
     <div className="fbcrm-bloque">
       <h3>Archivos y plano {archivos.length > 0 && <span>{archivos.length}</span>}</h3>
-      {g ? <p className="fbcrm-geo-ok">Plano del predio: {plural(g.anillos.length, 'polígono')}, {fmtNum(g.areaHa)} ha {g.fuente === 'tasacion' ? '(desde la tasación)' : `(desde ${g.archivo})`}. Aparece en la ficha PDF.</p>
-        : <p className="fbcrm-nota-suave">Sube el KMZ o KML del predio (de Google Earth) para que la ficha muestre su contorno sobre el mapa satelital.</p>}
+      {g ? <p className="fbcrm-geo-ok">KMZ: {plural(g.anillos.length, 'polígono')}, {fmtNum(g.areaHa)} ha {g.fuente === 'tasacion' ? '(desde la tasación)' : `(desde ${g.archivo})`}. El contorno aparece sobre el mapa satelital de la ficha.</p>
+        : <p className="fbcrm-nota-suave">Sin KMZ todavía. Con el KMZ la ficha muestra el contorno del predio sobre el mapa satelital.</p>}
+      {planosFicha.length > 0 ? <p className="fbcrm-geo-ok">Plano en la ficha: {planosFicha.map((a) => `${a.nombre} (${plural(a.vistas.length, 'hoja', 'hojas')})`).join(', ')}. Va al final de la ficha, en hoja aparte y a tamaño completo.</p>
+        : <p className="fbcrm-nota-suave">Sin plano en la ficha. Sube el plano en PDF o imagen (por ejemplo el plano de loteo) y va como hoja aparte al final de la ficha.</p>}
+      <p className="fbcrm-nota-suave">Puedes elegir el plano y el KMZ a la vez: cada uno se reconoce solo.</p>
       <div className="fbcrm-subir-fila">
-        <select value={tipo} onChange={(e) => setTipo(e.target.value)} aria-label="Tipo de archivo">{Object.entries(TIPOS_ARCHIVO).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+        <select value={tipo} onChange={(e) => setTipo(e.target.value)} aria-label="Tipo de archivo">{Object.entries(TIPOS_ARCHIVO).filter(([k]) => k !== 'plano').map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
         <label className="fbcrm-subir">
-          <input type="file" multiple={tipo === 'foto'} accept={tipo === 'foto' ? 'image/*' : tipo === 'kmz' ? '.kmz,.kml' : '.pdf,image/*,.kmz,.kml,.doc,.docx,.xls,.xlsx'} onChange={(e) => { subir([...e.target.files]); e.target.value = ''; }} />
-          <span>{subiendo ? 'Subiendo…' : 'Subir archivo'}</span>
+          <input type="file" multiple={['foto', 'kmz', 'plano'].includes(tipo)} accept={tipo === 'foto' ? 'image/*' : tipo === 'kmz' || tipo === 'plano' ? '.kmz,.kml,.pdf,image/*' : '.pdf,image/*,.kmz,.kml,.doc,.docx,.xls,.xlsx'} onChange={(e) => { subir([...e.target.files]); e.target.value = ''; }} />
+          <span>{subiendo ? 'Subiendo…' : tipo === 'kmz' ? 'Subir plano y KMZ' : 'Subir archivo'}</span>
         </label>
       </div>
       {subiendo && <p className="fbcrm-msg" role="status">{subiendo}</p>}
@@ -3021,6 +3128,9 @@ function ArchivosCampo({ ctx, campo, setCampo }) {
               <span className="fbcrm-tag">{TIPOS_ARCHIVO[a.tipo] || a.tipo}</span>
               <span className="fbcrm-archivo-nombre">{a.nombre}</span>
               <small>{a.origen === 'propietario' ? 'Propietario' : a.autor || 'Equipo'}, {pesoArchivo(a.tamano)}</small>
+              {esArchivoPlano(a) && ((a.vistas || []).length
+                ? <label className="fbcrm-check-mini"><input type="checkbox" checked={a.enFicha !== false} onChange={() => cambiarEnFicha(a)} />En la ficha</label>
+                : <button className="fbcrm-mini fbcrm-primario" disabled={!!subiendo} onClick={() => ponerEnFicha(a)}>Poner en la ficha</button>)}
               <button className="fbcrm-mini" onClick={() => descargar(a)}>Descargar</button>
               <button className="fbcrm-mini fbcrm-peligro" onClick={() => borrar(a)} aria-label={`Eliminar ${a.nombre}`}>Eliminar</button>
             </li>
@@ -4050,6 +4160,14 @@ const CSS = `
 .fbcrm-doc.doc-ficha-hoja{background:none;box-shadow:none;padding:0!important;max-width:none;border-radius:0}
 .doc-pagina{width:210mm;height:297mm;margin:0 auto 18px;background:#fff;box-shadow:0 2px 12px rgba(23,38,29,.12);padding:12mm 14mm 0;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;position:relative}
 .doc-pagina-cuerpo{flex:1;min-height:0}
+.doc-pagina-plano .doc-pagina-cuerpo{display:flex;flex-direction:column}
+.doc-plano-cab{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:4mm}
+.doc-plano-cab .doc-h2{margin:0}
+.doc-plano-cab span{font-size:8.5pt;color:#5E6E64}
+.doc-plano-marco{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding-bottom:4mm}
+.doc-plano-marco img{max-width:100%;max-height:100%;display:block}
+.doc-plano-nota{font-size:7.5pt;color:#5E6E64;margin:0 0 3mm;text-align:center}
+.fbcrm-check-mini{display:inline-flex;align-items:center;gap:5px;font-size:.84rem;color:var(--potrero-osc);font-weight:600;cursor:pointer}
 .doc-pagina-pie{height:10mm;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #DCE3DC;font-size:7.5pt;color:#5E6E64;margin-bottom:5mm}
 .fbcrm-imp:has(.doc-pagina){overflow-x:auto}
 .doc-ficha .doc-h2{font-size:12pt;margin:14px 0 8px;color:#1F4D31;font-weight:600;border:0;padding:0}
@@ -4079,6 +4197,7 @@ const CSS = `
   .fbcrm-imp{padding:0!important}
   .doc-medidor{display:none}
   .doc-pagina{margin:0;box-shadow:none;break-after:page;page-break-after:always}
+  .doc-plano-nota{display:none}
   .doc-pagina:last-child{break-after:auto;page-break-after:auto}
   .fbcrm-doc.doc-ficha-hoja{margin:0}
 }
