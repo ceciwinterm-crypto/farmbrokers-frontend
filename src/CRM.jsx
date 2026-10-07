@@ -378,14 +378,15 @@ function ListaCampos({ ctx, importar }) {
   const [fVisib, setFVisib] = useState([]);
   const [fOper, setFOper] = useState('');
   const [fCorredor, setFCorredor] = useState('');
-  const corredores = [...new Set(datos.campos.map((c) => (c.corredor || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  const corredores = nombresCorredores(datos);
+  const [verCorredores, setVerCorredores] = useState(false);
   const FILTROS = { activos: ['Activos', ['Mandato firmado', 'En venta', 'En arriendo', 'En negociación']], captacion: ['Captación', ['Prospección', 'Captación', 'Documentación']], cerrados: ['Cerrados', ['Vendido', 'Arrendado', 'Suspendido', 'Retirado de la web', 'Descartado']], todos: ['Todos', datos.etapas.campos] };
   const nq = q.toLowerCase();
   const enEtapa = datos.campos.filter((c) => FILTROS[filtro][1].includes(c.etapa));
   const idxR = (r) => { const i = datos.regiones.indexOf(r); return i < 0 ? 99 : i; };
   const cmp = (a, b) => String(a || '').localeCompare(String(b || ''), 'es', { sensitivity: 'base' });
   const lista = enEtapa.filter((c) => (!fRegion || (c.region || '') === fRegion) && (!fTipo || c.tipo === fTipo) &&
-    pasaPerfiles(c, fPerfiles) && (!fVisib.length || fVisib.includes(visibDe(c))) && (!fOper || operDe(c) === fOper || operDe(c) === 'ambas') && (!fCorredor || (fCorredor === '__sin' ? !(c.corredor || '').trim() : (c.corredor || '').trim() === fCorredor)) &&
+    pasaPerfiles(c, fPerfiles) && (!fVisib.length || fVisib.includes(visibDe(c))) && (!fOper || operDe(c) === fOper || operDe(c) === 'ambas') && pasaCorredor(c, fCorredor) &&
     (!nq || [c.nombre, c.sector, c.codigo, c.rol, c.plantaciones, c.aptitud, c.propietario, REG_NOMBRE[c.region], TIPOS[c.tipo]].join(' ').toLowerCase().includes(nq)));
   const porRegion = (a, b) => idxR(a.region) - idxR(b.region) || cmp(a.sector, b.sector) || cmp(a.nombre, b.nombre);
   const ordenes = {
@@ -414,11 +415,13 @@ function ListaCampos({ ctx, importar }) {
       <div className="fbcrm-barra">
         <div className="fbcrm-chips">{Object.entries(FILTROS).map(([k, [l]]) => <button key={k} className={filtro === k ? 'on' : ''} onClick={() => setFiltro(k)}>{l}</button>)}</div>
         <div className="fbcrm-chips">
+          <button className={verCorredores ? 'on' : ''} onClick={() => setVerCorredores(!verCorredores)}>Corredores</button>
           <button onClick={importar}>Importar planilla</button>
           <button onClick={() => setKmzMasivo(true)}>Subir KMZ de varios campos</button>
           <button className="fbcrm-primario" onClick={() => abrir('campos', { etapa: 'Captación', tipo: 'agricola', responsable: usuario })}>Nuevo campo</button>
         </div>
       </div>
+      {verCorredores && <div className="fbcrm-bloque"><CorredoresAdmin ctx={ctx} /></div>}
       <div className="fbcrm-filtros">
         <input className="fbcrm-buscar" placeholder="Buscar por nombre, comuna, código, rol, plantación o propietario" value={q} onChange={(e) => setQ(e.target.value)} />
         <label><span>Región</span><select value={fRegion} onChange={(e) => setFRegion(e.target.value)}><option value="">Todas</option>{regionesHay.map((r) => <option key={r || 'sin'} value={r}>{r ? REG_NOMBRE[r] || r : 'Sin región'}</option>)}</select></label>
@@ -446,7 +449,7 @@ function ListaCampos({ ctx, importar }) {
       {!lista.length && <p className="fbcrm-vacio">{datos.campos.length ? 'Ningún campo coincide con el filtro.' : 'Aún no hay campos. Importa la planilla o usa “Nuevo campo”.'}</p>}
       {lista.length > 0 && (
         <div className="fbcrm-tabla">
-          <div className="fbcrm-tabla-cab" aria-hidden="true"><span>Campo</span><span>Región</span><span>Comuna</span><span>Tipo</span><span>Perfil</span><span>Etapa</span><span className="der">Precio</span><span className="der">Calzan</span></div>
+          <div className="fbcrm-tabla-cab" aria-hidden="true"><span>Campo</span><span>Región</span><span>Comuna</span><span>Tipo</span><span>Perfil</span><span>Corredor</span><span>Etapa</span><span className="der">Precio</span><span className="der">Calzan</span></div>
           {grupos.map((g) => (
             <div key={g.k} className="fbcrm-tabla-bloque">
               {orden !== 'nombre' && orden !== 'hectareas' && <div className="fbcrm-tabla-grupo"><strong>{tituloGrupo(g.k)}</strong><span>{g.items.length}</span></div>}
@@ -462,6 +465,7 @@ function ListaCampos({ ctx, importar }) {
                     <span className="tc-comuna">{c.sector || <em>Sin comuna</em>}</span>
                     <span className="tc-tipo"><span className={`fbcrm-tipo-tag tt-${c.tipo}`}>{TIPOS[c.tipo] || c.tipo}</span></span>
                     <span className="tc-perfil">{(c.perfiles || []).length ? <EtiquetasPerfil datos={datos} ids={c.perfiles} /> : <em>Sin perfil</em>}</span>
+                    <span className="tc-corredor">{(c.corredor || '').trim() ? <span className="fbcrm-corredor-tag">{c.corredor}</span> : <em>Sin corredor</em>}</span>
                     <span className={`tc-etapa et-${(datos.activas.includes(c.etapa) ? 'activa' : ['Vendido', 'Arrendado'].includes(c.etapa) ? 'cerrada' : 'otra')}`}>{c.etapa}{operDe(c) === 'ambas' && <span className="fbcrm-oper">{OPER.ambas}</span>}{datos.activas.includes(c.etapa) && <EtiquetaVisib c={c} />}</span>
                     <span className="tc-precio" title={[fmtPrecio(c), fmtPrecioHa(c)].filter(Boolean).join(', ')}>{fmtPrecio(c) || '–'}{fmtPrecioHa(c) && <small className="tc-precio-ha">{fmtPrecioHa(c)}</small>}</span>
                     <span className="tc-match">{nM > 0 ? <span className="fbcrm-badge" title={`${nM} clientes calzan`}>{nM}</span> : ''}</span>
@@ -564,6 +568,10 @@ function FichaCampo({ ctx, inicial, cerrar }) {
         <p className="fbcrm-seccion">Perfil de comprador</p>
         <p className="fbcrm-nota-suave">¿Para qué tipo de comprador sirve este campo? Puedes marcar más de uno.</p>
         <SelectorPerfiles ctx={ctx} valor={f.perfiles || []} onChange={(v) => setF((x) => ({ ...x, perfiles: v }))} />
+        <p className="fbcrm-seccion">Corredor</p>
+        <div className="fbcrm-form">
+          <Campo label="Corredor a cargo"><SelectorCorredor ctx={ctx} value={f.corredor || ''} onChange={(v) => setF((x) => ({ ...x, corredor: v }))} /></Campo>
+        </div>
         <p className="fbcrm-seccion">Ubicación</p>
         <div className="fbcrm-form">
           <Campo label="Nombre" ancho><input value={f.nombre || ''} onChange={set('nombre')} placeholder="Ej. Fundo Mahuidanche" /></Campo>
@@ -615,7 +623,6 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           <Campo label="Propietario o contacto" ancho><input value={f.propietario || ''} onChange={set('propietario')} /></Campo>
           <Campo label="Teléfono"><input type="tel" value={f.telefono || ''} onChange={set('telefono')} /></Campo>
           <Campo label="Email"><input type="email" value={f.email || ''} onChange={set('email')} /></Campo>
-          <Campo label="Corredor"><input value={f.corredor || ''} onChange={set('corredor')} /></Campo>
           <Campo label="Asociado"><input value={f.asociado || ''} onChange={set('asociado')} /></Campo>
         </div>
         <p className="fbcrm-seccion">Publicación y notas</p>
@@ -787,7 +794,8 @@ function ListaClientes({ ctx }) {
   const [fPerfiles, setFPerfiles] = useState([]);
   const [fFecha, setFFecha] = useState('');
   const [fCorredor, setFCorredor] = useState('');
-  const corredores = [...new Set(datos.clientes.map((c) => (c.corredor || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  const corredores = nombresCorredores(datos);
+  const [verCorredores, setVerCorredores] = useState(false);
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [orden, setOrden] = useState('nombre');
@@ -810,7 +818,7 @@ function ListaClientes({ ctx }) {
     return true;
   };
   const base = datos.clientes.filter((c) => filtro === 'todos' || (filtro === 'revisar' ? c.revisar : c.etapa === filtro));
-  const lista = base.filter((c) => pasaPerfiles(c, fPerfiles) && enFecha(c) && (!fCorredor || (fCorredor === '__sin' ? !(c.corredor || '').trim() : (c.corredor || '').trim() === fCorredor)) &&
+  const lista = base.filter((c) => pasaPerfiles(c, fPerfiles) && enFecha(c) && pasaCorredor(c, fCorredor) &&
     (!nq || [c.nombre, c.contactoNombre, c.requerimiento, c.zona, c.email, c.observaciones].join(' ').toLowerCase().includes(nq)))
     .sort(orden === 'nombre' ? (a, b) => a.nombre.localeCompare(b.nombre, 'es')
       : (a, b) => ((fechaIngresoCliente(orden === 'recientes' ? b : a) || 0) - (fechaIngresoCliente(orden === 'recientes' ? a : b) || 0)));
@@ -824,10 +832,12 @@ function ListaClientes({ ctx }) {
         </div>
         <div className="fbcrm-chips">
           <button className={verPerfiles ? 'on' : ''} onClick={() => setVerPerfiles(!verPerfiles)}>Perfiles</button>
+          <button className={verCorredores ? 'on' : ''} onClick={() => setVerCorredores(!verCorredores)}>Corredores</button>
           <button className="fbcrm-primario" onClick={() => abrir('clientes', { etapa: 'Activo', operacion: 'compra', tipo: 'agricola', regiones: [], cultivos: [], perfiles: [], responsable: usuario, fechaRequerimiento: hoyISO() })}>Nuevo cliente</button>
         </div>
       </div>
       {verPerfiles && <div className="fbcrm-bloque"><PerfilesAdmin ctx={ctx} /></div>}
+      {verCorredores && <div className="fbcrm-bloque"><CorredoresAdmin ctx={ctx} /></div>}
       <div className="fbcrm-filtros">
         <input className="fbcrm-buscar" placeholder="Buscar por nombre, requerimiento, zona o email" value={q} onChange={(e) => setQ(e.target.value)} />
         <label><span>Corredor</span><select value={fCorredor} onChange={(e) => setFCorredor(e.target.value)}><option value="">Todos</option>{corredores.map((n) => <option key={n} value={n}>{n}</option>)}<option value="__sin">Sin corredor</option></select></label>
@@ -936,6 +946,96 @@ function PerfilesAdmin({ ctx }) {
     </div>
   );
 }
+// ════════════════════════════ Corredores ════════════════════════════
+const nombresCorredores = (datos) => {
+  const m = new Map();
+  for (const c of datos.corredores || []) m.set(c.nombre.toLowerCase(), c.nombre);
+  for (const col of ['campos', 'clientes']) for (const x of datos[col] || []) { const n = (x.corredor || '').trim(); if (n && !m.has(n.toLowerCase())) m.set(n.toLowerCase(), n); }
+  return [...m.values()].sort((a, b) => a.localeCompare(b, 'es'));
+};
+const pasaCorredor = (c, f) => !f || (f === '__sin' ? !(c.corredor || '').trim() : (c.corredor || '').trim().toLowerCase() === f.toLowerCase());
+function SelectorCorredor({ ctx, value, onChange }) {
+  const { datos, api, cargar } = ctx;
+  const [nuevo, setNuevo] = useState(null);
+  const [msg, setMsg] = useState('');
+  const lista = (datos.corredores || []).map((c) => c.nombre);
+  const fuera = value && !lista.some((n) => n.toLowerCase() === value.toLowerCase());
+  const crear = async () => {
+    const nombre = (nuevo || '').trim(); if (nombre.length < 2) return;
+    try { await api('/corredores', { method: 'POST', body: { nombre } }); await cargar(); onChange(nombre); setNuevo(null); setMsg(''); } catch (e) { setMsg(e.message); }
+  };
+  if (nuevo !== null) return (
+    <span className="fbcrm-corredor-nuevo">
+      <input autoFocus value={nuevo} placeholder="Nombre del corredor" onChange={(e) => setNuevo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); crear(); } if (e.key === 'Escape') setNuevo(null); }} />
+      <button type="button" className="fbcrm-mini fbcrm-primario" disabled={nuevo.trim().length < 2} onClick={crear}>Crear</button>
+      <button type="button" className="fbcrm-mini" onClick={() => { setNuevo(null); setMsg(''); }}>Cancelar</button>
+      {msg && <small className="fbcrm-msg">{msg}</small>}
+    </span>
+  );
+  return (
+    <select value={value} onChange={(e) => (e.target.value === '__nuevo' ? setNuevo('') : onChange(e.target.value))}>
+      <option value="">Sin corredor</option>
+      {lista.map((n) => <option key={n} value={n}>{n}</option>)}
+      {fuera && <option value={value}>{value} (no está en la lista)</option>}
+      <option value="__nuevo">➕ Agregar corredor…</option>
+    </select>
+  );
+}
+function CorredoresAdmin({ ctx }) {
+  const { datos, api, cargar } = ctx;
+  const [nuevo, setNuevo] = useState('');
+  const [editando, setEditando] = useState(null);
+  const [msg, setMsg] = useState('');
+  const lista = datos.corredores || [];
+  const k = (n) => (n || '').trim().toLowerCase();
+  const usos = (n) => [datos.campos.filter((c) => k(c.corredor) === k(n)).length, datos.clientes.filter((c) => k(c.corredor) === k(n)).length];
+  const sueltos = nombresCorredores(datos).filter((n) => !lista.some((c) => k(c.nombre) === k(n)));
+  const crear = async (nombre) => {
+    try { await api('/corredores', { method: 'POST', body: { nombre } }); await cargar(); setNuevo(''); setMsg(`Corredor “${nombre}” agregado.`); } catch (e) { setMsg(e.message); }
+  };
+  const guardar = async () => {
+    try { const r = await api(`/corredores/${editando.id}`, { method: 'PUT', body: { nombre: editando.nombre } }); await cargar(); setEditando(null); setMsg(r && r.cambiados ? `Nombre cambiado en ${plural(r.cambiados, 'registro')}.` : 'Corredor actualizado.'); } catch (e) { setMsg(e.message); }
+  };
+  const borrar = async (c) => {
+    const [nc, nk] = usos(c.nombre);
+    if (!window.confirm(`¿Eliminar al corredor “${c.nombre}”?${nc + nk ? ` Quedarán sin corredor ${plural(nc, 'campo')} y ${plural(nk, 'cliente')}.` : ''}`)) return;
+    try { await api(`/corredores/${c.id}`, { method: 'DELETE' }); await cargar(); setMsg(`Corredor “${c.nombre}” eliminado.`); } catch (e) { setMsg(e.message); }
+  };
+  return (
+    <div className="fbcrm-perfiles-admin">
+      <h3>Corredores <span>{plural(lista.length, 'corredor', 'corredores')}</span></h3>
+      <p className="fbcrm-nota-suave">Los corredores que se asignan a cada campo y cliente. Si cambias un nombre (por ejemplo “DH” por “Daniel Haeussler”), se cambia en todos sus campos y clientes.</p>
+      <ul>
+        {lista.map((c) => {
+          const [nc, nk] = usos(c.nombre);
+          return (
+            <li key={c.id}>
+              {editando && editando.id === c.id ? (
+                <div className="fbcrm-form fbcrm-perfil-edit">
+                  <Campo label="Nombre"><input autoFocus value={editando.nombre} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && guardar()} /></Campo>
+                  <div className="fbcrm-acciones ancho-etq"><button className="fbcrm-primario" disabled={editando.nombre.trim().length < 2} onClick={guardar}>Guardar</button><button onClick={() => setEditando(null)}>Cancelar</button></div>
+                </div>
+              ) : (
+                <>
+                  <span className="fbcrm-cuerpo"><strong>{c.nombre}</strong><small>{plural(nc, 'campo')}, {plural(nk, 'cliente')}</small></span>
+                  <button className="fbcrm-mini" onClick={() => setEditando({ ...c })}>Cambiar nombre</button>
+                  <button className="fbcrm-mini fbcrm-peligro" onClick={() => borrar(c)}>Eliminar</button>
+                </>
+              )}
+            </li>
+          );
+        })}
+        {!lista.length && <li><em>Aún no hay corredores. Agrega el primero abajo.</em></li>}
+      </ul>
+      {sueltos.length > 0 && <p className="fbcrm-nota-suave">Nombres escritos en algunos registros que no están en la lista: {sueltos.map((n) => <button key={n} type="button" className="fbcrm-mini" onClick={() => crear(n)}>➕ {n}</button>)}</p>}
+      <div className="fbcrm-form fbcrm-sep2">
+        <Campo label="Nuevo corredor"><input value={nuevo} onChange={(e) => setNuevo(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && nuevo.trim().length >= 2 && crear(nuevo.trim())} placeholder="Ej. Daniel Haeussler" /></Campo>
+      </div>
+      <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={nuevo.trim().length < 2} onClick={() => crear(nuevo.trim())}>Agregar corredor</button></div>
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+    </div>
+  );
+}
 const rangoTxt = (c) => (c.haMax == null ? `${c.haMin}+ ha` : `${c.haMin || 0}–${c.haMax} ha`);
 
 function FichaCliente({ ctx, inicial, cerrar }) {
@@ -991,7 +1091,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
           <Campo label="Persona de contacto"><input value={f.contactoNombre || ''} onChange={set('contactoNombre')} /></Campo>
           <Campo label="Teléfono"><input type="tel" value={f.telefono || ''} onChange={set('telefono')} /></Campo>
           <Campo label="Email" ancho><input value={f.email || ''} onChange={set('email')} placeholder="Varios separados por coma" /></Campo>
-          <Campo label="Corredor"><input value={f.corredor || ''} onChange={set('corredor')} /></Campo>
+          <Campo label="Corredor"><SelectorCorredor ctx={ctx} value={f.corredor || ''} onChange={(v) => setF((x) => ({ ...x, corredor: v }))} /></Campo>
           <Campo label="Fecha del requerimiento"><input type="date" value={(f.fechaRequerimiento || '').length === 10 ? f.fechaRequerimiento : (f.fechaRequerimiento ? f.fechaRequerimiento + '-01' : '')} onChange={set('fechaRequerimiento')} /></Campo>
           <Campo label="Observaciones" ancho><textarea rows={2} value={f.observaciones || ''} onChange={set('observaciones')} /></Campo>
         </div>
@@ -3791,7 +3891,7 @@ const CSS = `
 .fbcrm-filtros label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--salvia);font-weight:500;flex:0 1 190px}
 .fbcrm-conteo{font-size:.88rem;color:var(--salvia);margin:6px 2px 10px;display:flex;gap:10px;align-items:baseline}
 .fbcrm-tabla{background:var(--papel);border:1px solid var(--linea);border-radius:16px;overflow:hidden}
-.fbcrm-tabla-cab,.fbcrm .fbcrm-tabla-fila{display:grid;grid-template-columns:minmax(220px,2.2fr) minmax(100px,1fr) minmax(95px,.95fr) minmax(100px,.9fr) minmax(120px,1.2fr) minmax(95px,.9fr) minmax(100px,.85fr) 54px;gap:14px;align-items:center;padding:10px 16px}
+.fbcrm-tabla-cab,.fbcrm .fbcrm-tabla-fila{display:grid;grid-template-columns:minmax(220px,2.2fr) minmax(100px,1fr) minmax(95px,.95fr) minmax(100px,.9fr) minmax(120px,1.2fr) minmax(90px,.8fr) minmax(95px,.9fr) minmax(100px,.85fr) 54px;gap:14px;align-items:center;padding:10px 16px}
 .fbcrm-tabla-cab{font-size:.78rem;color:var(--salvia);font-weight:600;background:var(--hoja);border-bottom:1px solid var(--linea)}
 .fbcrm-tabla-cab .der,.tc-precio,.tc-match{text-align:right;justify-self:end}
 .fbcrm-tabla-grupo{display:flex;gap:8px;align-items:baseline;padding:14px 16px 6px;border-top:1px solid var(--linea2)}
@@ -3826,6 +3926,8 @@ const CSS = `
   .fbcrm .fbcrm-tabla-fila .tc-tipo,.fbcrm .fbcrm-tabla-fila .tc-etapa,.fbcrm .fbcrm-tabla-fila .tc-precio{order:5}
   .fbcrm .fbcrm-tabla-fila .tc-perfil{order:6;flex:0 0 100%}
   .fbcrm .fbcrm-tabla-fila .tc-perfil em{display:none}
+  .fbcrm .fbcrm-tabla-fila .tc-corredor{order:5}
+  .fbcrm .fbcrm-tabla-fila .tc-corredor em{display:none}
   .tc-etapa{background:var(--hoja);border-radius:999px;padding:2px 9px}
   .tc-precio{font-weight:500}
 }
@@ -3996,6 +4098,12 @@ const CSS = `
 .fbcrm-equipo li:last-child{border-bottom:0}
 .fbcrm-equipo .fbcrm-avatar{width:34px;height:34px;font-size:.75rem}
 .fbcrm-generador{position:fixed;left:0;top:0;width:230mm;z-index:-10;pointer-events:none;opacity:1}
+/* Corredores */
+.tc-corredor{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tc-corredor em{font-size:.8rem;color:var(--salvia);font-style:normal}
+.fbcrm-corredor-tag{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;padding:2px 9px;border-radius:999px;background:#EAF0F7;color:#2E4A6B;font-size:.82rem;font-weight:600}
+.fbcrm-corredor-nuevo{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.fbcrm-corredor-nuevo input{flex:1 1 140px;min-width:0}
 /* Perfiles de comprador */
 .fbcrm-perfiles-sel{margin:0 0 4px}
 .fbcrm-perfiles-sel .fbcrm-chips button.on{background:var(--potrero);border-color:var(--potrero);color:#fff}
