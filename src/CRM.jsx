@@ -520,7 +520,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
   };
   useEffect(() => {
     if (esNuevo || !enlazadoWeb) return;
-    const viejo = !f.web || !f.web.valores || !f.web.fecha || Date.now() - new Date(f.web.fecha).getTime() > 6 * 3600 * 1000;
+    const viejo = !f.web || !f.web.valores || f.web.lector !== 2 || !f.web.fecha || Date.now() - new Date(f.web.fecha).getTime() > 6 * 3600 * 1000;
     if (viejo) traerDeWeb().catch(() => {});
   }, []);
 
