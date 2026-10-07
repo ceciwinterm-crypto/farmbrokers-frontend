@@ -381,13 +381,14 @@ function ListaCampos({ ctx, importar }) {
   const [fCorredor, setFCorredor] = useState('');
   const corredores = nombresCorredores(datos);
   const [verCorredores, setVerCorredores] = useState(false);
+  const [fDif, setFDif] = useState(false);
   const FILTROS = { activos: ['Activos', ['Mandato firmado', 'En venta', 'En arriendo', 'En negociación']], captacion: ['Captación', ['Prospección', 'Captación', 'Documentación']], cerrados: ['Cerrados', ['Vendido', 'Arrendado', 'Suspendido', 'Retirado de la web', 'Descartado']], todos: ['Todos', datos.etapas.campos] };
   const nq = q.toLowerCase();
   const enEtapa = datos.campos.filter((c) => FILTROS[filtro][1].includes(c.etapa));
   const idxR = (r) => { const i = datos.regiones.indexOf(r); return i < 0 ? 99 : i; };
   const cmp = (a, b) => String(a || '').localeCompare(String(b || ''), 'es', { sensitivity: 'base' });
   const lista = enEtapa.filter((c) => (!fRegion || (c.region || '') === fRegion) && (!fTipo || c.tipo === fTipo) &&
-    pasaPerfiles(c, fPerfiles) && (!fVisib.length || fVisib.includes(visibDe(c))) && (!fOper || operDe(c) === fOper || operDe(c) === 'ambas') && pasaCorredor(c, fCorredor) &&
+    pasaPerfiles(c, fPerfiles) && (!fDif || diferenciasWeb(c).length > 0) && (!fVisib.length || fVisib.includes(visibDe(c))) && (!fOper || operDe(c) === fOper || operDe(c) === 'ambas') && pasaCorredor(c, fCorredor) &&
     (!nq || [c.nombre, c.sector, c.codigo, c.rol, c.plantaciones, c.aptitud, c.propietario, REG_NOMBRE[c.region], TIPOS[c.tipo]].join(' ').toLowerCase().includes(nq)));
   const porRegion = (a, b) => idxR(a.region) - idxR(b.region) || cmp(a.sector, b.sector) || cmp(a.nombre, b.nombre);
   const ordenes = {
@@ -409,7 +410,7 @@ function ListaCampos({ ctx, importar }) {
   const tituloGrupo = (k) => (orden === 'region' ? (k ? `${REG_NOMBRE[k] || k}` : 'Sin región') : orden === 'etapa' ? k : orden === 'tipo' ? TIPOS[k] || k || 'Sin tipo' : '');
   const regionesHay = [...new Set(enEtapa.map((c) => c.region || ''))].sort((a, b) => idxR(a) - idxR(b));
   const tiposHay = [...new Set(enEtapa.map((c) => c.tipo))].sort((a, b) => cmp(TIPOS[a], TIPOS[b]));
-  const hayFiltros = fRegion || fTipo || fPerfiles.length || fVisib.length || fOper || fCorredor || q;
+  const hayFiltros = fRegion || fTipo || fPerfiles.length || fVisib.length || fOper || fCorredor || fDif || q;
   return (
     <section>
       <SyncWeb ctx={ctx} />
@@ -439,6 +440,7 @@ function ListaCampos({ ctx, importar }) {
         {fVisib.length > 0 && <button type="button" className="fbcrm-texto" onClick={() => setFVisib([])}>Todas</button>}
         <span className="fbcrm-sep-filtro">Operación</span>
         {[['venta', 'Venta'], ['arriendo', 'Arriendo']].map(([k, l]) => <button key={k} type="button" aria-pressed={fOper === k} className={`fbcrm-visib v-oper ${fOper === k ? 'on' : ''}`} onClick={() => setFOper(fOper === k ? '' : k)}>{l}</button>)}
+        {(() => { const n = datos.campos.filter((c) => diferenciasWeb(c).length).length; return n > 0 && <button type="button" aria-pressed={fDif} className={`fbcrm-visib v-dif ${fDif ? 'on' : ''}`} onClick={() => setFDif(!fDif)}>≠ No coincide con la web ({n})</button>; })()}
       </div>
       {(() => {
         const enVenta = datos.campos.filter((c) => ['Mandato firmado', 'En venta', 'En arriendo', 'En negociación'].includes(c.etapa));
@@ -446,7 +448,7 @@ function ListaCampos({ ctx, importar }) {
         const arr = enVenta.filter((c) => c.etapa === 'En arriendo').length, ven = enVenta.filter((c) => c.etapa === 'En venta').length;
         return enVenta.length > 0 && <p className="fbcrm-resumen-venta"><b>{plural(enVenta.length, 'campo activo', 'campos activos')}:</b> {ven} en venta, {arr} en arriendo{enVenta.length - ven - arr ? `, ${enVenta.length - ven - arr} con mandato o en negociación` : ''}. {plural(n('publica'), 'público', 'públicos')} en la web, {plural(n('reservada'), 'reservado', 'reservados')}{n('interna') ? `, ${n('interna')} sin definir` : ''}.</p>;
       })()}
-      <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); setFPerfiles([]); setFVisib([]); setFOper(''); setFCorredor(''); }}>Quitar filtros</button></>}</p>
+      <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); setFPerfiles([]); setFVisib([]); setFOper(''); setFCorredor(''); setFDif(false); }}>Quitar filtros</button></>}</p>
       {!lista.length && <p className="fbcrm-vacio">{datos.campos.length ? 'Ningún campo coincide con el filtro.' : 'Aún no hay campos. Importa la planilla o usa “Nuevo campo”.'}</p>}
       {lista.length > 0 && (
         <div className="fbcrm-tabla">
@@ -460,7 +462,7 @@ function ListaCampos({ ctx, importar }) {
                   <button key={c.id} className="fbcrm-tabla-fila" onClick={() => abrir('campos', c)}>
                     <span className="tc-campo">
                       <span className={`fbcrm-ha ha-${c.tipo}`}><b>{c.hectareas ? fmtNum(Math.round(c.hectareas)) : '–'}</b><i>ha</i></span>
-                      <span className="fbcrm-cuerpo"><strong>{c.nombre}</strong><small>{c.plantaciones || c.aptitud || c.codigo || ''}</small></span>
+                      <span className="fbcrm-cuerpo"><strong>{c.nombre}{diferenciasWeb(c).length > 0 && <span className="fbcrm-dif-web" title={`No coincide con farmbrokers.cl: ${diferenciasWeb(c).map((k) => ETQ_WEB[k]).join(', ')}`}>≠ web</span>}</strong><small>{c.plantaciones || c.aptitud || c.codigo || ''}</small></span>
                     </span>
                     <span className="tc-region">{c.region ? REG_NOMBRE[c.region] || c.region : <em>Sin región</em>}</span>
                     <span className="tc-comuna">{c.sector || <em>Sin comuna</em>}</span>
@@ -563,9 +565,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
 
       <div className="fbcrm-bloque fbcrm-info">
         <h3>Información del campo</h3>
-        {!esNuevo && /farmbrokers\.cl\/propiedad\//.test(linkWeb || '') && (
-          <p className="fbcrm-enlazado"><Icono n="enlace" s={16} />Enlazado con farmbrokers.cl{f.web && f.web.fecha ? `, actualizado el ${fmtFecha(f.web.fecha)}` : ''}. Superficie, agua, plantaciones, precio, comuna, región y tipo se toman de la web: si los cambias aquí, la próxima revisión los reemplaza.</p>
-        )}
+        {!esNuevo && /farmbrokers\.cl\/propiedad\//.test(linkWeb || '') && <ComparaWeb ctx={ctx} f={f} setF={setF} />}
         <p className="fbcrm-seccion">Perfil de comprador</p>
         <p className="fbcrm-nota-suave">¿Para qué tipo de comprador sirve este campo? Puedes marcar más de uno.</p>
         <SelectorPerfiles ctx={ctx} valor={f.perfiles || []} onChange={(v) => setF((x) => ({ ...x, perfiles: v }))} />
@@ -957,6 +957,71 @@ function PerfilesAdmin({ ctx }) {
     </div>
   );
 }
+// ════════════════════════════ Comparación con farmbrokers.cl ════════════════════════════
+const ETQ_WEB = { hectareas: 'Superficie', precio: 'Precio', agua: 'Agua', plantaciones: 'Plantaciones', sector: 'Comuna', region: 'Región', codigo: 'ID', tipo: 'Tipo', operacion: 'Operación' };
+const claveWeb = (k, v) => (k === 'hectareas' ? (Number(v) ? String(Math.round(Number(v) * 10) / 10) : '')
+  : k === 'precio' ? (v && Number(v.precioUF) ? `uf${Math.round(Number(v.precioUF))}` : v && Number(v.precioCLP) ? `clp${Math.round(Number(v.precioCLP))}` : norm((v && v.precioTexto) || ''))
+  : norm(v == null ? '' : String(v)));
+const valorDeCampo = (c, k) => (k === 'precio' ? { precioTexto: c.precioTexto, precioUF: c.precioUF, precioCLP: c.precioCLP } : c[k]);
+const diferenciasWeb = (c) => { const v = c.web && c.web.valores; return v ? Object.keys(ETQ_WEB).filter((k) => k in v && claveWeb(k, valorDeCampo(c, k)) !== claveWeb(k, v[k])) : []; };
+const mostrarDato = (datos, k, v) => {
+  if (k === 'hectareas') return Number(v) ? `${fmtNum(v)} ha` : '';
+  if (k === 'precio') return v ? (Number(v.precioUF) ? `UF ${fmtNum(v.precioUF)}` : Number(v.precioCLP) ? `$${fmtNum(v.precioCLP / 1e6)} MM` : v.precioTexto || '') : '';
+  if (k === 'region') return v ? REG_NOMBRE[v] || v : '';
+  if (k === 'tipo') return v ? (datos.tipos || {})[v] || TIPOS[v] || v : '';
+  if (k === 'operacion') return v ? OPER[v] || v : '';
+  return v || '';
+};
+const datoDeWeb = (k, v) => (k === 'precio' ? { precioTexto: v.precioTexto || '', precioUF: v.precioUF || null, precioCLP: v.precioCLP || null } : { [k]: v });
+function ComparaWeb({ ctx, f, setF }) {
+  const { datos, api, cargar } = ctx;
+  const [leyendo, setLeyendo] = useState(false);
+  const [msg, setMsg] = useState('');
+  const v = f.web && f.web.valores;
+  const difs = diferenciasWeb(f);
+  const leer = async () => {
+    setLeyendo(true); setMsg('');
+    try {
+      const r = await api(`/campos/${f.id}/web`, { method: 'POST' });
+      setF((x) => ({ ...x, web: r.web })); cargar();
+      const n = diferenciasWeb({ ...f, web: r.web }).length;
+      setMsg(n ? `Leída. ${plural(n, 'dato no coincide', 'datos no coinciden')} con la web.` : 'Leída. Todo coincide con la web.');
+    } catch (e) { setMsg(e.message); }
+    setLeyendo(false);
+  };
+  const usar = (ks) => { setF((x) => ({ ...x, ...Object.assign({}, ...ks.map((k) => datoDeWeb(k, v[k]))) })); setMsg('Copiado desde la web. Presiona “Guardar información” para que quede.'); };
+  return (
+    <div className={`fbcrm-compara-web ${difs.length ? 'con-dif' : ''}`}>
+      <div className="fbcrm-compara-cab">
+        <span><Icono n="enlace" s={16} />{!v ? 'Enlazado con farmbrokers.cl, pero aún no se lee la publicación.'
+          : difs.length ? <><b>{plural(difs.length, 'dato no coincide', 'datos no coinciden')} con farmbrokers.cl</b>{f.web.fecha ? ` (web leída el ${fmtFecha(f.web.fecha)})` : ''}</>
+          : <>Coincide con farmbrokers.cl ✓{f.web.fecha ? ` (web leída el ${fmtFecha(f.web.fecha)})` : ''}</>}</span>
+        <button className="fbcrm-mini" disabled={leyendo} onClick={leer}>{leyendo ? 'Leyendo…' : v ? 'Volver a leer la web' : 'Traer información de la web'}</button>
+      </div>
+      {difs.length > 0 && (
+        <>
+          <table className="fbcrm-compara-tabla">
+            <thead><tr><th>Dato</th><th>En el CRM</th><th>En la web</th><th /></tr></thead>
+            <tbody>{difs.map((k) => (
+              <tr key={k}>
+                <th>{ETQ_WEB[k]}</th>
+                <td>{mostrarDato(datos, k, valorDeCampo(f, k)) || <em>vacío</em>}</td>
+                <td>{mostrarDato(datos, k, v[k])}</td>
+                <td><button className="fbcrm-mini" onClick={() => usar([k])}>Usar el de la web</button></td>
+              </tr>
+            ))}</tbody>
+          </table>
+          <div className="fbcrm-compara-pie">
+            {difs.length > 1 && <button className="fbcrm-mini fbcrm-primario" onClick={() => usar(difs)}>Usar todos los de la web</button>}
+            <small>Si el correcto es el del CRM, corrígelo en WordPress. Mientras no coincidan, la revisión automática no reemplaza lo que pusiste en el CRM.</small>
+          </div>
+        </>
+      )}
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+    </div>
+  );
+}
+
 // ════════════════════════════ Corredores ════════════════════════════
 const nombresCorredores = (datos) => {
   const m = new Map();
@@ -4243,6 +4308,22 @@ const CSS = `
 .fbcrm-corredor-tag{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;padding:2px 9px;border-radius:999px;background:#EAF0F7;color:#2E4A6B;font-size:.82rem;font-weight:600}
 .fbcrm-corredor-tag .cor-largo{display:none}
 @media (max-width:1240px){.fbcrm-corredor-tag .cor-largo{display:inline}.fbcrm-corredor-tag .cor-corto{display:none}}
+.fbcrm-compara-web{margin:0 0 14px;border:1px solid var(--linea);border-radius:13px;padding:10px 12px;background:var(--hoja)}
+.fbcrm-compara-web.con-dif{border-color:#E8C9A0;background:#FDF6EC}
+.fbcrm-compara-cab{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:.9rem;color:var(--potrero-osc)}
+.fbcrm-compara-cab>span{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap}
+.fbcrm-compara-web.con-dif .fbcrm-compara-cab{color:#7A4A10}
+.fbcrm-compara-tabla{width:100%;border-collapse:collapse;margin:10px 0 6px;font-size:.88rem;background:#fff;border-radius:9px;overflow:hidden}
+.fbcrm-compara-tabla th,.fbcrm-compara-tabla td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--linea2);vertical-align:middle}
+.fbcrm-compara-tabla thead th{font-size:.76rem;color:var(--salvia);font-weight:600;background:var(--hoja)}
+.fbcrm-compara-tabla tbody th{font-weight:600;white-space:nowrap}
+.fbcrm-compara-tabla td:last-child{text-align:right;white-space:nowrap}
+.fbcrm-compara-tabla em{color:var(--salvia)}
+.fbcrm-compara-pie{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.fbcrm-compara-pie small{color:#7A5A30;flex:1 1 260px}
+@media (max-width:620px){.fbcrm-compara-tabla thead{display:none}.fbcrm-compara-tabla tr{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;padding:8px 0;border-bottom:1px solid var(--linea2)}.fbcrm-compara-tabla th,.fbcrm-compara-tabla td{border:0;padding:2px 8px}.fbcrm-compara-tabla tbody th{grid-column:1/-1}.fbcrm-compara-tabla td:last-child{grid-column:1/-1;text-align:left}}
+.fbcrm-dif-web{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:999px;background:#FBE7CF;color:#8A4F0A;font-size:.72rem;font-weight:700;vertical-align:2px;white-space:nowrap}
+.fbcrm .fbcrm-filtro-perfiles button.v-dif{background:#FBE7CF;color:#8A4F0A}
 .fbcrm-opc-envio{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:12px 0 0;padding:10px 12px;background:var(--hoja);border-radius:11px;font-size:.9rem}
 .fbcrm-opc-envio>span{color:var(--salvia)}
 .fbcrm-opc-envio label{display:inline-flex;align-items:center;gap:6px;font-weight:500;cursor:pointer}
