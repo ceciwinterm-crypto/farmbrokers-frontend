@@ -1882,7 +1882,11 @@ function Impresion({ ctx, imp, cerrar }) {
   const [fotosProp, setFotosProp] = useState([]);
   const traerWeb = async () => {
     setEstadoWeb('Trayendo fotos y datos desde farmbrokers.cl…');
-    try { const r = await ctx.api(`/campos/${imp.id}/web`, { method: 'POST' }); setCampoWeb(r); setEstadoWeb(''); ctx.cargar(); }
+    try {
+      const r = await ctx.api(`/campos/${imp.id}/web`, { method: 'POST' }); setCampoWeb(r); ctx.cargar();
+      const d = r.diagnostico || {}, n = ((r.web && r.web.fotos) || []).length;
+      setEstadoWeb(`Listo: ${n} ${n === 1 ? 'foto' : 'fotos'}.${d.protegida ? ' La página tiene contraseña.' : ''}${(d.pasos || []).length ? ` ${d.pasos.join('. ')}.` : ''}`);
+    }
     catch (e) { setEstadoWeb(e.message); }
   };
   useEffect(() => {
