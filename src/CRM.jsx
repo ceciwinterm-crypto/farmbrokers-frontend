@@ -1977,7 +1977,7 @@ function VistaEquipo({ ctx }) {
       {sec === 'tareas' && <Tareas ctx={ctx} />}
       {sec === 'reporte' && <Reporte ctx={ctx} />}
       {sec === 'actividad' && <Actividad ctx={ctx} />}
-      {sec === 'personas' && <><Solicitudes ctx={ctx} /><ModoAdmin ctx={ctx} /><Equipo ctx={ctx} /></>}
+      {sec === 'personas' && <><Solicitudes ctx={ctx} /><ModoAdmin ctx={ctx} /><AvisosCorreo ctx={ctx} /><Equipo ctx={ctx} /></>}
     </section>
   );
 }
@@ -2123,6 +2123,53 @@ function Actividad({ ctx }) {
   );
 }
 
+// Avisos por correo: cada persona elige si recibe los avisos al momento y el resumen de la mañana
+function AvisosCorreo({ ctx }) {
+  const { datos, api, cargar, usuario } = ctx;
+  const [msg, setMsg] = useState('');
+  const [enviando, setEnviando] = useState('');
+  const c = datos.correo || {};
+  const prefs = (n) => ({ inmediato: true, resumen: true, ...((datos.avisosCorreo || {})[n] || {}) });
+  const email = (n) => String(((datos.contactos || {})[n] || {}).email || '').trim();
+  const personas = datos.esAdmin ? (datos.equipo || []).map((p) => p.nombre) : [usuario];
+  const cambiar = async (n, k, v) => { try { await api('/equipo/avisos', { method: 'PUT', body: { nombre: n, ...prefs(n), [k]: v } }); await cargar(); } catch (e) { setMsg(e.message); } };
+  const probar = async (tipo) => {
+    setEnviando(tipo); setMsg('');
+    try { const r = await api('/correo/prueba', { method: 'POST', body: { tipo } }); setMsg(`Listo: se envió ${tipo === 'resumen' ? 'tu resumen de hoy' : 'un correo de prueba'} a ${r.para}. Si no llega en un par de minutos, revisa la carpeta de spam.`); }
+    catch (e) { setMsg(e.message); }
+    setEnviando('');
+  };
+  return (
+    <div className="fbcrm-bloque fbcrm-avisos">
+      <h3>Avisos por correo</h3>
+      {!c.configurado ? <p className="fbcrm-aviso-linea">Los correos todavía no están activados: falta conectar el servicio de envío en Railway (la variable RESEND_API_KEY).</p>
+        : <p className="fbcrm-nota-suave">Los avisos salen desde <b>{c.remitente}</b>. Llegan al correo de cada persona (el de “Editar contacto”): al momento cuando le asignan una tarea, cuando alguien pide eliminar algo, cuando un cliente firma una orden de visita o un mandato o acepta un plano, y cada mañana a las 8:00 un resumen de sus pendientes del día.</p>}
+      <table className="fbcrm-avisos-tabla">
+        <thead><tr><th>Persona</th><th>Correo</th><th>Al momento</th><th>Resumen 8:00</th></tr></thead>
+        <tbody>{personas.map((n) => (
+          <tr key={n}>
+            <th>{n}{n === usuario ? ' (tú)' : ''}</th>
+            <td>{email(n) || <em>Sin correo: agrégalo en “Editar contacto”</em>}</td>
+            <td><input type="checkbox" aria-label={`Avisos al momento para ${n}`} checked={prefs(n).inmediato} disabled={!email(n)} onChange={(e) => cambiar(n, 'inmediato', e.target.checked)} /></td>
+            <td><input type="checkbox" aria-label={`Resumen diario para ${n}`} checked={prefs(n).resumen} disabled={!email(n)} onChange={(e) => cambiar(n, 'resumen', e.target.checked)} /></td>
+          </tr>
+        ))}</tbody>
+      </table>
+      {c.configurado && email(usuario) && (
+        <div className="fbcrm-acciones">
+          <button className="fbcrm-mini" disabled={!!enviando} onClick={() => probar('prueba')}>{enviando === 'prueba' ? 'Enviando…' : 'Enviarme un correo de prueba'}</button>
+          <button className="fbcrm-mini" disabled={!!enviando} onClick={() => probar('resumen')}>{enviando === 'resumen' ? 'Enviando…' : 'Enviarme el resumen de hoy'}</button>
+        </div>
+      )}
+      {datos.esAdmin && (c.log || []).length > 0 && (
+        <details className="fbcrm-avisos-log"><summary>Últimos correos enviados</summary>
+          <ul>{c.log.map((l, i) => <li key={i} className={l.error ? 'error' : ''}><small>{fmtFechaHora(l.fecha)}</small> {l.para}: {l.asunto}{l.error ? ` (no se envió: ${l.error})` : ''}</li>)}</ul>
+        </details>
+      )}
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+    </div>
+  );
+}
 function Equipo({ ctx }) {
   const { datos, api, cargar, usuario } = ctx;
   const [msg, setMsg] = useState('');
@@ -4783,6 +4830,14 @@ const CSS = `
 .fbcrm-opc-envio.ancho{grid-column:1/-1;margin-top:0}
 .fbcrm .fbcrm-form .fbcrm-opc-envio label{display:inline-flex;flex-direction:row;align-items:center;gap:6px;margin:0}
 .fbcrm .fbcrm-form>label.fbcrm-check-linea{display:flex;flex-direction:row;align-items:center;gap:8px;grid-column:1/-1}
+.fbcrm-avisos-tabla{width:100%;border-collapse:collapse;margin:8px 0 4px;font-size:.9rem}
+.fbcrm-avisos-tabla th,.fbcrm-avisos-tabla td{padding:8px 6px;border-bottom:1px solid var(--linea2);text-align:left}
+.fbcrm-avisos-tabla thead th{font-size:.76rem;color:var(--salvia);font-weight:600}
+.fbcrm-avisos-tabla td:nth-child(3),.fbcrm-avisos-tabla td:nth-child(4),.fbcrm-avisos-tabla thead th:nth-child(3),.fbcrm-avisos-tabla thead th:nth-child(4){text-align:center;width:96px}
+.fbcrm-avisos-tabla em{color:var(--salvia);font-style:normal;font-size:.84rem}
+.fbcrm-avisos-log ul{list-style:none;margin:6px 0 0;padding:0;font-size:.84rem}
+.fbcrm-avisos-log li{padding:3px 0}.fbcrm-avisos-log li.error{color:#B4452A}
+@media (max-width:620px){.fbcrm-avisos-tabla thead th:nth-child(2),.fbcrm-avisos-tabla td:nth-child(2){display:none}}
 .fbcrm-opc-envio{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:12px 0 0;padding:10px 12px;background:var(--hoja);border-radius:11px;font-size:.9rem}
 .fbcrm-opc-envio>span{color:var(--salvia)}
 .fbcrm-opc-envio label{display:inline-flex;align-items:center;gap:6px;font-weight:500;cursor:pointer}
