@@ -149,7 +149,8 @@ export default function CRM() {
     const actual = (datos && datos.campos.find((x) => x.id === campo.id)) || campo;
     const clave = claveOpciones(opciones);
     const f = [...(actual.fichasPdf || [])].reverse().find((x) => x.opciones === clave);
-    if (f && new Date(f.fecha).getTime() >= new Date(actual.actualizado || 0).getTime()) return linkPublicoFicha(f.token, datos && datos.fichasBase);
+    // Las fichas anteriores a FICHAS_DESDE se vuelven a generar (cambió lo que muestran, por ejemplo el acceso)
+    if (f && new Date(f.fecha).getTime() >= Math.max(new Date(actual.actualizado || 0).getTime(), new Date(FICHAS_DESDE).getTime())) return linkPublicoFicha(f.token, datos && datos.fichasBase);
     avance('Generando la ficha…');
     const blob = await generarFicha(actual, avance, opciones);
     avance('Subiendo la ficha…');
@@ -3553,6 +3554,7 @@ const blobABase64 = (b) => new Promise((ok, mal) => { const fr = new FileReader(
 // Usa la dirección propia (fichas.farmbrokers.cl) cuando está configurada en Railway
 const linkPublicoFicha = (token, base) => (base ? `${base}/f/${token}` : `${API_BASE}/api/crm/publico-ficha/${token}`);
 const OPC_FICHA = { kmz: true, plano: true };
+const FICHAS_DESDE = '2026-10-08T21:20:00Z';
 const claveOpciones = (o) => `k${o && o.kmz === false ? 0 : 1}p${o && o.plano === false ? 0 : 1}`;
 async function subirFicha(api, campo, blob, opciones = 'k1p1') {
   const r = await api(`/campos/${campo.id}/ficha-pdf`, { method: 'POST', body: { base64: await blobABase64(blob), opciones } });
