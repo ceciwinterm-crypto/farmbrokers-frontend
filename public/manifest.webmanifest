@@ -1,9 +1,9 @@
 {
-  "name": "Farm Brokers",
+  "name": "Farm Brokers CRM",
   "short_name": "Farm Brokers",
-  "description": "Plataforma de tasaciones y CRM de Farm Brokers Chile.",
+  "description": "CRM de Farm Brokers Chile: campos, clientes, tareas y avisos del equipo.",
   "lang": "es-CL",
-  "start_url": "/",
+  "start_url": "/?app=crm",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

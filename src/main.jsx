@@ -8,7 +8,8 @@ let pantalla = <App />
 if (hash.startsWith('#propietario/')) pantalla = <FormularioPropietario token={hash.split('/')[1]} />
 else if (hash.startsWith('#plano/')) pantalla = <FormularioPlano token={hash.split('/')[1]} />
 else if (hash.startsWith('#orden/')) pantalla = <FormularioOrden token={hash.split('/')[1]} />
-else if (hash === '#crm') pantalla = <CRM />
+// Instalada en el celular (o abierta como app), siempre entra al CRM
+else if (hash === '#crm' || new URLSearchParams(window.location.search).get('app') === 'crm' || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone) pantalla = <CRM />
 
 // Permite instalar el CRM en el celular como app
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}))

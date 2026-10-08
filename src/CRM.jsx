@@ -64,6 +64,8 @@ function HojaFecha({ iso }) {
   return <span className="fbcrm-fecha"><b>{d.getDate()}</b><i>{MESES_CORTOS[d.getMonth()]}</i></span>;
 }
 
+// Abierto como app instalada (sin barra del navegador): no se ofrece volver a la plataforma de tasaciones
+const EN_APP = typeof window !== 'undefined' && ((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || !!window.navigator.standalone);
 function leerLocal(k, d = '') { try { return localStorage.getItem(k) || d; } catch { return d; } }
 function guardarLocal(k, v) { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } }
 
@@ -172,7 +174,7 @@ export default function CRM() {
           </nav>
           <div className="fbcrm-yo">
             <span className="fbcrm-avatar">{iniciales(usuario)}</span>
-            <span className="fbcrm-yo-txt"><strong>{usuario}{datos && datos.esAdmin ? ' ★' : ''}</strong><a href="#" onClick={volver}>Volver a la plataforma</a></span>
+            <span className="fbcrm-yo-txt"><strong>{usuario}{datos && datos.esAdmin ? ' ★' : ''}</strong>{!EN_APP && <a href="#" onClick={volver}>Volver a la plataforma</a>}</span>
           </div>
         </aside>
 
@@ -180,7 +182,7 @@ export default function CRM() {
           <div className="fbcrm-movil-top">
             <div className="fbcrm-marca"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-logo-img" /></div>
             {datos && <Campana ctx={ctx} />}
-            <a className="fbcrm-salir" href="#" onClick={volver} aria-label="Volver a la plataforma"><Icono n="salir" /></a>
+            {!EN_APP && <a className="fbcrm-salir" href="#" onClick={volver} aria-label="Volver a la plataforma"><Icono n="salir" /></a>}
           </div>
           {vista !== 'agenda' && <h1 className="fbcrm-h1">{VISTAS.find(([k]) => k === vista)[1]}</h1>}
 
@@ -248,8 +250,8 @@ function InstalarApp() {
       <img src="/icons/icono-192.png" alt="" />
       <div className="fbcrm-instalar-texto">
         <strong>Instala el CRM en tu {ios || android ? 'celular' : 'computador'}</strong>
-        {ios ? <span>En <b>Safari</b>, abre <b>farmbrokers-frontend.vercel.app</b> (la plataforma de tasaciones), toca <b>Compartir</b> <span aria-hidden="true">(el cuadrado con la flecha hacia arriba)</span> y luego <b>“Agregar a inicio”</b>. Queda como una app más, con el ícono de Farm Brokers; desde la plataforma pasas al CRM con el botón “CRM”.</span>
-          : puede ? <span>Queda como una app más, con el ícono de Farm Brokers. Se abre en la plataforma de tasaciones y con el botón “CRM” pasas al CRM.</span>
+        {ios ? <span>En <b>Safari</b>, toca <b>Compartir</b> <span aria-hidden="true">(el cuadrado con la flecha hacia arriba)</span> y luego <b>“Agregar a inicio”</b>. Queda como una app más, con el ícono de Farm Brokers, y se abre directo en el CRM.</span>
+          : puede ? <span>Queda como una app más, con el ícono de Farm Brokers, y se abre directo en el CRM.</span>
           : <span>En <b>Chrome</b>, toca el menú <b>⋮</b> (arriba a la derecha) y luego <b>“Instalar app”</b> o <b>“Agregar a pantalla de inicio”</b>.</span>}
         {ver && !ios && <span>Si no aparece la opción, ábrelo en Chrome y usa el menú ⋮ › “Instalar app”.</span>}
       </div>
