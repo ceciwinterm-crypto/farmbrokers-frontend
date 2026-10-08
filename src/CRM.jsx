@@ -12,6 +12,18 @@ const REG_NOMBRE = { XV: 'Arica', I: 'Tarapacá', II: 'Antofagasta', III: 'Ataca
 const TIPOS = { agricola: 'Agrícola', loteo: 'Loteo', forestal: 'Forestal', conservacion: 'Conservación', urbano: 'Urbano', agroindustrial: 'Agroindustrial', derechos_agua: 'Derechos de agua', energia: 'Energía' };
 const CERRADAS_TAS = ['Pagada', 'Perdida'];
 
+// Buscador que no traba: se escribe libre y la lista se filtra cuando se deja de teclear
+function Buscador({ value, onChange, placeholder }) {
+  const [t, setT] = useState(value || '');
+  const ultimo = useRef(value || '');
+  useEffect(() => { if (value !== ultimo.current) { ultimo.current = value; setT(value || ''); } }, [value]);
+  useEffect(() => {
+    if (t === ultimo.current) return undefined;
+    const h = setTimeout(() => { ultimo.current = t; onChange(t); }, 280);
+    return () => clearTimeout(h);
+  }, [t]);
+  return <input className="fbcrm-buscar" type="search" placeholder={placeholder} value={t} onChange={(e) => setT(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { ultimo.current = t; onChange(t); } }} autoComplete="off" />;
+}
 const hoyISO = () => new Date().toLocaleDateString('en-CA');
 const fmtFecha = (iso) => (iso ? new Date(iso.length === 10 ? iso + 'T12:00:00' : iso).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' }) : '');
 const fmtFechaHora = (iso) => new Date(iso).toLocaleString('es-CL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -485,7 +497,7 @@ function ListaCampos({ ctx, importar }) {
       </div>
       {verCorredores && <div className="fbcrm-bloque"><CorredoresAdmin ctx={ctx} /></div>}
       <div className="fbcrm-filtros">
-        <input className="fbcrm-buscar" placeholder="Buscar por nombre, comuna, código, rol, plantación o propietario" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Buscador placeholder="Buscar por nombre, comuna, código, rol, plantación o propietario" value={q} onChange={setQ} />
         <button type="button" className={`solo-movil fbcrm-btn-filtros ${verFiltros ? 'on' : ''}`} onClick={() => setVerFiltros(!verFiltros)}>Filtros{[fRegion, fTipo, fCorredor, fOper, fDif].filter(Boolean).length + fPerfiles.length + fVisib.length ? ` (${[fRegion, fTipo, fCorredor, fOper, fDif].filter(Boolean).length + fPerfiles.length + fVisib.length})` : ''}</button>
         <label><span>Región</span><select value={fRegion} onChange={(e) => setFRegion(e.target.value)}><option value="">Todas</option>{regionesHay.map((r) => <option key={r || 'sin'} value={r}>{r ? REG_NOMBRE[r] || r : 'Sin región'}</option>)}</select></label>
         <label><span>Tipo</span><select value={fTipo} onChange={(e) => setFTipo(e.target.value)}><option value="">Todos</option>{tiposHay.map((t) => <option key={t} value={t}>{TIPOS[t] || t}</option>)}</select></label>
@@ -938,7 +950,7 @@ function ListaClientes({ ctx }) {
       {verPerfiles && <div className="fbcrm-bloque"><PerfilesAdmin ctx={ctx} /></div>}
       {verCorredores && <div className="fbcrm-bloque"><CorredoresAdmin ctx={ctx} /></div>}
       <div className="fbcrm-filtros">
-        <input className="fbcrm-buscar" placeholder="Buscar por nombre, contacto, requerimiento o zona" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Buscador placeholder="Buscar por nombre, contacto, requerimiento o zona" value={q} onChange={setQ} />
         <button type="button" className={`solo-movil fbcrm-btn-filtros ${verFiltrosC ? 'on' : ''}`} onClick={() => setVerFiltrosC(!verFiltrosC)}>Filtros{[fCorredor, fFecha].filter(Boolean).length + fPerfiles.length ? ` (${[fCorredor, fFecha].filter(Boolean).length + fPerfiles.length})` : ''}</button>
         <label><span>Corredor</span><select value={fCorredor} onChange={(e) => setFCorredor(e.target.value)}><option value="">Todos</option>{corredores.map((n) => <option key={n} value={n}>{n}</option>)}<option value="__sin">Sin corredor</option></select></label>
         <label><span>Fecha de ingreso</span><select value={fFecha} onChange={(e) => setFFecha(e.target.value)}>
@@ -1906,7 +1918,7 @@ function ListaTasaciones({ ctx }) {
     <section>
       <TasacionesPlataforma ctx={ctx} />
       <div className="fbcrm-barra">
-        <input className="fbcrm-buscar" placeholder="Buscar por cliente, rol, comuna o N° de tasación" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Buscador placeholder="Buscar por cliente, rol, comuna o N° de tasación" value={q} onChange={setQ} />
         <button className="fbcrm-primario" onClick={() => abrir('tasaciones', { etapa: 'Solicitud', responsable: usuario })}>Nueva tasación</button>
       </div>
       {!lista.length && <p className="fbcrm-vacio">{datos.tasaciones.length ? 'Ninguna tasación coincide.' : 'Aún no hay tasaciones registradas. Usa “Nueva tasación” para seguir la primera.'}</p>}
