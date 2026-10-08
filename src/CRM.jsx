@@ -669,7 +669,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           <Campo label="Rol SII"><input value={f.rol || ''} onChange={set('rol')} placeholder="28-95" /></Campo>
           <Campo label={etqWeb('Código', 'codigo')}><input value={f.codigo || ''} disabled={deWeb('codigo')} onChange={set('codigo')} /></Campo>
           <Campo label="Coordenadas (pega desde Google Maps)" ancho><input value={f.coordenadas || ''} onChange={set('coordenadas')} placeholder="-34.3963, -71.6152" /></Campo>
-          <Campo label="Acceso" ancho><input value={f.acceso || ''} onChange={set('acceso')} placeholder="Ej. 3 km de camino pavimentado desde la Ruta 66" /></Campo>
+          <Campo label="Acceso" ancho><input value={f.acceso || ''} onChange={set('acceso')} placeholder="Ej. 3 km de camino pavimentado desde la Ruta 66" /><small className="fbcrm-nota-suave">Solo para el equipo: en las fichas y brochures sale en términos generales (por ejemplo, “Acceso por camino pavimentado”).</small></Campo>
         </div>
         <p className="fbcrm-seccion">Superficie y precio</p>
         <div className="fbcrm-form">
@@ -3736,6 +3736,18 @@ function precioPorHa(c, d, ha) {
   if (clp && clp > 1e6) return `$${Math.round(clp / ha).toLocaleString('es-CL')} por ha`;
   return '';
 }
+// En lo que ve el cliente, el acceso va solo en términos generales (sin rutas, kilómetros ni entradas)
+function accesoGeneral(t) {
+  const x = String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (!x.trim()) return '';
+  const pav = /pavimen|asfalt|carretera|autopista|doble via/.test(x), rip = /ripio|tierra|grava|maicillo|huella|consolidad/.test(x);
+  if (pav && rip) return 'Acceso por camino pavimentado y un tramo de ripio';
+  if (pav) return 'Acceso por camino pavimentado';
+  if (rip) return 'Acceso por camino de ripio';
+  return 'Con acceso vehicular';
+}
+const RE_LINEA_ACCESO = /^\s*[•–-]?\s*(acceso|accesos|c[oó]mo llegar|ubicaci[oó]n exacta|ruta de acceso)\b[^:]{0,30}:\s*/i;
+const generalizarAcceso = (lineas) => lineas.map((t) => (RE_LINEA_ACCESO.test(t) ? `Acceso: ${accesoGeneral(t.replace(RE_LINEA_ACCESO, ''))}` : t));
 const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 const sinProtegido = (t) => String(t || '').replace(/^\s*(Protegido|Privado|Protected|Private)\s*:\s*/i, '').trim();
 const fmtHa = (n) => Number(n).toLocaleString('es-CL', { maximumFractionDigits: 2 });
@@ -3767,11 +3779,11 @@ function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usua
   ].filter(([, v]) => v && String(v).trim().length <= 22).slice(0, 4);
   const ti = c.tasacionInfo || {};
   const webConTexto = w && (w.descripcion || []).join('').replace(/[•\s]/g, '').length >= 40;
-  const descripcion = prepararDescripcion(c.descripcionFicha ? c.descripcionFicha.split('\n')
+  const descripcion = generalizarAcceso(prepararDescripcion(c.descripcionFicha ? c.descripcionFicha.split('\n')
     : webConTexto ? w.descripcion
     : [ti.suelos && `Suelos: ${ti.suelos}`, (ti.aguas || c.agua) && `Aguas: ${ti.aguas || c.agua}`, (ti.plantaciones || c.plantaciones) && `Plantaciones: ${ti.plantaciones || c.plantaciones}`,
       ti.clima && `Clima: ${ti.clima}`, (ti.construcciones || c.infraestructura) && `Infraestructura: ${c.infraestructura || ti.construcciones}`,
-      c.aptitud && `Aptitud: ${c.aptitud}`, (c.acceso || ti.acceso) && `Acceso: ${c.acceso || ti.acceso}`].filter(Boolean));
+      c.aptitud && `Aptitud: ${c.aptitud}`, (c.acceso || ti.acceso) && `Acceso: ${accesoGeneral(c.acceso || ti.acceso)}`].filter(Boolean)));
   const cap = c.captacion && c.captacion.datos;
   const loteos = cap ? cap.predios.filter((p) => p.tipo === 'loteo' && p.lotes) : [];
   const idProp = d.id || c.codigo;
@@ -3791,7 +3803,7 @@ function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usua
     ['Superficie plantada', haPlantadas({ plantaciones: d.plantaciones || c.plantaciones }) ? `${fmtHa(haPlantadas({ plantaciones: d.plantaciones || c.plantaciones }))} ha` : ''],
     ['Aptitud', c.aptitud],
     ['Infraestructura', c.infraestructura || (cap && cap.infraestructura)],
-    ['Acceso', c.acceso || ti.acceso],
+    ['Acceso', accesoGeneral(c.acceso || ti.acceso)],
     ['Suelos', ti.suelos],
     ['Distancia a Santiago', ti.distSantiago],
     ['Altitud', ti.altitud],
