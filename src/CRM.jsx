@@ -4220,6 +4220,57 @@ function estadoCompartido(c) {
   if (c.aceptacion) return [(c.descargas || []).length ? `Aceptó y descargó (${c.descargas.length})` : 'Aceptó, sin descargar', 'est-firmado'];
   return [c.vistas ? 'Abrió el link, sin aceptar' : 'Enviado', 'est-completado'];
 }
+// Constancia en PDF (texto real, se puede copiar) de que el cliente aceptó el acuerdo de confidencialidad
+async function descargarConstancia(campo, c, datos) {
+  await cargarScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'jspdf');
+  const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+  const a = c.aceptacion, W = 210, M = 20, ancho = W - 2 * M;
+  const hora = (iso) => new Date(iso).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  let y = 18;
+  const nueva = (alto) => { if (y + alto > 280) { pdf.addPage(); y = 20; } };
+  const titulo = (t) => { nueva(14); y += 4; pdf.setFont('helvetica', 'bold'); pdf.setFontSize(10.5); pdf.setTextColor(31, 77, 49); pdf.text(t.toUpperCase(), M, y); y += 2; pdf.setDrawColor(200, 210, 200); pdf.line(M, y, W - M, y); y += 5; };
+  const fila = (k, v) => { if (!v) return; pdf.setFontSize(9.5); const lin = pdf.splitTextToSize(String(v), ancho - 52); nueva(lin.length * 4.6 + 1.5); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(94, 110, 100); pdf.text(k, M, y); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(23, 38, 29); pdf.text(lin, M + 52, y); y += lin.length * 4.6 + 1.5; };
+  try { pdf.addImage(LOGO_FB, 'PNG', M, y - 6, 34, 15); } catch (e) { /* sin logo */ }
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); pdf.setTextColor(94, 110, 100);
+  pdf.text(['Farm Brokers Chile SpA', 'RUT 77.089.307-0', 'Estoril 120 of. 615, Las Condes', 'contacto@farmbrokers.cl'], W - M, y - 2, { align: 'right' });
+  y += 20;
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(15); pdf.setTextColor(23, 38, 29);
+  pdf.text('Constancia de aceptación de acuerdo de confidencialidad', M, y); y += 7;
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); pdf.setTextColor(60, 70, 64);
+  const intro = pdf.splitTextToSize(`Farm Brokers Chile SpA deja constancia de que la persona individualizada abajo aceptó electrónicamente el acuerdo de confidencialidad que se transcribe íntegramente en este documento, como condición previa para acceder a información reservada de la propiedad (plano, ubicación exacta y archivos).`, ancho);
+  pdf.text(intro, M, y); y += intro.length * 4.6 + 2;
+  titulo('Propiedad');
+  fila('Propiedad', (campo.web && campo.web.titulo) || campo.nombre);
+  fila('Código', campo.codigo || (campo.web && campo.web.detalle && campo.web.detalle.id));
+  fila('Ubicación', [campo.sector, REG_NOMBRE[campo.region]].filter(Boolean).join(', '));
+  const cli = c.clienteId && (datos.clientes || []).find((x) => x.id === c.clienteId);
+  titulo('Envío del link');
+  fila('Enviado a', c.destinatario + (cli && cli.nombre !== c.destinatario ? ` (${cli.nombre})` : ''));
+  fila('Correo / teléfono', [c.email, c.telefono].filter(Boolean).join(' · '));
+  fila('Link creado', `${hora(c.creado)} por ${c.creadoPor}`);
+  fila('Vigencia', `hasta el ${hora(c.vence)}`);
+  const planos = (campo.archivos || []).filter((x) => (c.planos || []).includes(x.id)).map((x) => x.nombre);
+  fila('Información incluida', [c.kmz !== false && campo.geo ? 'Contorno del predio y archivo KMZ personalizado' : '', planos.length ? `Planos: ${planos.join(', ')}` : ''].filter(Boolean).join('; '));
+  fila('Descarga permitida', c.descarga ? 'Sí' : 'No, solo visualización en línea');
+  titulo('Aceptación');
+  fila('Nombre', a.nombre); fila('RUT', a.rut); fila('Correo', a.email);
+  fila('Fecha y hora', `${hora(a.fecha)} (hora de Chile)`);
+  fila('Dirección IP', a.ip); fila('Dispositivo', a.agente);
+  fila('Código de verificación', a.hash.slice(0, 12).toUpperCase());
+  fila('Huella digital (SHA-256)', a.hash);
+  fila('Forma de aceptación', 'Lectura del acuerdo en el link personal, ingreso de nombre y RUT, y marca de la casilla "Leí el acuerdo de confidencialidad y lo acepto. Entiendo que esta aceptación electrónica equivale a mi firma."');
+  if ((c.descargas || []).length) { titulo('Registro de descargas'); c.descargas.forEach((d, i) => fila(`${i + 1}.`, `${hora(d.fecha)}${d.archivo ? `, ${d.archivo}` : ', KMZ personalizado'}${d.ip ? `, IP ${d.ip}` : ''}`)); }
+  titulo('Texto íntegro del acuerdo aceptado');
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); pdf.setTextColor(23, 38, 29);
+  for (const par of String(a.texto || '').split('\n')) { const lin = pdf.splitTextToSize(par || ' ', ancho); nueva(lin.length * 4.4); pdf.text(lin, M, y); y += lin.length * 4.4 + (par ? 1.2 : 0); }
+  const total = pdf.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    pdf.setPage(i); pdf.setFontSize(7.5); pdf.setTextColor(130, 140, 134);
+    pdf.text(`Generada desde el CRM de Farm Brokers el ${hora(new Date().toISOString())}. La huella digital identifica el texto exacto aceptado.`, M, 290);
+    pdf.text(`${i} / ${total}`, W - M, 290, { align: 'right' });
+  }
+  pdf.save(`Constancia confidencialidad - ${a.nombre} - ${campo.nombre}.pdf`.replace(/[\\/:*?"<>|]/g, ''));
+}
 function CompartirPlano({ ctx, campo, setCampo }) {
   const { datos, api, usuario, cargar } = ctx;
   const [clienteId, setClienteId] = useState('');
@@ -4327,6 +4378,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
                   <small>{c.aceptacion ? `Aceptó ${c.aceptacion.nombre}, RUT ${c.aceptacion.rut}, el ${fmtFechaHora(c.aceptacion.fecha)}` : `Creado el ${fmtFecha(c.creado.slice(0, 10))} por ${c.creadoPor}, vence el ${fmtFecha(c.vence.slice(0, 10))}`}</small>
                 </div>
                 <span className={`fbcrm-badge ${clase}`}>{est}</span>
+                {c.aceptacion && <button className="fbcrm-mini" onClick={() => descargarConstancia(campo, c, datos).catch((e) => setMsg(e.message))}>Constancia PDF</button>}
                 {vigente && (
                   <span className="fbcrm-envio-acc">
                     <button className="fbcrm-mini" disabled={!!preparando} onClick={() => enviarWa(c)}>{preparando === c.token ? 'Preparando…' : 'WhatsApp'}</button>
