@@ -67,7 +67,12 @@ function HojaFecha({ iso }) {
 function leerLocal(k, d = '') { try { return localStorage.getItem(k) || d; } catch { return d; } }
 function guardarLocal(k, v) { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } }
 
-function mensajeCampo(c, usuario, cli, linkPdf) {
+// Firma con los datos de quien envía (se cargan en Equipo › Personas)
+const firmaDe = (datos, usuario) => { const c = ((datos && datos.contactos) || {})[usuario] || {}; return [usuario, 'Farm Brokers Chile', c.telefono, c.email].filter(Boolean).join('\n'); };
+const contactosDe = (cli) => (cli && Array.isArray(cli.contactos) && cli.contactos.length ? cli.contactos : cli && (cli.telefono || cli.email) ? [{ id: '', nombre: cli.contactoNombre || '', telefono: cli.telefono, email: cli.email, principal: true }] : []);
+const busquedasCli = (cli) => (cli && Array.isArray(cli.busquedas) && cli.busquedas.length ? cli.busquedas : [{ id: '', nombre: 'Búsqueda principal', activa: true, ...cli }]);
+const primerNombre = (n) => String(n || '').trim().split(/\s+/)[0] || '';
+function mensajeCampo(c, usuario, cli, linkPdf, firma) {
   const saludo = cli && cli.contactoNombre ? `Hola ${cli.contactoNombre.split(' ')[0]},` : 'Hola,';
   const datosCampo = [
     `${c.nombre}${c.sector ? `, ${c.sector}` : ''}${c.region ? ` (${REG_NOMBRE[c.region] || c.region})` : ''}`,
@@ -77,7 +82,7 @@ function mensajeCampo(c, usuario, cli, linkPdf) {
   ].filter(Boolean);
   const enlaces = [linkPdf ? `Ficha completa (PDF): ${linkPdf}` : '', (c.linkWeb || c.linkPortal) ? `Publicación: ${c.linkWeb || c.linkPortal}` : ''].filter(Boolean);
   return [saludo, 'Te comparto un campo que calza con lo que estás buscando:', datosCampo.join('\n'), enlaces.join('\n'),
-    '¿Te interesa verlo? Coordinamos una visita cuando quieras.', `${usuario}\nFarm Brokers Chile`].filter(Boolean).join('\n\n');
+    '¿Te interesa verlo? Coordinamos una visita cuando quieras.', firma || `${usuario}\nFarm Brokers Chile`].filter(Boolean).join('\n\n');
 }
 
 function useApi(clave, usuario) {
@@ -716,8 +721,8 @@ function Match({ ctx, campo, setCampo }) {
   const cli = (id) => datos.clientes.find((c) => c.id === id) || {};
   const ofrecible = datos.ofrecibles.includes(campo.etapa);
 
-  const registrar = async (ids, canal) => {
-    try { const r = await api(`/campos/${campo.id}/envio`, { method: 'POST', body: { clienteIds: ids, canal } }); setCampo(r); await cargar(); setSel(new Set()); }
+  const registrar = async (ids, canal, contactoId = '') => {
+    try { const r = await api(`/campos/${campo.id}/envio`, { method: 'POST', body: { destinos: ids.map((x) => ({ clienteId: x, contactoId })), canal } }); setCampo(r); await cargar(); setSel(new Set()); }
     catch (e) { setMsg(e.message); }
   };
   const [enviando, setEnviando] = useState('');
@@ -730,24 +735,24 @@ function Match({ ctx, campo, setCampo }) {
     try {
       const link = await ctx.linkFicha(campo, setMsg, opcEnvio);
       const asunto = `Campo en venta: ${campo.nombre}${campo.sector ? `, ${campo.sector}` : ''}`;
-      window.location.href = `mailto:?bcc=${encodeURIComponent(correos.join(','))}&subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensajeCampo(campo, usuario, null, link))}`;
+      window.location.href = `mailto:?bcc=${encodeURIComponent(correos.join(','))}&subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(mensajeCampo(campo, usuario, null, link, firmaDe(datos, usuario)))}`;
       registrar(ids, 'correo');
       setMsg(`Se abrió tu correo con ${plural(correos.length, 'destinatario')} en copia oculta y el link a la ficha.${sinCorreo ? ` ${plural(sinCorreo, 'cliente')} sin email: envíalos por WhatsApp.` : ''}`);
     } catch (e) { setMsg(e.message); }
     setEnviando('');
   };
-  const enviarWa = async (id) => {
-    const c = cli(id); const n = fonoWa(c.telefono);
+  const enviarWa = async (id, ct) => {
+    const c = cli(id); ct = ct || contactosDe(c).find((x) => fonoWa(x.telefono)) || {}; const n = fonoWa(ct.telefono || c.telefono);
     // La ventana se abre al instante (si no, el navegador la bloquea) y se completa cuando la ficha está lista
     const win = window.open('', '_blank');
     if (win) { try { win.document.title = 'Farm Brokers'; win.document.body.innerHTML = '<p style="font-family:system-ui,sans-serif;padding:28px;color:#1F4D31;font-size:17px">Preparando la ficha de Farm Brokers…</p>'; } catch (e) { /* sin acceso */ } }
     setEnviando(id); setMsg('');
     try {
       const link = await ctx.linkFicha(campo, setMsg, opcEnvio);
-      const url = `https://wa.me/${n}?text=${encodeURIComponent(mensajeCampo(campo, usuario, c, link))}`;
+      const url = `https://wa.me/${n}?text=${encodeURIComponent(mensajeCampo(campo, usuario, { contactoNombre: ct.nombre || c.contactoNombre }, link, firmaDe(datos, usuario)))}`;
       if (win && !win.closed) win.location.href = url; else window.location.href = url;
-      registrar([id], 'whatsapp');
-      setMsg(`Ficha lista: se abrió WhatsApp con el mensaje y el link para ${c.nombre}.`);
+      registrar([id], 'whatsapp', ct.id || '');
+      setMsg(`Ficha lista: se abrió WhatsApp con el mensaje y el link para ${ct.nombre ? `${ct.nombre} (${c.nombre})` : c.nombre}.`);
     } catch (e) { if (win) win.close(); setMsg(e.message); }
     setEnviando('');
   };
@@ -766,7 +771,7 @@ function Match({ ctx, campo, setCampo }) {
           </span>
           {env && <small className="fbcrm-ok">Enviado {fmtFecha(env.fecha)} por {env.canal}, {env.autor}</small>}
         </div>
-        {fonoWa(c.telefono) && <button className="fbcrm-mini" disabled={!!enviando} onClick={() => enviarWa(m.clienteId)}>{enviando === m.clienteId ? 'Preparando…' : 'WhatsApp con ficha'}</button>}
+        {(() => { const cts = contactosDe(c).filter((x) => fonoWa(x.telefono)).slice(0, 4); return cts.length > 0 && <span className="fbcrm-wa-contactos">{cts.map((ct, i) => <button key={ct.id || i} className="fbcrm-mini" disabled={!!enviando} onClick={() => enviarWa(m.clienteId, ct)}>{enviando === m.clienteId ? 'Preparando…' : cts.length > 1 ? `WhatsApp ${primerNombre(ct.nombre) || i + 1}` : 'WhatsApp con ficha'}</button>)}</span>; })()}
       </li>
     );
   };
@@ -790,7 +795,7 @@ function Match({ ctx, campo, setCampo }) {
       {lista.length > 0 && (
         <div className="fbcrm-acciones">
           <button className="fbcrm-primario" disabled={!sel.size || !!enviando} onClick={enviarCorreo}>{enviando === 'correo' ? 'Preparando la ficha…' : `Enviar ficha por correo a ${plural(sel.size, 'seleccionado')}`}</button>
-          <button className="fbcrm-texto" disabled={!!enviando} onClick={async () => { try { const link = await ctx.linkFicha(campo, setMsg, opcEnvio); await navigator.clipboard.writeText(mensajeCampo(campo, usuario, null, link)); setMsg('Mensaje con el link de la ficha copiado.'); } catch (e) { setMsg(e.message); } }}>Copiar mensaje con la ficha</button>
+          <button className="fbcrm-texto" disabled={!!enviando} onClick={async () => { try { const link = await ctx.linkFicha(campo, setMsg, opcEnvio); await navigator.clipboard.writeText(mensajeCampo(campo, usuario, null, link, firmaDe(datos, usuario))); setMsg('Mensaje con el link de la ficha copiado.'); } catch (e) { setMsg(e.message); } }}>Copiar mensaje con la ficha</button>
         </div>
       )}
       {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
@@ -863,7 +868,7 @@ function ListaClientes({ ctx }) {
   };
   const base = datos.clientes.filter((c) => filtro === 'todos' || (filtro === 'revisar' ? c.revisar : c.etapa === filtro));
   const lista = base.filter((c) => pasaPerfiles(c, fPerfiles) && enFecha(c) && pasaCorredor(c, fCorredor) &&
-    (!nq || [c.nombre, c.contactoNombre, c.requerimiento, c.zona, c.email, c.observaciones].join(' ').toLowerCase().includes(nq)))
+    (!nq || [c.nombre, c.rut, c.contactoNombre, c.requerimiento, c.zona, c.email, c.observaciones, ...contactosDe(c).map((x) => `${x.nombre} ${x.cargo || ''} ${x.email}`), ...busquedasCli(c).map((b) => `${b.nombre} ${b.requerimiento || ''} ${b.zona || ''}`)].join(' ').toLowerCase().includes(nq)))
     .sort(orden === 'nombre' ? (a, b) => a.nombre.localeCompare(b.nombre, 'es')
       : (a, b) => ((fechaIngresoCliente(orden === 'recientes' ? b : a) || 0) - (fechaIngresoCliente(orden === 'recientes' ? a : b) || 0)));
   const hayFiltros = q || fPerfiles.length || fFecha || fCorredor;
@@ -904,8 +909,8 @@ function ListaClientes({ ctx }) {
           <button key={c.id} className="fbcrm-fila" onClick={() => abrir('clientes', c)}>
             <span className="fbcrm-avatar">{iniciales(c.nombre)}</span>
             <span className="fbcrm-cuerpo">
-              <strong>{c.nombre}</strong>
-              <small>{[c.requerimiento, c.regiones.length ? c.regiones.join('–') : c.zona, c.haMin != null || c.haMax != null ? rangoTxt(c) : ''].filter(Boolean).join(', ')}</small>
+              <strong>{c.nombre}{c.clase === 'empresa' && <span className="fbcrm-tag-clase">Empresa{contactosDe(c).length > 1 ? ` · ${contactosDe(c).length} contactos` : ''}</span>}{busquedasCli(c).length > 1 && <span className="fbcrm-tag-clase">{busquedasCli(c).length} búsquedas</span>}</strong>
+              <small>{busquedasCli(c).length > 1 ? busquedasCli(c).filter((x) => x.activa !== false).map((x) => x.nombre).join(' · ') : [c.requerimiento, c.regiones.length ? c.regiones.join('–') : c.zona, c.haMin != null || c.haMax != null ? rangoTxt(c) : ''].filter(Boolean).join(', ')}</small>
               <EtiquetasPerfil datos={datos} ids={c.perfiles} />
             </span>
             <span className="fbcrm-der">
@@ -1148,9 +1153,26 @@ function CorredoresAdmin({ ctx }) {
 }
 const rangoTxt = (c) => (c.haMax == null ? `${c.haMin}+ ha` : `${c.haMin || 0}–${c.haMax} ha`);
 
+const nuevoId = () => (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
+const BUSQUEDA_VACIA = () => ({ id: nuevoId(), nombre: '', activa: true, requerimiento: '', tipo: '', operacion: 'compra', regiones: [], cultivos: [], perfiles: [], zona: '', haMin: '', haMax: '', presupuesto: '' });
+function prepararCliente(c) {
+  const contactos = Array.isArray(c.contactos) && c.contactos.length ? c.contactos.map((x) => ({ ...x }))
+    : contactosDe(c).length ? contactosDe(c).map((x) => ({ ...x, id: x.id || nuevoId() })) : [{ id: nuevoId(), nombre: '', cargo: '', telefono: '', email: '', principal: true }];
+  const busquedas = Array.isArray(c.busquedas) && c.busquedas.length ? c.busquedas.map((b) => ({ ...b, regiones: b.regiones || [], cultivos: b.cultivos || [], perfiles: b.perfiles || [] }))
+    : [{ ...BUSQUEDA_VACIA(), nombre: 'Búsqueda principal', requerimiento: c.requerimiento || '', tipo: c.tipo || '', operacion: c.operacion || 'compra', regiones: c.regiones || [], cultivos: c.cultivos || [], perfiles: c.perfiles || [], zona: c.zona || '', haMin: c.haMin ?? '', haMax: c.haMax ?? '', presupuesto: c.presupuesto || '' }];
+  return { clase: 'persona', ...c, contactos, busquedas };
+}
 function FichaCliente({ ctx, inicial, cerrar }) {
   const { datos, api, usuario, guardar, abrir, cargar } = ctx;
-  const [f, setF] = useState({ regiones: [], cultivos: [], ...inicial });
+  const [f, setF0] = useState(() => prepararCliente({ regiones: [], cultivos: [], ...inicial }));
+  const setF = (x) => setF0((prev) => { const n = typeof x === 'function' ? x(prev) : x; return n.contactos && n.busquedas ? n : prepararCliente(n); });
+  const [bSel, setBSel] = useState(0);
+  const [escribir, setEscribir] = useState(null);
+  const b = f.busquedas[Math.min(bSel, f.busquedas.length - 1)];
+  const setB = (k, v) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, [k]: v } : y)) }));
+  const toggleB = (k, v) => setB(k, b[k].includes(v) ? b[k].filter((x) => x !== v) : [...b[k], v]);
+  const setCt = (cid, k, v) => setF((x) => ({ ...x, contactos: x.contactos.map((y) => (y.id === cid ? { ...y, [k]: v } : k === 'principal' && v ? { ...y, principal: false } : y)) }));
+  const esEmpresa = f.clase === 'empresa';
   const [msg, setMsg] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -1158,7 +1180,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
   const esNuevo = !f.id;
   const grabar = async (extra = {}) => {
     setOcupado(true); setMsg('');
-    try { const r = await guardar('clientes', { ...f, ...extra }); setF(r); setMsg('Guardado. El match se recalculó.'); }
+    try { const r = await guardar('clientes', { ...f, ...extra }); setF(prepararCliente(r)); setMsg('Guardado. El match se recalculó.'); }
     catch (e) { setMsg(e.message); }
     setOcupado(false);
   };
@@ -1177,40 +1199,78 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         <p className="fbcrm-aviso-linea">Requerimiento de {f.fechaRequerimiento.slice(0, 4)}. Conviene reconfirmar lo que busca. <button className="fbcrm-mini" onClick={() => grabar({ fechaRequerimiento: hoyISO() })}>Reconfirmado hoy</button></p>
       )}
       <div className="fbcrm-bloque">
-        <h3>Qué busca</h3>
-        <p className="fbcrm-etq fbcrm-etq-primera">Perfil</p>
-        <SelectorPerfiles ctx={ctx} valor={f.perfiles || []} onChange={(v) => setF((x) => ({ ...x, perfiles: v }))} />
-        <div className="fbcrm-form fbcrm-sep2">
-          <Campo label="Requerimiento (como lo dijo el cliente)" ancho><textarea rows={2} value={f.requerimiento || ''} onChange={set('requerimiento')} /></Campo>
-          <Campo label="Tipo de propiedad"><SelectTipo ctx={ctx} value={f.tipo || ''} vacio="Cualquiera" onChange={(v) => setF((x) => ({ ...x, tipo: v }))} /></Campo>
-          <Campo label="Operación"><select value={f.operacion} onChange={set('operacion')}><option value="compra">Compra</option><option value="arriendo">Arriendo</option><option value="ambas">Compra o arriendo</option></select></Campo>
-          <Campo label="Hectáreas mínimo"><input type="number" inputMode="decimal" value={f.haMin ?? ''} onChange={set('haMin')} /></Campo>
-          <Campo label="Hectáreas máximo"><input type="number" inputMode="decimal" value={f.haMax ?? ''} onChange={set('haMax')} placeholder="Sin límite" /></Campo>
-          <Campo label="Presupuesto" ancho><input value={f.presupuesto || ''} onChange={set('presupuesto')} placeholder="Ej. hasta UF 150.000" /></Campo>
-          <Campo label="Zonas o comunas específicas" ancho><input value={f.zona || ''} onChange={set('zona')} placeholder="Ej. Las Cabras, Rapel, Mallarauco" /></Campo>
+        <h3>Cliente</h3>
+        <div className="fbcrm-chips fbcrm-clase" role="radiogroup" aria-label="Tipo de cliente">
+          {[['persona', 'Persona natural'], ['empresa', 'Empresa']].map(([k, l]) => <button key={k} role="radio" aria-checked={f.clase === k} className={f.clase === k ? 'on' : ''} onClick={() => setF((x) => ({ ...x, clase: k }))}>{l}</button>)}
         </div>
-        <p className="fbcrm-etq">Cultivos</p>
-        <div className="fbcrm-chips">{Object.entries(datos.cultivos).map(([k, l]) => <button key={k} className={f.cultivos.includes(k) ? 'on' : ''} aria-pressed={f.cultivos.includes(k)} onClick={() => toggle('cultivos', k)}>{l}</button>)}</div>
-        <p className="fbcrm-etq">Regiones</p>
-        <div className="fbcrm-chips">{datos.regiones.map((r) => <button key={r} className={f.regiones.includes(r) ? 'on' : ''} aria-pressed={f.regiones.includes(r)} title={REG_NOMBRE[r]} onClick={() => toggle('regiones', r)}>{r}</button>)}</div>
-      </div>
-      <div className="fbcrm-bloque">
-        <h3>Contacto</h3>
-        <div className="fbcrm-form">
-          <Campo label="Nombre o empresa" ancho><input value={f.nombre || ''} onChange={set('nombre')} /></Campo>
-          <Campo label="Persona de contacto"><input value={f.contactoNombre || ''} onChange={set('contactoNombre')} /></Campo>
-          <Campo label="Teléfono"><input type="tel" value={f.telefono || ''} onChange={set('telefono')} /></Campo>
-          <Campo label="Email" ancho><input value={f.email || ''} onChange={set('email')} placeholder="Varios separados por coma" /></Campo>
+        <div className="fbcrm-form fbcrm-sep2">
+          <Campo label={esEmpresa ? 'Razón social o nombre de la empresa' : 'Nombre'} ancho><input value={f.nombre || ''} onChange={set('nombre')} placeholder={esEmpresa ? 'Ej. Agrícola Los Robles SpA' : ''} /></Campo>
+          {esEmpresa && <Campo label="RUT"><input value={f.rut || ''} onChange={set('rut')} placeholder="76.123.456-7" /></Campo>}
           <Campo label="Corredor"><SelectorCorredor ctx={ctx} value={f.corredor || ''} onChange={(v) => setF((x) => ({ ...x, corredor: v }))} /></Campo>
           <Campo label="Fecha del requerimiento"><input type="date" value={(f.fechaRequerimiento || '').length === 10 ? f.fechaRequerimiento : (f.fechaRequerimiento ? f.fechaRequerimiento + '-01' : '')} onChange={set('fechaRequerimiento')} /></Campo>
           <Campo label="Observaciones" ancho><textarea rows={2} value={f.observaciones || ''} onChange={set('observaciones')} /></Campo>
         </div>
         <label className="fbcrm-check-linea"><input type="checkbox" checked={!!f.revisar} onChange={() => setF({ ...f, revisar: !f.revisar })} />Marcar como “por completar”</label>
-        <div className="fbcrm-acciones">
-          <button className="fbcrm-primario" disabled={ocupado || !f.nombre} onClick={() => grabar()}>{esNuevo ? 'Crear cliente' : 'Guardar cambios'}</button>
-          {fonoWa(f.telefono) && <a className="fbcrm-link" href={`https://wa.me/${fonoWa(f.telefono)}`} target="_blank" rel="noreferrer">WhatsApp</a>}
-          {!esNuevo && <button className="fbcrm-peligro" onClick={eliminar}>Eliminar</button>}
+      </div>
+
+      <div className="fbcrm-bloque">
+        <h3>{esEmpresa ? 'Personas de contacto' : 'Contacto'} {f.contactos.length > 1 && <span>{f.contactos.length}</span>}</h3>
+        <ul className="fbcrm-contactos">
+          {f.contactos.map((ct) => (
+            <li key={ct.id} className={ct.principal && f.contactos.length > 1 ? 'principal' : ''}>
+              <div className="fbcrm-form">
+                <Campo label="Nombre"><input value={ct.nombre || ''} onChange={(e) => setCt(ct.id, 'nombre', e.target.value)} placeholder={esEmpresa ? 'Ej. Juan Pérez' : f.nombre || ''} /></Campo>
+                {esEmpresa && <Campo label="Cargo"><input value={ct.cargo || ''} onChange={(e) => setCt(ct.id, 'cargo', e.target.value)} placeholder="Ej. Gerente general" /></Campo>}
+                <Campo label="Teléfono"><input type="tel" value={ct.telefono || ''} onChange={(e) => setCt(ct.id, 'telefono', e.target.value)} placeholder="9 1234 5678" /></Campo>
+                <Campo label="Email"><input type="email" value={ct.email || ''} onChange={(e) => setCt(ct.id, 'email', e.target.value)} /></Campo>
+              </div>
+              <div className="fbcrm-contacto-acc">
+                {f.contactos.length > 1 && <label className="fbcrm-check-mini"><input type="radio" name="principal" checked={!!ct.principal} onChange={() => setCt(ct.id, 'principal', true)} />Contacto principal</label>}
+                {!esNuevo && fonoWa(ct.telefono) && <button className="fbcrm-mini fbcrm-wa" onClick={() => setEscribir({ ct, canal: 'whatsapp' })}>WhatsApp</button>}
+                {!esNuevo && emailsDe(ct.email).length > 0 && <button className="fbcrm-mini" onClick={() => setEscribir({ ct, canal: 'correo' })}>Correo</button>}
+                {f.contactos.length > 1 && <button className="fbcrm-mini fbcrm-peligro" onClick={() => setF((x) => { const cs = x.contactos.filter((y) => y.id !== ct.id); if (ct.principal && cs[0]) cs[0] = { ...cs[0], principal: true }; return { ...x, contactos: cs }; })}>Quitar</button>}
+              </div>
+            </li>
+          ))}
+        </ul>
+        <button className="fbcrm-mini" onClick={() => setF((x) => ({ ...x, contactos: [...x.contactos, { id: nuevoId(), nombre: '', cargo: '', telefono: '', email: '', principal: false }] }))}>+ Agregar {esEmpresa ? 'otra persona' : 'otro contacto'}</button>
+        {escribir && <EscribirCliente ctx={ctx} cli={f} contacto={escribir.ct} canal={escribir.canal} campos={camposQueCalzan.map((x) => x.campo)} cerrar={() => setEscribir(null)} alEnviar={(r) => { if (r && r.historial) setF((x) => ({ ...x, historial: r.historial })); }} />}
+      </div>
+
+      <div className="fbcrm-bloque">
+        <h3>Qué busca {f.busquedas.length > 1 && <span>{plural(f.busquedas.length, 'búsqueda', 'búsquedas')}</span>}</h3>
+        <div className="fbcrm-chips fbcrm-busq-tabs" role="tablist">
+          {f.busquedas.map((x, i) => {
+            const n = esNuevo ? 0 : camposQueCalzan.filter((y) => y.m.busquedaId ? y.m.busquedaId === x.id : i === 0).length;
+            return <button key={x.id} role="tab" aria-selected={x.id === b.id} className={`${x.id === b.id ? 'on' : ''} ${x.activa === false ? 'pausada' : ''}`} onClick={() => setBSel(i)}>{x.nombre || `Búsqueda ${i + 1}`}{x.activa === false ? ' (pausada)' : n ? ` · ${n}` : ''}</button>;
+          })}
+          <button className="fbcrm-busq-nueva" onClick={() => { setF((x) => ({ ...x, busquedas: [...x.busquedas, { ...BUSQUEDA_VACIA(), nombre: `Búsqueda ${x.busquedas.length + 1}` }] })); setBSel(f.busquedas.length); }}>+ Nueva búsqueda</button>
         </div>
+        <div className="fbcrm-form fbcrm-sep2">
+          <Campo label="Nombre de la búsqueda"><input value={b.nombre || ''} onChange={(e) => setB('nombre', e.target.value)} placeholder="Ej. Forestal VIII región" /></Campo>
+          <Campo label="Estado"><select value={b.activa === false ? 'no' : 'si'} onChange={(e) => setB('activa', e.target.value === 'si')}><option value="si">Activa (hace match)</option><option value="no">Pausada</option></select></Campo>
+        </div>
+        <p className="fbcrm-etq">Perfil</p>
+        <SelectorPerfiles ctx={ctx} valor={b.perfiles || []} onChange={(v) => setB('perfiles', v)} />
+        <div className="fbcrm-form fbcrm-sep2">
+          <Campo label="Requerimiento (como lo dijo el cliente)" ancho><textarea rows={2} value={b.requerimiento || ''} onChange={(e) => setB('requerimiento', e.target.value)} /></Campo>
+          <Campo label="Tipo de propiedad"><SelectTipo ctx={ctx} value={b.tipo || ''} vacio="Cualquiera" onChange={(v) => setB('tipo', v)} /></Campo>
+          <Campo label="Operación"><select value={b.operacion || 'compra'} onChange={(e) => setB('operacion', e.target.value)}><option value="compra">Compra</option><option value="arriendo">Arriendo</option><option value="ambas">Compra o arriendo</option></select></Campo>
+          <Campo label="Hectáreas mínimo"><input type="number" inputMode="decimal" value={b.haMin ?? ''} onChange={(e) => setB('haMin', e.target.value)} /></Campo>
+          <Campo label="Hectáreas máximo"><input type="number" inputMode="decimal" value={b.haMax ?? ''} onChange={(e) => setB('haMax', e.target.value)} placeholder="Sin límite" /></Campo>
+          <Campo label="Presupuesto" ancho><input value={b.presupuesto || ''} onChange={(e) => setB('presupuesto', e.target.value)} placeholder="Ej. hasta UF 150.000" /></Campo>
+          <Campo label="Zonas o comunas específicas" ancho><input value={b.zona || ''} onChange={(e) => setB('zona', e.target.value)} placeholder="Ej. Las Cabras, Rapel, Mallarauco" /></Campo>
+        </div>
+        <p className="fbcrm-etq">Cultivos</p>
+        <div className="fbcrm-chips">{Object.entries(datos.cultivos).map(([k, l]) => <button key={k} className={b.cultivos.includes(k) ? 'on' : ''} aria-pressed={b.cultivos.includes(k)} onClick={() => toggleB('cultivos', k)}>{l}</button>)}</div>
+        <p className="fbcrm-etq">Regiones</p>
+        <div className="fbcrm-chips">{datos.regiones.map((r) => <button key={r} className={b.regiones.includes(r) ? 'on' : ''} aria-pressed={b.regiones.includes(r)} title={REG_NOMBRE[r]} onClick={() => toggleB('regiones', r)}>{r}</button>)}</div>
+        {(() => { const n = [(b.regiones || []).length > 0, b.haMin !== '' && b.haMin != null || b.haMax !== '' && b.haMax != null, (b.cultivos || []).length > 0].filter(Boolean).length; return n < 2 && !(b.zona || '').trim() && <p className="fbcrm-aviso-linea">Para que esta búsqueda haga match, indica al menos dos de estos datos: regiones, hectáreas o cultivos (o una comuna en “Zonas”).</p>; })()}
+        {f.busquedas.length > 1 && <p className="fbcrm-sep2"><button className="fbcrm-texto fbcrm-peligro-texto" onClick={() => { if (!window.confirm(`¿Quitar la búsqueda “${b.nombre}”?`)) return; setF((x) => ({ ...x, busquedas: x.busquedas.filter((y) => y.id !== b.id) })); setBSel(0); }}>Quitar esta búsqueda</button></p>}
+      </div>
+      <div className="fbcrm-acciones fbcrm-guardar-cliente">
+        <button className="fbcrm-primario" disabled={ocupado || !f.nombre} onClick={() => grabar()}>{esNuevo ? 'Crear cliente' : 'Guardar cambios'}</button>
+        {!esNuevo && <button className="fbcrm-peligro" onClick={eliminar}>Eliminar</button>}
         {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
       </div>
       {!esNuevo && <Seguimiento ctx={ctx} f={f} setF={setF} ocupado={ocupado} onGuardar={() => grabar()} />}
@@ -1221,7 +1281,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
             const env = (campo.envios || []).find((e) => e.clienteId === f.id);
             return (
               <button key={campo.id} className="fbcrm-fila" onClick={() => abrir('campos', campo)}>
-                <span className="fbcrm-cuerpo"><strong>{campo.nombre}</strong><small>{[campo.sector, campo.etapa, m.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial', env ? `enviado ${fmtFecha(env.fecha)}` : 'no enviado'].join(', ')}</small></span>
+                <span className="fbcrm-cuerpo"><strong>{campo.nombre}</strong><small>{[(m.razones.find((r) => /^Búsqueda: /.test(r)) || '').replace('Búsqueda: ', 'para '), campo.sector, campo.etapa, m.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial', env ? `enviado ${fmtFecha(env.fecha)}` : 'no enviado'].filter(Boolean).join(', ')}</small></span>
               </button>
             );
           })}
@@ -1229,6 +1289,59 @@ function FichaCliente({ ctx, inicial, cerrar }) {
       )}
       {!esNuevo && <Historial col="clientes" f={f} setF={setF} api={api} cargar={cargar} />}
     </Hoja>
+  );
+}
+
+// Escribir a un contacto del cliente por WhatsApp o correo, desde el WhatsApp y el correo de quien usa el CRM
+function EscribirCliente({ ctx, cli, contacto, canal, campos, cerrar, alEnviar }) {
+  const { datos, api, usuario } = ctx;
+  const firma = firmaDe(datos, usuario);
+  const [texto, setTexto] = useState(`Hola ${primerNombre(contacto.nombre) || ''},\n\n`.replace('Hola ,', 'Hola,'));
+  const [incluir, setIncluir] = useState([]);
+  const [estado, setEstado] = useState('');
+  const sinDatos = !((datos.contactos || {})[usuario] || {}).telefono;
+  const enviar = async () => {
+    const win = canal === 'whatsapp' ? window.open('', '_blank') : null;
+    if (win) { try { win.document.body.innerHTML = '<p style="font-family:system-ui,sans-serif;padding:28px;color:#1F4D31;font-size:17px">Preparando el mensaje de Farm Brokers…</p>'; } catch (e) { /* sin acceso */ } }
+    try {
+      const lineas = [];
+      for (const c of campos.filter((x) => incluir.includes(x.id))) {
+        setEstado(`Preparando la ficha de ${c.nombre}…`);
+        const link = await ctx.linkFicha(c, setEstado);
+        lineas.push(`• ${[c.nombre, c.sector, c.hectareas ? `${fmtNum(c.hectareas)} ha` : '', fmtPrecio(c)].filter(Boolean).join(', ')}\n  Ficha: ${link}`);
+      }
+      const cuerpo = [texto.trim(), lineas.length ? lineas.join('\n\n') : '', firma].filter(Boolean).join('\n\n');
+      if (canal === 'whatsapp') {
+        const url = `https://wa.me/${fonoWa(contacto.telefono)}?text=${encodeURIComponent(cuerpo)}`;
+        if (win && !win.closed) win.location.href = url; else window.location.href = url;
+      } else {
+        const asunto = lineas.length ? (lineas.length === 1 ? `Campo para ${cli.nombre}: ${campos.find((x) => incluir.includes(x.id)).nombre}` : `Campos para ${cli.nombre}`) : 'Farm Brokers Chile';
+        window.location.href = `mailto:${encodeURIComponent(emailsDe(contacto.email).join(','))}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
+      }
+      setEstado('Registrando…');
+      let r = null;
+      for (const id of incluir) r = await api(`/campos/${id}/envio`, { method: 'POST', body: { destinos: [{ clienteId: cli.id, contactoId: contacto.id || '' }], canal } }).catch(() => null);
+      if (!incluir.length) r = await api(`/clientes/${cli.id}/contacto`, { method: 'POST', body: { contactoId: contacto.id || '', canal, resumen: texto.replace(/^Hola[^,\n]*,?\s*/, '').trim().slice(0, 140) } }).catch(() => null);
+      if (incluir.length) r = await api('/').then((d) => d.clientes.find((x) => x.id === cli.id)).catch(() => null);
+      ctx.cargar(); alEnviar && alEnviar(r);
+      setEstado(canal === 'whatsapp' ? 'Listo: se abrió WhatsApp con el mensaje. Solo falta presionar enviar.' : 'Listo: se abrió tu correo con el mensaje.');
+    } catch (e) { if (win) win.close(); setEstado(e.message); }
+  };
+  return (
+    <div className="fbcrm-escribir">
+      <div className="fbcrm-escribir-cab"><strong>{canal === 'whatsapp' ? 'WhatsApp' : 'Correo'} a {contacto.nombre || cli.nombre}</strong><small>{canal === 'whatsapp' ? contacto.telefono : contacto.email}</small><button className="fbcrm-mini" onClick={cerrar}>Cerrar</button></div>
+      <textarea rows={4} value={texto} onChange={(e) => setTexto(e.target.value)} aria-label="Mensaje" />
+      {campos.length > 0 && (
+        <div className="fbcrm-escribir-campos">
+          <span>Adjuntar la ficha de:</span>
+          {campos.slice(0, 8).map((c) => <label key={c.id} className="fbcrm-check-mini"><input type="checkbox" checked={incluir.includes(c.id)} onChange={() => setIncluir(incluir.includes(c.id) ? incluir.filter((x) => x !== c.id) : [...incluir, c.id])} />{c.nombre}</label>)}
+        </div>
+      )}
+      <pre className="fbcrm-escribir-firma">{firma}</pre>
+      {sinDatos && <p className="fbcrm-nota-suave">Tu firma no tiene teléfono. Agrégalo en Equipo › Personas › Editar contacto, junto a tu nombre.</p>}
+      <div className="fbcrm-acciones"><button className="fbcrm-primario" onClick={enviar}>{canal === 'whatsapp' ? 'Abrir en mi WhatsApp' : 'Abrir en mi correo'}</button></div>
+      {estado && <p className="fbcrm-msg" role="status">{estado}</p>}
+    </div>
   );
 }
 
@@ -2194,7 +2307,7 @@ function Impresion({ ctx, imp, cerrar }) {
         <Marco pie={imp.tipo === 'mandato' ? PIE_MANDATO : <><span>Farm Brokers Chile, farmbrokers.cl, +56 9 7193 9040</span><span>{campo ? `Ficha de propiedad${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo ? ` ${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo}` : ''}` : 'Informe de seguimiento'}</span></>}>
         {imp.tipo === 'mandato'
           ? (mandato ? <DocMandato m={mandato} /> : <p>{errorMandato || 'Preparando el mandato…'}</p>)
-          : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} planos={conPlano ? planos : []} conKmz={conKmz} usuario={usuario} mostrarRol={mostrarRol} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
+          : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} planos={conPlano ? planos : []} conKmz={conKmz} usuario={usuario} contacto={(datos.contactos || {})[usuario]} mostrarRol={mostrarRol} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
             : imp.tipo === 'campo' ? <p>El campo ya no existe.</p> : <DocInforme datos={datos} usuario={usuario} />}
         </Marco>
       </article>
@@ -2891,7 +3004,7 @@ function GeneradorFicha({ ctx, trabajo, alTerminar }) {
     })();
     return () => { vivo = false; };
   }, []);
-  return <div className="fbcrm-generador" ref={ref} aria-hidden="true"><div className="fbcrm-doc doc-ficha-hoja"><DocFichaCliente campo={campo} fotosProp={fotosProp} planos={planos} conKmz={!(trabajo.opciones && trabajo.opciones.kmz === false)} usuario={ctx.usuario} mostrarRol={false} /></div></div>;
+  return <div className="fbcrm-generador" ref={ref} aria-hidden="true"><div className="fbcrm-doc doc-ficha-hoja"><DocFichaCliente campo={campo} fotosProp={fotosProp} planos={planos} conKmz={!(trabajo.opciones && trabajo.opciones.kmz === false)} usuario={ctx.usuario} contacto={(ctx.datos.contactos || {})[ctx.usuario]} mostrarRol={false} /></div></div>;
 }
 async function imprimirConImagenes() {
   const imgs = [...document.querySelectorAll('.fbcrm-doc img')];
@@ -3042,7 +3155,7 @@ function limpiarUbic(t) {
 }
 const PIE_MANDATO = <><span>www.farmbrokers.cl</span><span>Phone +569 7193 90 40</span><span>Email: contacto@farmbrokers.cl</span></>;
 function Marco({ children }) { return <>{children}</>; }
-function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usuario, mostrarRol }) {
+function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usuario, contacto, mostrarRol }) {
   const w = c.web || null, d = (w && w.detalle) || {}, g = conKmz ? c.geo || null : null;
   const fotos = w && w.fotos.length ? w.fotos : fotosProp;
   const coord = coordsDe(c) || (c.geo ? { ...c.geo.centro, aprox: !g } : null);
@@ -3137,7 +3250,7 @@ function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usua
   }
   add(<footer className="doc-ficha-pie">
     <div className="doc-ficha-pie-fila">
-      <strong>{usuario}, Farm Brokers Chile</strong><span>+56 9 7193 9040</span><span>contacto@farmbrokers.cl</span>
+      <strong>{usuario}, Farm Brokers Chile</strong><span>{(contacto && contacto.telefono) || '+56 9 7193 9040'}</span><span>{(contacto && contacto.email) || 'contacto@farmbrokers.cl'}</span>
       {link && <span>{link.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>}
     </div>
     <p className="doc-ficha-legal">Estoril 120, of. 615, Las Condes. Información referencial, sujeta a verificación durante el proceso de compra.</p>
@@ -4365,6 +4478,24 @@ const CSS = `
 .tc-sin-plant{font-style:normal;color:var(--salvia);opacity:.8}
 .fbcrm-dif-web{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:999px;background:#FBE7CF;color:#8A4F0A;font-size:.72rem;font-weight:700;vertical-align:2px;white-space:nowrap}
 .fbcrm .fbcrm-filtro-perfiles button.v-dif{background:#FBE7CF;color:#8A4F0A}
+.fbcrm-contactos{list-style:none;margin:0 0 10px;padding:0;display:grid;gap:10px}
+.fbcrm-contactos>li{border:1px solid var(--linea);border-radius:13px;padding:10px 12px 8px;background:#fff}
+.fbcrm-contactos>li.principal{border-color:var(--potrero);box-shadow:0 0 0 1px var(--potrero) inset}
+.fbcrm-contacto-acc{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px}
+.fbcrm .fbcrm-mini.fbcrm-wa{background:#E7F6EC;border-color:#BFE5CB;color:#1B7A3E}
+.fbcrm-busq-tabs button.pausada{opacity:.6}
+.fbcrm .fbcrm-busq-tabs .fbcrm-busq-nueva{border-style:dashed}
+.fbcrm-peligro-texto{color:#B3402E}
+.fbcrm-guardar-cliente{margin:0 0 16px}
+.fbcrm-escribir{margin-top:12px;border:1px solid var(--linea);border-radius:13px;padding:12px;background:var(--hoja)}
+.fbcrm-escribir-cab{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.fbcrm-escribir-cab small{color:var(--salvia);flex:1}
+.fbcrm-escribir textarea{width:100%;box-sizing:border-box}
+.fbcrm-escribir-campos{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin:8px 0;font-size:.88rem}
+.fbcrm-escribir-campos>span{color:var(--salvia)}
+.fbcrm-escribir-firma{margin:6px 0;font:inherit;font-size:.84rem;color:var(--salvia);white-space:pre-wrap}
+.fbcrm-wa-contactos{display:inline-flex;flex-wrap:wrap;gap:4px;justify-content:flex-end}
+.fbcrm-tag-clase{display:inline-block;margin-left:6px;padding:0 7px;border-radius:999px;background:#EEF1F6;color:#4A5A72;font-size:.72rem;font-weight:600;vertical-align:1px}
 .fbcrm-opc-envio{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:12px 0 0;padding:10px 12px;background:var(--hoja);border-radius:11px;font-size:.9rem}
 .fbcrm-opc-envio>span{color:var(--salvia)}
 .fbcrm-opc-envio label{display:inline-flex;align-items:center;gap:6px;font-weight:500;cursor:pointer}
