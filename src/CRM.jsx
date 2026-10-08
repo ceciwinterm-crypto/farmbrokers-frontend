@@ -4304,7 +4304,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
         <label className="fbcrm-check-linea"><input type="checkbox" checked={descarga} onChange={(e) => setDescarga(e.target.checked)} />Permitir descargar los archivos (KMZ y planos)</label>
       </div>
       <div className="fbcrm-acciones">
-        <button className="fbcrm-primario" disabled={!!preparando || (!clienteId && !nombre.trim()) || !((campo.geo && conKmz) || (planosC.length && conPlanos))} onClick={crear}>{preparando === 'nuevo' ? 'Preparando la ficha…' : `Crear link para ${cli ? cli.nombre : nombre || 'el cliente'}`}</button>
+        <button className="fbcrm-primario" disabled={!!preparando} onClick={() => { if (!clienteId && !nombre.trim()) { setMsg('Para crear el link, elige el cliente en la lista de arriba o escribe el nombre de la persona.'); return; } if (!((campo.geo && conKmz) || (planosC.length && conPlanos))) { setMsg('Marca qué lleva el link: el contorno y KMZ o los planos.'); return; } crear(); }}>{preparando === 'nuevo' ? 'Preparando la ficha…' : `Crear link para ${cli ? cli.nombre : nombre || 'el cliente'}`}</button>
         <button className="fbcrm-texto" onClick={() => setVerAcuerdo(!verAcuerdo)}>{verAcuerdo ? 'Ocultar el texto del acuerdo' : 'Ver o editar el texto del acuerdo'}</button>
       </div>
       {verAcuerdo && (
