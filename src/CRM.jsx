@@ -230,6 +230,36 @@ function pendientesEnvio(datos, campo) {
 }
 function faltantes(datos, campo) { return datos.checklist.filter(([k]) => !(campo.checklist || {})[k] && !(k === 'publicacion' && campo.visibilidad !== 'publica')).map(([, l]) => l); }
 
+// Aviso para instalar el CRM como app en el celular (o en el computador con Chrome)
+function InstalarApp() {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const instalada = typeof window !== 'undefined' && ((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone);
+  const ios = /iphone|ipad|ipod/i.test(ua) || (/macintosh/i.test(ua) && typeof document !== 'undefined' && 'ontouchend' in document);
+  const android = /android/i.test(ua);
+  const [oculto, setOculto] = useState(leerLocal('fbcrm_instalar_oculto') === '1');
+  const [puede, setPuede] = useState(typeof window !== 'undefined' && !!window.__fbInstalar);
+  const [ver, setVer] = useState(false);
+  useEffect(() => { const f = () => setPuede(true); window.addEventListener('fb-instalable', f); return () => window.removeEventListener('fb-instalable', f); }, []);
+  if (instalada || oculto || (!ios && !android && !puede)) return null;
+  const instalar = async () => { const e = window.__fbInstalar; if (!e) { setVer(true); return; } e.prompt(); const r = await e.userChoice.catch(() => null); if (r && r.outcome === 'accepted') { window.__fbInstalar = null; setPuede(false); } };
+  const cerrar = () => { guardarLocal('fbcrm_instalar_oculto', '1'); setOculto(true); };
+  return (
+    <div className="fbcrm-instalar" role="note">
+      <img src="/icons/icono-192.png" alt="" />
+      <div className="fbcrm-instalar-texto">
+        <strong>Instala el CRM en tu {ios || android ? 'celular' : 'computador'}</strong>
+        {ios ? <span>En <b>Safari</b>, toca <b>Compartir</b> <span aria-hidden="true">(el cuadrado con la flecha hacia arriba)</span> y luego <b>“Agregar a inicio”</b>. Queda como una app más, con el ícono de Farm Brokers.</span>
+          : puede ? <span>Queda como una app más, con el ícono de Farm Brokers, y se abre directo en el CRM.</span>
+          : <span>En <b>Chrome</b>, toca el menú <b>⋮</b> (arriba a la derecha) y luego <b>“Instalar app”</b> o <b>“Agregar a pantalla de inicio”</b>.</span>}
+        {ver && !ios && <span>Si no aparece la opción, ábrelo en Chrome y usa el menú ⋮ › “Instalar app”.</span>}
+      </div>
+      <div className="fbcrm-instalar-acc">
+        {!ios && puede && <button className="fbcrm-mini fbcrm-primario" onClick={instalar}>Instalar app</button>}
+        <button className="fbcrm-mini" onClick={cerrar}>{ios || !puede ? 'Entendido' : 'Ahora no'}</button>
+      </div>
+    </div>
+  );
+}
 function Agenda({ ctx, irA, importar }) {
   const { datos, abrir } = ctx;
   const hoy = hoyISO();
@@ -280,7 +310,7 @@ function Agenda({ ctx, irA, importar }) {
   );
 
   if (!datos.campos.length && !datos.clientes.length) return (
-    <>{banda}<div className="fbcrm-bienvenida">
+    <><InstalarApp />{banda}<div className="fbcrm-bienvenida">
       <h2>Empieza cargando la planilla</h2>
       <p>Descarga el Google Sheet de Daniel como Excel (Archivo → Descargar → Microsoft Excel) y súbelo aquí. Se importan los campos, los clientes con sus requerimientos, la captación y la prospección.</p>
       <button className="fbcrm-primario" onClick={importar}>Importar planilla</button>
@@ -289,6 +319,7 @@ function Agenda({ ctx, irA, importar }) {
 
   return (
     <section>
+      <InstalarApp />
       {banda}
       <Solicitudes ctx={ctx} soloPendientes />
       {(() => { const mias = (datos.tareas || []).filter((t) => t.asignadoA === ctx.usuario && t.estado !== 'hecha').sort((a, b) => (a.vence || '9999').localeCompare(b.vence || '9999'));
@@ -2135,7 +2166,7 @@ function AvisosCorreo({ ctx }) {
   const cambiar = async (n, k, v) => { try { await api('/equipo/avisos', { method: 'PUT', body: { nombre: n, ...prefs(n), [k]: v } }); await cargar(); } catch (e) { setMsg(e.message); } };
   const probar = async (tipo) => {
     setEnviando(tipo); setMsg('');
-    try { const r = await api('/correo/prueba', { method: 'POST', body: { tipo } }); setMsg(`Listo: se envió ${tipo === 'resumen' ? 'tu resumen de hoy' : 'un correo de prueba'} a ${r.para}. Si no llega en un par de minutos, revisa la carpeta de spam.`); }
+    try { const r = await api('/correo/prueba', { method: 'POST', body: { tipo } }); setMsg(`Listo: se envió ${tipo === 'resumen' ? 'tu resumen de la semana' : 'un correo de prueba'} a ${r.para}. Si no llega en un par de minutos, revisa la carpeta de spam.`); }
     catch (e) { setMsg(e.message); }
     setEnviando('');
   };
@@ -2143,22 +2174,22 @@ function AvisosCorreo({ ctx }) {
     <div className="fbcrm-bloque fbcrm-avisos">
       <h3>Avisos por correo</h3>
       {!c.configurado ? <p className="fbcrm-aviso-linea">Los correos todavía no están activados: falta conectar el servicio de envío en Railway (la variable BREVO_API_KEY).</p>
-        : <p className="fbcrm-nota-suave">Los avisos salen desde <b>{c.remitente}</b>. Llegan al correo de cada persona (el de “Editar contacto”): al momento cuando le asignan una tarea, cuando alguien pide eliminar algo, cuando un cliente firma una orden de visita o un mandato o acepta un plano, y cada mañana a las 8:00 un resumen de sus pendientes del día.</p>}
+        : <p className="fbcrm-nota-suave">Los avisos salen desde <b>{c.remitente}</b>. Llegan al correo de cada persona (el de “Editar contacto”): al momento cuando le asignan una tarea, cuando alguien pide eliminar algo, cuando un cliente firma una orden de visita o un mandato o acepta un plano, y cada lunes a las 8:00 un resumen de lo que viene en la semana (con lo atrasado).</p>}
       <table className="fbcrm-avisos-tabla">
-        <thead><tr><th>Persona</th><th>Correo</th><th>Al momento</th><th>Resumen 8:00</th></tr></thead>
+        <thead><tr><th>Persona</th><th>Correo</th><th>Al momento</th><th>Resumen lunes</th></tr></thead>
         <tbody>{personas.map((n) => (
           <tr key={n}>
             <th>{n}{n === usuario ? ' (tú)' : ''}</th>
             <td>{email(n) || <em>Sin correo: agrégalo en “Editar contacto”</em>}</td>
             <td><input type="checkbox" aria-label={`Avisos al momento para ${n}`} checked={prefs(n).inmediato} disabled={!email(n)} onChange={(e) => cambiar(n, 'inmediato', e.target.checked)} /></td>
-            <td><input type="checkbox" aria-label={`Resumen diario para ${n}`} checked={prefs(n).resumen} disabled={!email(n)} onChange={(e) => cambiar(n, 'resumen', e.target.checked)} /></td>
+            <td><input type="checkbox" aria-label={`Resumen semanal para ${n}`} checked={prefs(n).resumen} disabled={!email(n)} onChange={(e) => cambiar(n, 'resumen', e.target.checked)} /></td>
           </tr>
         ))}</tbody>
       </table>
       {c.configurado && email(usuario) && (
         <div className="fbcrm-acciones">
           <button className="fbcrm-mini" disabled={!!enviando} onClick={() => probar('prueba')}>{enviando === 'prueba' ? 'Enviando…' : 'Enviarme un correo de prueba'}</button>
-          <button className="fbcrm-mini" disabled={!!enviando} onClick={() => probar('resumen')}>{enviando === 'resumen' ? 'Enviando…' : 'Enviarme el resumen de hoy'}</button>
+          <button className="fbcrm-mini" disabled={!!enviando} onClick={() => probar('resumen')}>{enviando === 'resumen' ? 'Enviando…' : 'Enviarme el resumen de la semana'}</button>
         </div>
       )}
       {datos.esAdmin && (c.log || []).length > 0 && (
@@ -4838,6 +4869,12 @@ const CSS = `
 .fbcrm-avisos-log ul{list-style:none;margin:6px 0 0;padding:0;font-size:.84rem}
 .fbcrm-avisos-log li{padding:3px 0}.fbcrm-avisos-log li.error{color:#B4452A}
 @media (max-width:620px){.fbcrm-avisos-tabla thead th:nth-child(2),.fbcrm-avisos-tabla td:nth-child(2){display:none}}
+.fbcrm-instalar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 14px;padding:12px 14px;background:#fff;border:1px solid var(--linea);border-radius:14px}
+.fbcrm-instalar img{width:44px;height:44px;border-radius:10px;border:1px solid var(--linea2);flex:0 0 auto}
+.fbcrm-instalar-texto{flex:1 1 220px;display:flex;flex-direction:column;gap:2px;font-size:.9rem;color:var(--salvia)}
+.fbcrm-instalar-texto strong{color:var(--tinta);font-size:.98rem}
+.fbcrm-instalar-texto b{color:var(--tinta)}
+.fbcrm-instalar-acc{display:flex;gap:6px}
 .fbcrm-opc-envio{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:12px 0 0;padding:10px 12px;background:var(--hoja);border-radius:11px;font-size:.9rem}
 .fbcrm-opc-envio>span{color:var(--salvia)}
 .fbcrm-opc-envio label{display:inline-flex;align-items:center;gap:6px;font-weight:500;cursor:pointer}
