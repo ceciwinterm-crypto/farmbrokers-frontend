@@ -1363,7 +1363,7 @@ const fechaLargaO = (iso) => { const d = new Date(`${String(iso || '').slice(0, 
 const textoOrdenF = (d) => {
   const com = d.comision || '2 % + IVA';
   return [
-    `El Cliente certifica y declara haber solicitado a Farm Brokers Chile SpA, oficina de corretaje de propiedades, rol único tributario N° 77.089.307-0, orden para visitar la propiedad descrita anteriormente, y deja expresa constancia de que ésta es la primera oficina en ofrecer esta propiedad. Por lo tanto, se compromete a encargar a Farm Brokers Chile SpA la realización de cualquier gestión ante el propietario para adquirirla o arrendarla, comprometiéndose a pagar una comisión correspondiente a ${com} del valor total del contrato respectivo de compraventa y/o arriendo, en caso de efectuarse el negocio.`,
+    `El Cliente certifica y declara haber solicitado a Farm Brokers Chile SpA, oficina de corretaje de propiedades, rol único tributario N° 77.089.307-0, orden para visitar la propiedad descrita anteriormente, y deja expresa constancia de que ésta es la primera oficina en ofrecer esta propiedad. Por lo tanto, se compromete a encargar a Farm Brokers Chile SpA la realización de cualquier gestión ante el propietario para adquirirla o arrendarla, comprometiéndose a pagar una comisión correspondiente a ${com} del valor total del contrato respectivo de compraventa y/o arriendo, en caso de efectuarse el negocio, salvo que las partes acuerden por escrito una comisión distinta.`,
     'Las partes se obligan, para sí y para los colaboradores que designen, a mantener la más estricta confidencialidad respecto de toda conversación, información y documentación referente al proceso de compra y/o arriendo de la propiedad, quedando estrictamente prohibida su divulgación a cualquier tercero, así como la utilización de tal información o conocimiento en cualquier otra actividad, ya sea en beneficio propio o de terceros.',
     'En caso de que el suscrito transmita a terceros cualquier información de la propiedad sin consentimiento previo y por escrito de Farm Brokers Chile SpA; en caso de tratar directamente con los propietarios, haciendo el negocio por su cuenta directa o indirectamente; o en caso de que la propiedad sea adquirida por personas relacionadas familiar o laboralmente con el suscrito, aunque la orden de venta de la propiedad haya vencido, sea ésta exclusiva o no exclusiva, el suscrito estará obligado a pagar íntegramente la comisión correspondiente a Farm Brokers Chile SpA.',
     'Esta orden es personal e intransferible y, para todos los efectos legales, las partes fijan su domicilio en la ciudad de Santiago.',
@@ -1386,7 +1386,7 @@ function OrdenPrevia({ o, refPdf }) {
 }
 // El documento (en pantalla, en el PDF y en la página que firma el cliente)
 function DocOrden({ o }) {
-  const d = o.datos || {}, texto = o.texto || textoOrdenF(d), firma = o.firma;
+  const d = o.datos || {}, texto = o.texto || (o.firma && o.firma.texto) || textoOrdenF(d), firma = o.firma;
   const fila = (k, l) => (d[k] ? <div key={k}><dt>{l}</dt><dd className={k === 'enlace' ? 'doc-url' : ''}>{d[k]}</dd></div> : null);
   return (
     <section className="doc-pagina doc-orden">
