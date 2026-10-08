@@ -3916,6 +3916,14 @@ function KmzMasivo({ ctx, cerrar }) {
 
 // ════════════════════════════ Plano con acuerdo de confidencialidad ════════════════════════════
 const linkPlano = (token) => `${window.location.origin}${window.location.pathname}#plano/${token}`;
+// La ficha que va junto al plano no lleva el plano ni el KMZ: esos quedan detrás del acuerdo de confidencialidad
+const OPC_FICHA_PLANO = { kmz: false, plano: false };
+const tokenDeLinkFicha = (link) => (String(link || '').match(/([a-f0-9]{32})(?:\.pdf)?(?:[?#].*)?$/) || [])[1] || '';
+function fichaDeCompartido(campo, c) {
+  const fs = campo.fichasPdf || [];
+  const f = (c.ficha && fs.find((x) => x.token === c.ficha)) || [...fs].reverse().find((x) => x.opciones === 'k0p0');
+  return f ? f.token : '';
+}
 function estadoCompartido(c) {
   if (!c.activo) return ['Desactivado', 'gris'];
   if (Date.now() > new Date(c.vence).getTime()) return ['Vencido', 'gris'];
@@ -3945,14 +3953,35 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   const cli = datos.clientes.find((c) => c.id === clienteId);
   const titulo = (campo.web && campo.web.titulo) || campo.nombre;
   const saludoDe = (c) => { const k = c.clienteId && datos.clientes.find((x) => x.id === c.clienteId); const n = k ? k.contactoNombre : c.destinatario; return n ? ` ${String(n).trim().split(' ')[0]}` : ''; };
-  const mensaje = (c) => `Hola${saludoDe(c)}, te comparto ${c.kmz === false ? 'los planos' : (c.planos || []).length ? 'el plano y el KMZ' : 'el plano'} de ${titulo}. Es información confidencial: para verlo${c.descarga ? ' y descargarlo' : ''} primero debes aceptar un breve acuerdo de confidencialidad en este link:\n\n${linkPlano(c.token)}\n\nEl link vence el ${fmtFecha(c.vence.slice(0, 10))}.\n\n${usuario}\nFarm Brokers Chile`;
+  const mensaje = (c, fichaTk = fichaDeCompartido(campo, c)) => `Hola${saludoDe(c)}, te comparto ${c.kmz === false ? 'los planos' : (c.planos || []).length ? 'el plano y el KMZ' : 'el plano'} de ${titulo}. Es información confidencial: para verlo${c.descarga ? ' y descargarlo' : ''} primero debes aceptar un breve acuerdo de confidencialidad en este link:\n\n${linkPlano(c.token)}\n\nEl link vence el ${fmtFecha(c.vence.slice(0, 10))}.${fichaTk ? `\n\nTambién te dejo la ficha del campo en PDF para que la descargues:\n${linkPublicoFicha(fichaTk, datos.fichasBase)}` : ''}\n\n${firmaDe(datos, usuario)}`;
+  // Antes de enviar, asegura que la ficha esté al día (si el campo cambió, se genera de nuevo)
+  const fichaAlDia = async () => { try { return tokenDeLinkFicha(await ctx.linkFicha(campo, setMsg, OPC_FICHA_PLANO)); } catch (e) { console.warn('Ficha no preparada:', e); return ''; } };
+  const [preparando, setPreparando] = useState('');
+  const enviarWa = async (c) => {
+    const win = window.open('', '_blank');
+    if (win) { try { win.document.title = 'Farm Brokers'; win.document.body.innerHTML = '<p style="font-family:system-ui,sans-serif;padding:28px;color:#1F4D31;font-size:17px">Preparando la ficha de Farm Brokers…</p>'; } catch (e) { /* sin acceso */ } }
+    setPreparando(c.token);
+    const tk = (await fichaAlDia()) || fichaDeCompartido(campo, c);
+    const url = `https://wa.me/${fonoWa(c.telefono)}?text=${encodeURIComponent(mensaje(c, tk))}`;
+    if (win && !win.closed) win.location.href = url; else window.location.href = url;
+    setPreparando(''); setMsg(tk ? 'Se abrió WhatsApp con el link del plano y la ficha del campo.' : 'Se abrió WhatsApp con el link del plano (no se pudo preparar la ficha).');
+  };
+  const enviarCorreoP = async (c) => {
+    setPreparando(c.token);
+    const tk = (await fichaAlDia()) || fichaDeCompartido(campo, c);
+    setPreparando(''); setMsg(tk ? 'Se abrió tu correo con el link del plano y la ficha del campo.' : 'Se abrió tu correo con el link del plano (no se pudo preparar la ficha).');
+    window.location.href = `mailto:${c.email || ''}?subject=${encodeURIComponent(`Plano y ficha de ${titulo} (confidencial)`)}&body=${encodeURIComponent(mensaje(c, tk))}`;
+  };
   const crear = async () => {
     setMsg('');
     try {
-      const r = await api(`/campos/${campo.id}/compartir`, { method: 'POST', body: { clienteId, nombre: nombre || (cli ? cli.nombre : ''), email: email || (cli ? emailsDe(cli.email)[0] || '' : ''), telefono: telefono || (cli ? cli.telefono : ''), dias, descarga, kmz: !!campo.geo && conKmz, planos: conPlanos ? planosC.map((a) => a.id) : false } });
+      setPreparando('nuevo');
+      const ficha = await fichaAlDia();
+      setPreparando('');
+      const r = await api(`/campos/${campo.id}/compartir`, { method: 'POST', body: { ficha, clienteId, nombre: nombre || (cli ? cli.nombre : ''), email: email || (cli ? emailsDe(cli.email)[0] || '' : ''), telefono: telefono || (cli ? cli.telefono : ''), dias, descarga, kmz: !!campo.geo && conKmz, planos: conPlanos ? planosC.map((a) => a.id) : false } });
       setCampo(r); cargar(); setClienteId(''); setNombre(''); setEmail(''); setTelefono('');
-      setMsg('Link creado. Envíaselo por WhatsApp o correo desde la lista de abajo.');
-    } catch (e) { setMsg(e.message); }
+      setMsg(ficha ? 'Link creado, con la ficha del campo incluida. Envíaselo por WhatsApp o correo desde la lista de abajo.' : 'Link creado (no se pudo preparar la ficha; se intentará de nuevo al enviarlo). Envíaselo por WhatsApp o correo desde la lista de abajo.');
+    } catch (e) { setPreparando(''); setMsg(e.message); }
   };
   const desactivar = async (c) => {
     if (!window.confirm(`¿Desactivar el link de ${c.destinatario}? Ya no podrá ver ni descargar el plano.`)) return;
@@ -3965,7 +3994,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   return (
     <div className="fbcrm-bloque fbcrm-compartir">
       <h3>Enviar plano con confidencialidad {lista.length > 0 && <span>{plural(lista.length, 'envío')}</span>}</h3>
-      <p className="fbcrm-nota-suave">El cliente recibe un link personal. Primero acepta el acuerdo con su nombre y RUT; después ve y descarga lo que elijas: el contorno con el KMZ (con sus datos grabados) y los planos del loteo.</p>
+      <p className="fbcrm-nota-suave">El cliente recibe un link personal y, junto a él, la ficha del campo en PDF para descargar. Para ver el plano primero acepta el acuerdo con su nombre y RUT; después ve y descarga lo que elijas: el contorno con el KMZ (con sus datos grabados) y los planos del loteo.</p>
       <div className="fbcrm-form">
         <Campo label="Cliente" ancho>
           <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
@@ -3985,7 +4014,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
         <label className="fbcrm-check-linea"><input type="checkbox" checked={descarga} onChange={(e) => setDescarga(e.target.checked)} />Permitir descargar los archivos (KMZ y planos)</label>
       </div>
       <div className="fbcrm-acciones">
-        <button className="fbcrm-primario" disabled={(!clienteId && !nombre.trim()) || !((campo.geo && conKmz) || (planosC.length && conPlanos))} onClick={crear}>Crear link para {cli ? cli.nombre : nombre || 'el cliente'}</button>
+        <button className="fbcrm-primario" disabled={!!preparando || (!clienteId && !nombre.trim()) || !((campo.geo && conKmz) || (planosC.length && conPlanos))} onClick={crear}>{preparando === 'nuevo' ? 'Preparando la ficha…' : `Crear link para ${cli ? cli.nombre : nombre || 'el cliente'}`}</button>
         <button className="fbcrm-texto" onClick={() => setVerAcuerdo(!verAcuerdo)}>{verAcuerdo ? 'Ocultar el texto del acuerdo' : 'Ver o editar el texto del acuerdo'}</button>
       </div>
       {verAcuerdo && (
@@ -4010,8 +4039,8 @@ function CompartirPlano({ ctx, campo, setCampo }) {
                 <span className={`fbcrm-badge ${clase}`}>{est}</span>
                 {vigente && (
                   <span className="fbcrm-envio-acc">
-                    <button className="fbcrm-mini" onClick={() => window.open(`https://wa.me/${fonoWa(c.telefono)}?text=${encodeURIComponent(mensaje(c))}`, '_blank', 'noopener')}>WhatsApp</button>
-                    <button className="fbcrm-mini" onClick={() => { window.location.href = `mailto:${c.email || ''}?subject=${encodeURIComponent(`Plano de ${titulo} (confidencial)`)}&body=${encodeURIComponent(mensaje(c))}`; }}>Correo</button>
+                    <button className="fbcrm-mini" disabled={!!preparando} onClick={() => enviarWa(c)}>{preparando === c.token ? 'Preparando…' : 'WhatsApp'}</button>
+                    <button className="fbcrm-mini" disabled={!!preparando} onClick={() => enviarCorreoP(c)}>Correo</button>
                     <button className="fbcrm-mini" onClick={() => navigator.clipboard && navigator.clipboard.writeText(linkPlano(c.token)).then(() => setMsg('Link copiado.'))}>Copiar link</button>
                     <button className="fbcrm-mini fbcrm-peligro" onClick={() => desactivar(c)}>Desactivar</button>
                   </span>
@@ -4048,6 +4077,13 @@ export function FormularioPlano({ token }) {
     setEnviando(false);
   };
   const ancho = Math.min(typeof window !== 'undefined' ? window.innerWidth - 36 : 700, 820);
+  const bloqueFicha = (k) => p && p.ficha ? (
+    <section key={k} className="fbcrm-bloque fbcrm-ficha-adj">
+      <h2>Ficha del campo</h2>
+      <p className="fbcrm-nota-suave">Toda la información del campo en un PDF para guardar o imprimir.</p>
+      <div className="fbcrm-prop-pie"><a className="fbcrm-btn-descarga" href={`${linkPublicoFicha(p.ficha, p.fichasBase)}?descargar=1`}>Descargar la ficha (PDF)</a><a className="fbcrm-texto" href={linkPublicoFicha(p.ficha, p.fichasBase)} target="_blank" rel="noreferrer">Verla en línea</a></div>
+    </section>
+  ) : null;
   const caja = (hijos) => (<div className="fbcrm fbcrm-prop"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{hijos[0]}</header><main className="fbcrm-prop-main">{hijos[1]}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 7193 90 40</footer></div>);
   if (error) return caja([<h1 key="t">Link no disponible</h1>, <p key="m" className="fbcrm-sub">{error}</p>]);
   if (!p) return caja([<p key="t" className="fbcrm-sub">Cargando…</p>, null]);
@@ -4066,7 +4102,7 @@ export function FormularioPlano({ token }) {
       <label className="fbcrm-check-linea fbcrm-acepto"><input type="checkbox" checked={f.acepto} onChange={(e) => setF({ ...f, acepto: e.target.checked })} />Leí el acuerdo de confidencialidad y lo acepto. Entiendo que esta aceptación electrónica equivale a mi firma.</label>
       <div className="fbcrm-prop-pie"><button className="fbcrm-primario" disabled={enviando || !f.acepto || f.nombre.trim().length < 3 || !rutOk(f.rut)} onClick={aceptar}>{enviando ? 'Enviando…' : 'Aceptar y ver el plano'}</button></div>
     </section>,
-  ]);
+  ].map((x, i) => (i === 1 ? <>{bloqueFicha('fa')}{x}</> : x)));
   const vista = p.plano ? vistaAjustada(p.plano.bbox, ancho, Math.round(ancho * 0.62)) : null;
   return caja([
     <div key="t"><h1>Plano de {p.titulo}</h1><p className="fbcrm-sub">{p.lugar}</p></div>,
@@ -4088,6 +4124,7 @@ export function FormularioPlano({ token }) {
         {p.descarga && <div className="fbcrm-prop-pie"><a className="fbcrm-btn-descarga" href={url('/kmz')}>Descargar KMZ</a></div>}
         <p className="fbcrm-nota-suave fbcrm-sep">{p.descarga ? 'El archivo se abre con Google Earth e incluye tus datos, porque es de uso confidencial.' : 'Este plano se entrega solo para ver en línea.'}</p>
       </section>}
+      {bloqueFicha('fb')}
       <p className="fbcrm-nota-suave">Acuerdo aceptado por {p.aceptacion.nombre}, RUT {p.aceptacion.rut}, el {fmtFechaHora(p.aceptacion.fecha)}. Código de verificación {p.aceptacion.codigo}.</p>
     </>,
   ]);
@@ -4103,6 +4140,7 @@ const CSS = `
 .fbcrm *{box-sizing:border-box}
 .fbcrm h1,.fbcrm h2,.fbcrm h3{letter-spacing:-.01em}
 .fbcrm-sub{color:var(--salvia);margin:4px 0 0;font-size:.92rem}
+.fbcrm-ficha-adj .fbcrm-prop-pie{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
 
 /* Estructura */
 .fbcrm-app{display:grid;grid-template-columns:236px minmax(0,1fr);min-height:100vh}
