@@ -1438,7 +1438,6 @@ function DocBrochure({ cliente, contacto, items, usuario, datosUsuario, busca })
   const conCoord = items.map((it, i) => ({ ...datosBrochure(it.campo).coord, n: i + 1 })).filter((p) => p.lat);
   const caja = conCoord.length ? [Math.min(...conCoord.map((p) => p.lng)), Math.min(...conCoord.map((p) => p.lat)), Math.max(...conCoord.map((p) => p.lng)), Math.max(...conCoord.map((p) => p.lat))] : null;
   const vistaPines = caja ? (() => { const v = vistaAjustada([caja[0] - 0.08, caja[1] - 0.08, caja[2] + 0.08, caja[3] + 0.08], 330, 470); return { ...v, z: Math.min(v.z, 11) }; })() : null;
-  const para = contacto && contacto.nombre && contacto.nombre !== cliente.nombre ? `${contacto.nombre}, ${cliente.nombre}` : cliente.nombre;
   const total = items.length + 3;
   const pie = (n, oscuro) => <div className={`br-pie ${oscuro ? 'oscuro' : ''}`}><span>Farm Brokers Chile · farmbrokers.cl</span><span>{dosDig(n)} / {dosDig(total)}</span></div>;
   return (
@@ -1449,7 +1448,7 @@ function DocBrochure({ cliente, contacto, items, usuario, datosUsuario, busca })
         <img src={LOGO_FB_BLANCO} alt="Farm Brokers Chile" className="br-portada-logo" />
         <div className="br-portada-txt">
           <span className="br-antetitulo">Selección privada</span>
-          <h1>Campos elegidos para {para}</h1>
+          <h1>Selección de campos</h1>
           <p>{items.length === 1 ? 'Una propiedad' : `${items.length} propiedades`} seleccionadas por Farm Brokers{busca ? ` según lo que buscas: ${corto(busca, 120)}` : ' según lo que buscas'}.</p>
         </div>
         <div className="br-portada-pie"><span>{fecha}</span><span>Preparado por {usuario}</span></div>
@@ -1575,7 +1574,7 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
       const pdf = await pdfDeFicha(refPdf.current, setEstado);
       setEstado('Subiendo el brochure…');
       const blob = pdf.output('blob');
-      const r = await api('/brochures', { method: 'POST', body: { base64: await blobABase64(blob), clienteId: cli.id, campoIds: sel, titulo: `Seleccion de campos para ${cli.nombre}` } });
+      const r = await api('/brochures', { method: 'POST', body: { base64: await blobABase64(blob), clienteId: cli.id, campoIds: sel, titulo: 'Seleccion de campos' } });
       setLink(r.link || `${API_BASE}/api/crm/publico-brochure/${r.token}`);
       setEstado(''); setPaso('listo'); ctx.cargar();
     } catch (e) { setEstado(e.message); }
@@ -1583,7 +1582,7 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
   const mensaje = () => `Hola ${primerNombre(contacto.nombre) || ''},\n\nTe preparé una selección de ${lista.length === 1 ? 'un campo' : `${lista.length} campos`} que calzan con lo que buscas. Aquí está el brochure:\n${link}\n\n${lista.map((it, i) => { const d = datosBrochure(it.campo); return `${i + 1}. ${[d.titulo, d.comuna, d.ha].filter(Boolean).join(', ')}`; }).join('\n')}\n\nSi alguno te interesa, coordinamos una visita.\n\n${firmaDe(datos, usuario)}`.replace('Hola ,', 'Hola,');
   const registrar = async (canal) => { for (const id of sel) await api(`/campos/${id}/envio`, { method: 'POST', body: { destinos: [{ clienteId: cli.id, contactoId: contacto.id || '' }], canal } }).catch(() => null); ctx.cargar(); alTerminar && alTerminar(); };
   const enviarWa = () => { window.open(`https://wa.me/${fonoWa(contacto.telefono || cli.telefono)}?text=${encodeURIComponent(mensaje())}`, '_blank', 'noopener'); registrar('whatsapp'); setEstado('Se abrió WhatsApp con el brochure. Solo falta presionar enviar.'); };
-  const enviarCorreo = () => { window.location.href = `mailto:${encodeURIComponent(emailsDe(contacto.email || cli.email).join(','))}?subject=${encodeURIComponent(`Selección de campos para ${cli.nombre} - Farm Brokers`)}&body=${encodeURIComponent(mensaje())}`; registrar('correo'); setEstado('Se abrió tu correo con el brochure.'); };
+  const enviarCorreo = () => { window.location.href = `mailto:${encodeURIComponent(emailsDe(contacto.email || cli.email).join(','))}?subject=${encodeURIComponent('Selección de campos - Farm Brokers')}&body=${encodeURIComponent(mensaje())}`; registrar('correo'); setEstado('Se abrió tu correo con el brochure.'); };
   const doc = <DocBrochure cliente={cli} contacto={contacto} items={lista} usuario={usuario} datosUsuario={(datos.contactos || {})[usuario]} busca={busca} />;
   return (
     <>
