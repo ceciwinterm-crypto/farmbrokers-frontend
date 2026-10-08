@@ -101,7 +101,15 @@ function useApi(clave, usuario) {
 }
 
 // ════════════════════════════ Raíz ════════════════════════════
+// Celular: versión simple (solo cambia en pantallas angostas; en el computador todo queda igual)
+const ANCHO_MOVIL = 700;
+function useMovil() {
+  const [m, setM] = useState(() => typeof window !== 'undefined' && window.innerWidth < ANCHO_MOVIL);
+  useEffect(() => { const f = () => setM(window.innerWidth < ANCHO_MOVIL); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
+  return m;
+}
 export default function CRM() {
+  const movil = useMovil();
   const [clave, setClave] = useState(leerLocal('fbcrm_clave'));
   const [usuario, setUsuario] = useState(leerLocal('fbcrm_usuario'));
   const [datos, setDatos] = useState(null);
@@ -152,13 +160,13 @@ export default function CRM() {
   const ctx = { datos, api, usuario, guardar, cargar, abrir: (col, item) => setAbierto({ col, item }), imprimir: setImpresion, linkFicha };
   if (impresion && datos) return <Impresion ctx={ctx} imp={impresion} cerrar={() => setImpresion(null)} />;
 
-  const VISTAS = [['agenda', 'Agenda'], ['calendario', 'Calendario'], ['campos', 'Campos'], ['clientes', 'Clientes'], ['tasaciones', 'Tasaciones'], ['actividad', 'Equipo']];
+  const VISTAS = [['agenda', 'Agenda'], ['calendario', 'Calendario'], ['campos', 'Campos'], ['clientes', 'Clientes'], ['tasaciones', 'Tasaciones'], ['actividad', 'Equipo']].filter(([k]) => !(movil && k === 'tasaciones'));
   const urgentes = datos ? accionesConFecha(datos).filter((i) => i.x.proximaFecha <= hoyISO()).length + (datos.tareas || []).filter((t) => t.asignadoA === usuario && t.estado !== 'hecha').length : 0;
   const pendEquipo = datos ? (datos.esAdmin ? (datos.solicitudes || []).filter((x) => x.estado === 'pendiente').length : 0) : 0;
   const volver = (e) => { e.preventDefault(); window.location.hash = ''; window.location.reload(); };
 
   return (
-    <div className="fbcrm">
+    <div className={`fbcrm ${movil ? 'fbcrm-modo-movil' : ''}`}>
       <style>{CSS}</style>
       <div className="fbcrm-app">
         <aside className="fbcrm-nav">
@@ -193,7 +201,8 @@ export default function CRM() {
       {datos && vista === 'calendario' && <Calendario ctx={ctx} />}
       {datos && vista === 'campos' && <ListaCampos ctx={ctx} importar={() => setImportando(true)} />}
       {datos && vista === 'clientes' && <ListaClientes ctx={ctx} />}
-      {datos && vista === 'tasaciones' && <ListaTasaciones ctx={ctx} />}
+      {datos && vista === 'tasaciones' && !movil && <ListaTasaciones ctx={ctx} />}
+      {datos && vista === 'tasaciones' && movil && <p className="fbcrm-vacio">Las tasaciones se ven en el computador.</p>}
       {datos && vista === 'actividad' && <VistaEquipo ctx={ctx} />}
         </main>
       </div>
@@ -430,6 +439,7 @@ function ListaCampos({ ctx, importar }) {
   const corredores = nombresCorredores(datos);
   const [verCorredores, setVerCorredores] = useState(false);
   const [fDif, setFDif] = useState(false);
+  const [verFiltros, setVerFiltros] = useState(false);
   const FILTROS = { activos: ['Activos', ['Mandato firmado', 'En venta', 'En arriendo', 'En negociación']], captacion: ['Captación', ['Prospección', 'Captación', 'Documentación']], cerrados: ['Cerrados', ['Vendido', 'Arrendado', 'Suspendido', 'Retirado de la web', 'Descartado']], todos: ['Todos', datos.etapas.campos] };
   const nq = q.toLowerCase();
   const enEtapa = datos.campos.filter((c) => FILTROS[filtro][1].includes(c.etapa));
@@ -461,20 +471,21 @@ function ListaCampos({ ctx, importar }) {
   const tiposHay = [...new Set(enEtapa.map((c) => c.tipo))].sort((a, b) => cmp(TIPOS[a], TIPOS[b]));
   const hayFiltros = fRegion || fTipo || fPerfiles.length || fVisib.length || fOper || fCorredor || fDif || q;
   return (
-    <section>
-      <SyncWeb ctx={ctx} />
+    <section className={verFiltros ? 'ver-filtros' : ''}>
+      <div className="solo-pc"><SyncWeb ctx={ctx} /></div>
       <div className="fbcrm-barra">
         <div className="fbcrm-chips">{Object.entries(FILTROS).map(([k, [l]]) => <button key={k} className={filtro === k ? 'on' : ''} onClick={() => setFiltro(k)}>{l}</button>)}</div>
         <div className="fbcrm-chips">
-          <button className={verCorredores ? 'on' : ''} onClick={() => setVerCorredores(!verCorredores)}>Corredores</button>
-          <button onClick={importar}>Importar planilla</button>
-          <button onClick={() => setKmzMasivo(true)}>Subir KMZ de varios campos</button>
-          <button className="fbcrm-primario" onClick={() => abrir('campos', { etapa: 'Captación', tipo: 'agricola', responsable: usuario })}>Nuevo campo</button>
+          <button className={`solo-pc ${verCorredores ? 'on' : ''}`} onClick={() => setVerCorredores(!verCorredores)}>Corredores</button>
+          <button className="solo-pc" onClick={importar}>Importar planilla</button>
+          <button className="solo-pc" onClick={() => setKmzMasivo(true)}>Subir KMZ de varios campos</button>
+          <button className="fbcrm-primario" onClick={() => abrir('campos', { etapa: 'Captación', tipo: 'agricola', responsable: usuario })}><span className="solo-pc">Nuevo campo</span><span className="solo-movil">+ Nuevo</span></button>
         </div>
       </div>
       {verCorredores && <div className="fbcrm-bloque"><CorredoresAdmin ctx={ctx} /></div>}
       <div className="fbcrm-filtros">
         <input className="fbcrm-buscar" placeholder="Buscar por nombre, comuna, código, rol, plantación o propietario" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button type="button" className={`solo-movil fbcrm-btn-filtros ${verFiltros ? 'on' : ''}`} onClick={() => setVerFiltros(!verFiltros)}>Filtros{[fRegion, fTipo, fCorredor, fOper, fDif].filter(Boolean).length + fPerfiles.length + fVisib.length ? ` (${[fRegion, fTipo, fCorredor, fOper, fDif].filter(Boolean).length + fPerfiles.length + fVisib.length})` : ''}</button>
         <label><span>Región</span><select value={fRegion} onChange={(e) => setFRegion(e.target.value)}><option value="">Todas</option>{regionesHay.map((r) => <option key={r || 'sin'} value={r}>{r ? REG_NOMBRE[r] || r : 'Sin región'}</option>)}</select></label>
         <label><span>Tipo</span><select value={fTipo} onChange={(e) => setFTipo(e.target.value)}><option value="">Todos</option>{tiposHay.map((t) => <option key={t} value={t}>{TIPOS[t] || t}</option>)}</select></label>
         <label><span>Corredor</span><select value={fCorredor} onChange={(e) => setFCorredor(e.target.value)}><option value="">Todos</option>{corredores.map((n) => <option key={n} value={n}>{n}</option>)}<option value="__sin">Sin corredor</option></select></label>
@@ -495,7 +506,7 @@ function ListaCampos({ ctx, importar }) {
         const enVenta = datos.campos.filter((c) => ['Mandato firmado', 'En venta', 'En arriendo', 'En negociación'].includes(c.etapa));
         const n = (v) => enVenta.filter((c) => visibDe(c) === v).length;
         const arr = enVenta.filter((c) => c.etapa === 'En arriendo').length, ven = enVenta.filter((c) => c.etapa === 'En venta').length;
-        return enVenta.length > 0 && <p className="fbcrm-resumen-venta"><b>{plural(enVenta.length, 'campo activo', 'campos activos')}:</b> {ven} en venta, {arr} en arriendo{enVenta.length - ven - arr ? `, ${enVenta.length - ven - arr} con mandato o en negociación` : ''}. {plural(n('publica'), 'público', 'públicos')} en la web, {plural(n('reservada'), 'reservado', 'reservados')}{n('interna') ? `, ${n('interna')} sin definir` : ''}.</p>;
+        return enVenta.length > 0 && <p className="fbcrm-resumen-venta solo-pc"><b>{plural(enVenta.length, 'campo activo', 'campos activos')}:</b> {ven} en venta, {arr} en arriendo{enVenta.length - ven - arr ? `, ${enVenta.length - ven - arr} con mandato o en negociación` : ''}. {plural(n('publica'), 'público', 'públicos')} en la web, {plural(n('reservada'), 'reservado', 'reservados')}{n('interna') ? `, ${n('interna')} sin definir` : ''}.</p>;
       })()}
       <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); setFPerfiles([]); setFVisib([]); setFOper(''); setFCorredor(''); setFDif(false); }}>Quitar filtros</button></>}</p>
       {!lista.length && <p className="fbcrm-vacio">{datos.campos.length ? 'Ningún campo coincide con el filtro.' : 'Aún no hay campos. Importa la planilla o usa “Nuevo campo”.'}</p>}
@@ -622,8 +633,8 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           <button onClick={() => ctx.imprimir({ tipo: 'campo', id: f.id })}><Icono n="pdf" s={18} />Ficha PDF</button>
           <button className={tareaForm ? 'on' : ''} onClick={() => setTareaForm(tareaForm ? null : { titulo: '' })}>Tarea</button>
           <button className={verOrdenNueva ? 'on' : ''} onClick={() => setVerOrdenNueva(!verOrdenNueva)}>Orden de visita</button>
-          <button className={verPublicar ? 'on' : ''} onClick={() => setVerPublicar(!verPublicar)}>{linkPublicadoDe(f) ? 'Publicado en web ✓' : visibDe(f) === 'reservada' ? 'Web: reservada 🔒' : f.wp ? 'Borrador web ✓' : 'Publicar en web'}</button>
-          <button className={verMandato ? 'on' : ''} aria-expanded={verMandato} onClick={() => setVerMandato(!verMandato)}>
+          <button className={`solo-pc ${verPublicar ? 'on' : ''}`} onClick={() => setVerPublicar(!verPublicar)}>{linkPublicadoDe(f) ? 'Publicado en web ✓' : visibDe(f) === 'reservada' ? 'Web: reservada 🔒' : f.wp ? 'Borrador web ✓' : 'Publicar en web'}</button>
+          <button className={`solo-pc ${verMandato ? 'on' : ''}`} aria-expanded={verMandato} onClick={() => setVerMandato(!verMandato)}>
             Mandato {cap ? <span className={`fbcrm-badge est-${cap.estado}`}>{ETIQUETA_CAP[cap.estado]}</span> : <span className="fbcrm-badge gris">Sin link</span>}
           </button>
           {linkWeb && <a className="fbcrm-btn-link" href={linkWeb} target="_blank" rel="noreferrer">Ver en la web</a>}
@@ -886,6 +897,7 @@ function ListaClientes({ ctx }) {
   const [hasta, setHasta] = useState('');
   const [orden, setOrden] = useState('nombre');
   const [verPerfiles, setVerPerfiles] = useState(false);
+  const [verFiltrosC, setVerFiltrosC] = useState(false);
   const porCliente = useMemo(() => {
     const m = {}; for (const [cid, lista] of Object.entries(datos.matches)) {
       const campo = datos.campos.find((c) => c.id === cid);
@@ -911,21 +923,22 @@ function ListaClientes({ ctx }) {
   const hayFiltros = q || fPerfiles.length || fFecha || fCorredor;
   const fmtMes = (d) => (d ? d.toLocaleDateString('es-CL', { month: 'short', year: 'numeric' }) : '');
   return (
-    <section>
+    <section className={verFiltrosC ? 'ver-filtros' : ''}>
       <div className="fbcrm-barra">
         <div className="fbcrm-chips">
           {[['Activo', 'Activos'], ['revisar', 'Por completar'], ['Pausado', 'Pausados'], ['todos', 'Todos']].map(([k, l]) => <button key={k} className={filtro === k ? 'on' : ''} onClick={() => setFiltro(k)}>{l}</button>)}
         </div>
         <div className="fbcrm-chips">
-          <button className={verPerfiles ? 'on' : ''} onClick={() => setVerPerfiles(!verPerfiles)}>Perfiles</button>
-          <button className={verCorredores ? 'on' : ''} onClick={() => setVerCorredores(!verCorredores)}>Corredores</button>
-          <button className="fbcrm-primario" onClick={() => abrir('clientes', { etapa: 'Activo', operacion: 'compra', tipo: 'agricola', regiones: [], cultivos: [], perfiles: [], responsable: usuario, fechaRequerimiento: hoyISO() })}>Nuevo cliente</button>
+          <button className={`solo-pc ${verPerfiles ? 'on' : ''}`} onClick={() => setVerPerfiles(!verPerfiles)}>Perfiles</button>
+          <button className={`solo-pc ${verCorredores ? 'on' : ''}`} onClick={() => setVerCorredores(!verCorredores)}>Corredores</button>
+          <button className="fbcrm-primario" onClick={() => abrir('clientes', { etapa: 'Activo', operacion: 'compra', tipo: 'agricola', regiones: [], cultivos: [], perfiles: [], responsable: usuario, fechaRequerimiento: hoyISO() })}><span className="solo-pc">Nuevo cliente</span><span className="solo-movil">+ Nuevo</span></button>
         </div>
       </div>
       {verPerfiles && <div className="fbcrm-bloque"><PerfilesAdmin ctx={ctx} /></div>}
       {verCorredores && <div className="fbcrm-bloque"><CorredoresAdmin ctx={ctx} /></div>}
       <div className="fbcrm-filtros">
-        <input className="fbcrm-buscar" placeholder="Buscar por nombre, requerimiento, zona o email" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="fbcrm-buscar" placeholder="Buscar por nombre, contacto, requerimiento o zona" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button type="button" className={`solo-movil fbcrm-btn-filtros ${verFiltrosC ? 'on' : ''}`} onClick={() => setVerFiltrosC(!verFiltrosC)}>Filtros{[fCorredor, fFecha].filter(Boolean).length + fPerfiles.length ? ` (${[fCorredor, fFecha].filter(Boolean).length + fPerfiles.length})` : ''}</button>
         <label><span>Corredor</span><select value={fCorredor} onChange={(e) => setFCorredor(e.target.value)}><option value="">Todos</option>{corredores.map((n) => <option key={n} value={n}>{n}</option>)}<option value="__sin">Sin corredor</option></select></label>
         <label><span>Fecha de ingreso</span><select value={fFecha} onChange={(e) => setFFecha(e.target.value)}>
           <option value="">Todas</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="365">Último año</option><option value="anio">Este año</option><option value="rango">Entre fechas…</option>
@@ -4877,6 +4890,28 @@ const CSS = `
 .fbcrm-instalar-texto strong{color:var(--tinta);font-size:.98rem}
 .fbcrm-instalar-texto b{color:var(--tinta)}
 .fbcrm-instalar-acc{display:flex;gap:6px}
+/* Versión simple para el celular */
+.solo-movil{display:none!important}
+.fbcrm-modo-movil .solo-pc{display:none!important}
+.fbcrm-modo-movil .solo-movil{display:inline-flex!important}
+.fbcrm-modo-movil input,.fbcrm-modo-movil select,.fbcrm-modo-movil textarea{font-size:16px!important}
+.fbcrm-modo-movil{overflow-x:hidden}
+.fbcrm-modo-movil .fbcrm-movil-top{padding-top:4px;padding-bottom:4px}
+.fbcrm-modo-movil .fbcrm-movil-top .fbcrm-logo-img{width:112px}
+.fbcrm-modo-movil .fbcrm-h1{font-size:1.6rem;margin:4px 0 12px}
+.fbcrm-modo-movil .fbcrm-barra{flex-wrap:nowrap;gap:8px;align-items:center}
+.fbcrm-modo-movil .fbcrm-barra>.fbcrm-chips:first-child{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;flex:1 1 auto;min-width:0;-webkit-overflow-scrolling:touch}
+.fbcrm-modo-movil .fbcrm-barra>.fbcrm-chips:first-child::-webkit-scrollbar{display:none}
+.fbcrm-modo-movil .fbcrm-barra>.fbcrm-chips:first-child button{flex:0 0 auto}
+.fbcrm-modo-movil .fbcrm-barra>.fbcrm-chips:last-child{flex:0 0 auto}
+.fbcrm-modo-movil .fbcrm-filtros{display:flex;flex-wrap:wrap;gap:8px}
+.fbcrm-modo-movil .fbcrm-filtros .fbcrm-buscar{flex:1 1 0;min-width:0}
+.fbcrm-modo-movil section:not(.ver-filtros) .fbcrm-filtros>label,.fbcrm-modo-movil section:not(.ver-filtros) .fbcrm-filtro-perfiles{display:none!important}
+.fbcrm-modo-movil .fbcrm-filtros>label{flex:1 1 140px}
+.fbcrm .fbcrm-btn-filtros{border:1px solid var(--linea);background:#fff;border-radius:12px;padding:0 14px;font-weight:600;align-items:center}
+.fbcrm-modo-movil .fbcrm-btn-filtros{align-self:stretch}
+.fbcrm .fbcrm-btn-filtros.on{background:var(--tinta);color:#fff;border-color:var(--tinta)}
+.fbcrm-modo-movil .fbcrm-barra-ficha{gap:6px}
 .fbcrm-opc-envio{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:12px 0 0;padding:10px 12px;background:var(--hoja);border-radius:11px;font-size:.9rem}
 .fbcrm-opc-envio>span{color:var(--salvia)}
 .fbcrm-opc-envio label{display:inline-flex;align-items:center;gap:6px;font-weight:500;cursor:pointer}
