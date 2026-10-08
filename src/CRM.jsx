@@ -1344,7 +1344,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
       )}
       {!esNuevo && (
         <div className="fbcrm-bloque br-invita">
-          <div><h3>Brochure de campos</h3><p className="fbcrm-nota-suave">Un PDF con diseño, con los campos que le calzan: foto, datos clave y un resumen del campo y la zona.</p></div>
+          <div><h3>Brochure de campos</h3><p className="fbcrm-nota-suave">Una página de campos destacados con diseño: foto, datos clave y frase de cada campo, lista para enviar.</p></div>
           <button className="fbcrm-primario" onClick={() => setBrochure(true)}>✨ Armar brochure</button>
         </div>
       )}
@@ -1431,92 +1431,55 @@ async function fotosCRM(c, usuario) {
   return urls.filter(Boolean);
 }
 // items: [{ campo, texto: {titular, campo, zona}, fotos: [url], foto: índice de la portada }]
-function DocBrochure({ cliente, contacto, items, usuario, datosUsuario, busca }) {
+function DocBrochure({ items, usuario, datosUsuario, busca }) {
   const du = datosUsuario || {};
-  const fecha = fechaLargaO(hoyISO());
-  const portada = items[0] && items[0].fotos[items[0].foto || 0];
-  const conCoord = items.map((it, i) => ({ ...datosBrochure(it.campo).coord, n: i + 1 })).filter((p) => p.lat);
-  const caja = conCoord.length ? [Math.min(...conCoord.map((p) => p.lng)), Math.min(...conCoord.map((p) => p.lat)), Math.max(...conCoord.map((p) => p.lng)), Math.max(...conCoord.map((p) => p.lat))] : null;
-  const vistaPines = caja ? (() => { const v = vistaAjustada([caja[0] - 0.08, caja[1] - 0.08, caja[2] + 0.08, caja[3] + 0.08], 330, 470); return { ...v, z: Math.min(v.z, 11) }; })() : null;
-  const total = items.length + 3;
-  const pie = (n, oscuro) => <div className={`br-pie ${oscuro ? 'oscuro' : ''}`}><span>Farm Brokers Chile · farmbrokers.cl</span><span>{dosDig(n)} / {dosDig(total)}</span></div>;
+  const n = items.length;
+  const forma = n === 1 ? 'uno' : n === 2 ? 'dos' : n <= 4 ? 'cuatro' : n <= 6 ? 'seis' : 'nueve';
+  const tel = du.telefono || '+56 9 7193 9040';
   return (
     <div className="br">
-      <section className="doc-pagina br-pag br-portada">
-        {portada ? <Foto src={portada} clase="br-portada-foto" /> : <div className="br-portada-foto br-sin-foto" />}
-        <div className="br-portada-velo" />
-        <img src={LOGO_FB_BLANCO} alt="Farm Brokers Chile" className="br-portada-logo" />
-        <div className="br-portada-txt">
-          <span className="br-antetitulo">Selección privada</span>
-          <h1>Selección de campos</h1>
-          <p>{items.length === 1 ? 'Una propiedad' : `${items.length} propiedades`} seleccionadas por Farm Brokers{busca ? ` según lo que buscas: ${corto(busca, 120)}` : ' según lo que buscas'}.</p>
-        </div>
-        <div className="br-portada-pie"><span>{fecha}</span><span>Preparado por {usuario}</span></div>
-      </section>
-
-      <section className="doc-pagina br-pag br-indice">
-        <header className="br-cab"><span className="br-antetitulo">La selección</span><h2>{items.length === 1 ? 'Una propiedad para ti' : `${items.length} propiedades para ti`}</h2></header>
-        <div className="br-indice-cuerpo">
-          <ol className="br-indice-lista">
-            {items.map((it, i) => { const d = datosBrochure(it.campo); return (
-              <li key={it.campo.id}>
-                {it.fotos.length ? <Foto src={it.fotos[it.foto || 0]} clase="br-indice-foto" /> : <div className="br-indice-foto br-sin-foto" />}
-                <div><span className="br-num">{dosDig(i + 1)}</span><strong>{corto(d.titulo, 60)}</strong><small>{[d.comuna, d.region].filter(Boolean).join(', ')}</small>
-                  <em>{[d.ha, d.precio].filter(Boolean).join(' · ')}</em></div>
-              </li>); })}
-          </ol>
-          {vistaPines && <div className="br-indice-mapa"><MapaTiles lat={vistaPines.lat} lng={vistaPines.lng} z={vistaPines.z} w={330} h={470} fuente="mapa" pines={conCoord} /><small>Ubicación referencial de cada propiedad</small></div>}
-        </div>
-        {pie(2)}
-      </section>
-
-      {items.map((it, i) => {
-        const d = datosBrochure(it.campo), t = it.texto || {};
-        const otras = it.fotos.filter((_, k) => k !== (it.foto || 0)).slice(0, 2);
-        const datos = [['Superficie', d.ha], ['Precio', d.precio], ['Agua', d.agua], d.plantado ? ['Plantado', d.plantado] : ['Tipo', d.tipo]].filter(([, v]) => v);
-        return (
-          <section key={it.campo.id} className="doc-pagina br-pag br-campo">
-            <div className="br-campo-hero">
-              {it.fotos.length ? <Foto src={it.fotos[it.foto || 0]} clase="br-campo-foto" /> : <div className="br-campo-foto br-sin-foto" />}
-              <div className="br-campo-velo" />
-              <span className="br-campo-num">{dosDig(i + 1)}</span>
-              <div className="br-campo-tit"><h2>{corto(d.titulo, 70)}</h2><p>{[d.comuna, d.region].filter(Boolean).join(', ')}</p></div>
-            </div>
-            <div className="br-campo-cuerpo">
-              {t.titular && <p className="br-titular">{t.titular}</p>}
-              <dl className="br-datos">{datos.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{corto(v, 34)}</dd></div>)}</dl>
-              <div className="br-campo-cols">
-                <div className="br-textos">
-                  {t.campo && <><h3>El campo</h3><p>{t.campo}</p></>}
-                  {t.zona && <><h3>La zona</h3><p>{t.zona}</p></>}
+      <section className="doc-pagina br-pag br-hoja">
+        <header className="br-h-cab">
+          <img src={LOGO_FB} alt="Farm Brokers Chile" className="br-h-logo" />
+          <div className="br-h-tit">
+            <span className="br-antetitulo">Selección privada · {fechaLargaO(hoyISO())}</span>
+            <h1>Campos destacados</h1>
+            <p>{n === 1 ? 'Una propiedad elegida' : `${n} propiedades elegidas`} por Farm Brokers{busca ? ` para lo que buscas: ${corto(busca, 110)}` : ' según lo que buscas'}.</p>
+          </div>
+        </header>
+        <div className={`br-grilla br-${forma}`}>
+          {items.map((it, i) => {
+            const d = datosBrochure(it.campo), t = it.texto || {};
+            const datos = [d.ha, d.precio, d.agua && corto(d.agua, forma === 'nueve' ? 22 : 34)].filter(Boolean);
+            return (
+              <article key={it.campo.id} className={`br-tarjeta ${i === 0 && n % 2 === 1 && n >= 3 && n < 9 ? 'ancha' : ''}`} data-enlace={d.url || undefined}>
+                <div className="br-t-foto">
+                  {it.fotos.length ? <Foto src={it.fotos[it.foto || 0]} clase="br-t-img" /> : <div className="br-t-img br-sin-foto" />}
+                  <span className="br-t-num">{dosDig(i + 1)}</span>
+                  {d.tipo && forma !== 'nueve' && <span className="br-t-tipo">{d.tipo}</span>}
                 </div>
-                <div className="br-lado">
-                  {d.coord && <MapaTiles lat={d.coord.lat} lng={d.coord.lng} z={d.coord.aprox ? 9 : 10} w={250} h={170} fuente="mapa" aprox={d.coord.aprox} />}
-                  {otras.map((u, k) => <Foto key={k} src={u} clase="br-lado-foto" />)}
+                <div className="br-t-info">
+                  <h2>{corto(d.titulo, forma === 'nueve' ? 38 : 60)}</h2>
+                  <p className="br-t-lugar">{[d.comuna, d.region].filter(Boolean).join(', ')}</p>
+                  <p className="br-t-datos">{datos.map((x, k) => <span key={k}>{x}</span>)}</p>
+                  {t.titular && (forma !== 'nueve' || (i === 0 && n % 2 === 1)) && <p className="br-t-frase">{t.titular}</p>}
+                  {(forma === 'uno' || forma === 'dos') && t.campo && <p className="br-t-texto">{t.campo}</p>}
+                  {forma === 'uno' && t.zona && <p className="br-t-texto">{t.zona}</p>}
+                  {d.url && (forma === 'uno' || forma === 'dos' || (i === 0 && n % 2 === 1)) && <p className="br-t-link">Ver publicación →</p>}
                 </div>
-              </div>
-              {(d.url || d.codigo) && <p className="br-mas">{d.codigo && <span>Código {d.codigo}</span>}{d.url && <span>Ficha completa: {d.url.replace(/^https?:\/\/(www\.)?/, '')}</span>}</p>}
-            </div>
-            {pie(i + 3)}
-          </section>
-        );
-      })}
-
-      <section className="doc-pagina br-pag br-cierre">
-        <img src={LOGO_FB_BLANCO} alt="Farm Brokers Chile" className="br-cierre-logo" />
-        <div className="br-cierre-txt">
-          <span className="br-antetitulo">Siguiente paso</span>
-          <h2>¿Coordinamos una visita?</h2>
-          <p>Cuéntanos cuáles te interesan y te acompañamos a conocerlos. Te enviamos la ficha completa, el plano y toda la información de cada campo.</p>
-          <dl className="br-cierre-datos">
-            <div><dt>Tu corredor</dt><dd>{usuario}</dd></div>
-            {du.telefono && <div><dt>Teléfono</dt><dd>{du.telefono}</dd></div>}
-            <div><dt>Correo</dt><dd>{du.email || 'contacto@farmbrokers.cl'}</dd></div>
-            <div><dt>Web</dt><dd>farmbrokers.cl</dd></div>
+              </article>
+            );
+          })}
+        </div>
+        <footer className="br-h-pie">
+          <div className="br-h-pie-txt"><strong>¿Coordinamos una visita?</strong><span>Te enviamos la ficha completa y el plano de cada campo.</span></div>
+          <dl className="br-h-pie-datos">
+            <div><dt>Corredor</dt><dd>{usuario}</dd></div>
+            <div data-enlace={`https://wa.me/${fonoWa(tel)}`}><dt>WhatsApp</dt><dd>{tel}</dd></div>
+            <div data-enlace={`mailto:${du.email || 'contacto@farmbrokers.cl'}`}><dt>Correo</dt><dd>{du.email || 'contacto@farmbrokers.cl'}</dd></div>
+            <div data-enlace="https://farmbrokers.cl"><dt>Web</dt><dd>farmbrokers.cl</dd></div>
           </dl>
-        </div>
-        <p className="br-cierre-legal">Farm Brokers Chile SpA · Estoril 120 of. 615, Las Condes, Santiago. Información referencial, entregada de buena fe y sujeta a verificación; precios y disponibilidad pueden cambiar sin aviso.</p>
-        {pie(total, true)}
+        </footer>
       </section>
     </div>
   );
@@ -1546,16 +1509,20 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
   const campoDe = (id) => datos.campos.find((c) => c.id === id);
   const otros = datos.campos.filter((c) => !sel.includes(c.id) && c.etapa !== 'Descartado').sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   const mover = (i, d) => setSel((s) => { const n = [...s]; const j = i + d; if (j < 0 || j >= n.length) return s; [n[i], n[j]] = [n[j], n[i]]; return n; });
-  const lista = sel.map((id) => ({ campo: campoDe(id), ...(items[id] || { texto: null, fotos: [], foto: 0 }) })).filter((x) => x.campo);
+  const lista = sel.slice(0, 9).map((id) => ({ campo: campoDe(id), ...(items[id] || { texto: null, fotos: [], foto: 0 }) })).filter((x) => x.campo);
   const preparar = async () => {
     setPaso('preparando'); setLink('');
     const nuevos = { ...items };
-    for (const [k, id] of sel.entries()) {
+    for (const [k, id] of sel.slice(0, 9).entries()) {
       const c = campoDe(id); if (!c) continue;
-      setEstado(`Preparando ${k + 1} de ${sel.length}: ${c.nombre}…`);
+      setEstado(`Preparando ${k + 1} de ${Math.min(sel.length, 9)}: ${c.nombre}…`);
       let texto = (nuevos[id] && nuevos[id].texto) || null, aviso = '';
       if (!texto) { try { texto = await api(`/campos/${id}/brochure`, { method: 'POST', body: { busca } }); } catch (e) { aviso = e.message; texto = { titular: '', campo: corto((c.descripcionFicha || ((c.web && c.web.descripcion) || []).join(' ')), 420), zona: '' }; } }
-      const fotos = (nuevos[id] && nuevos[id].fotos.length) ? nuevos[id].fotos : (c.web && c.web.fotos && c.web.fotos.length ? c.web.fotos.slice(0, 6) : await fotosCRM(c, usuario));
+      let cw = c;
+      const tieneLink = [c.linkWeb, c.linkPortal].some((u) => /^https:\/\/(www\.)?farmbrokers\.cl\/propiedad\//.test(String(u || '').trim()));
+      if (!(nuevos[id] && nuevos[id].fotos.length) && !(c.web && c.web.fotos && c.web.fotos.length) && tieneLink) { try { cw = await api(`/campos/${id}/web`, { method: 'POST' }); } catch (e) { /* se usan las fotos del CRM */ } }
+      let fotos = (nuevos[id] && nuevos[id].fotos.length) ? nuevos[id].fotos : (cw.web && cw.web.fotos && cw.web.fotos.length ? cw.web.fotos.slice(0, 6) : []);
+      if (!fotos.length) fotos = await fotosCRM(c, usuario);
       nuevos[id] = { texto, fotos, foto: (nuevos[id] && nuevos[id].foto) || 0, aviso };
       setItems({ ...nuevos });
     }
@@ -1574,16 +1541,16 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
       const pdf = await pdfDeFicha(refPdf.current, setEstado);
       setEstado('Subiendo el brochure…');
       const blob = pdf.output('blob');
-      const r = await api('/brochures', { method: 'POST', body: { base64: await blobABase64(blob), clienteId: cli.id, campoIds: sel, titulo: 'Seleccion de campos' } });
+      const r = await api('/brochures', { method: 'POST', body: { base64: await blobABase64(blob), clienteId: cli.id, campoIds: sel.slice(0, 9), titulo: 'Seleccion de campos' } });
       setLink(r.link || `${API_BASE}/api/crm/publico-brochure/${r.token}`);
       setEstado(''); setPaso('listo'); ctx.cargar();
     } catch (e) { setEstado(e.message); }
   };
   const mensaje = () => `Hola ${primerNombre(contacto.nombre) || ''},\n\nTe preparé una selección de ${lista.length === 1 ? 'un campo' : `${lista.length} campos`} que calzan con lo que buscas. Aquí está el brochure:\n${link}\n\n${lista.map((it, i) => { const d = datosBrochure(it.campo); return `${i + 1}. ${[d.titulo, d.comuna, d.ha].filter(Boolean).join(', ')}`; }).join('\n')}\n\nSi alguno te interesa, coordinamos una visita.\n\n${firmaDe(datos, usuario)}`.replace('Hola ,', 'Hola,');
-  const registrar = async (canal) => { for (const id of sel) await api(`/campos/${id}/envio`, { method: 'POST', body: { destinos: [{ clienteId: cli.id, contactoId: contacto.id || '' }], canal } }).catch(() => null); ctx.cargar(); alTerminar && alTerminar(); };
+  const registrar = async (canal) => { for (const id of sel.slice(0, 9)) await api(`/campos/${id}/envio`, { method: 'POST', body: { destinos: [{ clienteId: cli.id, contactoId: contacto.id || '' }], canal } }).catch(() => null); ctx.cargar(); alTerminar && alTerminar(); };
   const enviarWa = () => { window.open(`https://wa.me/${fonoWa(contacto.telefono || cli.telefono)}?text=${encodeURIComponent(mensaje())}`, '_blank', 'noopener'); registrar('whatsapp'); setEstado('Se abrió WhatsApp con el brochure. Solo falta presionar enviar.'); };
   const enviarCorreo = () => { window.location.href = `mailto:${encodeURIComponent(emailsDe(contacto.email || cli.email).join(','))}?subject=${encodeURIComponent('Selección de campos - Farm Brokers')}&body=${encodeURIComponent(mensaje())}`; registrar('correo'); setEstado('Se abrió tu correo con el brochure.'); };
-  const doc = <DocBrochure cliente={cli} contacto={contacto} items={lista} usuario={usuario} datosUsuario={(datos.contactos || {})[usuario]} busca={busca} />;
+  const doc = <DocBrochure items={lista} usuario={usuario} datosUsuario={(datos.contactos || {})[usuario]} busca={busca} />;
   return (
     <>
     {(paso === 'editar' || paso === 'listo') && <div className="fbcrm-generador" aria-hidden="true"><div className="fbcrm-doc doc-ficha-hoja" ref={refPdf}>{doc}</div></div>}
@@ -1603,7 +1570,7 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
             <div className="fbcrm-form"><Campo label="Agregar otro campo" ancho><select value="" onChange={(e) => e.target.value && setSel([...sel, e.target.value])}><option value="">Elige un campo…</option>{otros.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.sector ? `, ${c.sector}` : ''}</option>)}</select></Campo>
               {contactos.length > 1 && <Campo label="Dirigido a" ancho><select value={contactoId} onChange={(e) => setContactoId(e.target.value)}>{contactos.map((x) => <option key={x.id} value={x.id}>{x.nombre || cli.nombre}{x.cargo ? `, ${x.cargo}` : ''}</option>)}</select></Campo>}
             </div>
-            {sel.length > 8 && <p className="fbcrm-nota-suave">Con más de 8 campos el brochure queda largo; lo ideal son 3 a 6.</p>}
+            {sel.length > 9 && <p className="fbcrm-nota-suave">En una página caben hasta 9 campos: van los 9 primeros.</p>}
             <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={!sel.length} onClick={preparar}>✨ Preparar el brochure</button></div>
           </div>
         )}
@@ -1618,8 +1585,10 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
                   {it.fotos.length > 1 && <div className="br-fotos-elegir"><span>Foto principal:</span>{it.fotos.map((u, k) => <button key={k} className={k === (it.foto || 0) ? 'on' : ''} style={{ backgroundImage: `url("${prox(u)}")` }} aria-label={`Foto ${k + 1}`} onClick={() => setItems((x) => ({ ...x, [it.campo.id]: { ...x[it.campo.id], foto: k } }))} />)}</div>}
                   {!it.fotos.length && <p className="fbcrm-nota-suave">Este campo no tiene fotos: agrega el link de farmbrokers.cl o sube fotos en el campo.</p>}
                   <Campo label="Frase destacada" ancho><input value={(it.texto && it.texto.titular) || ''} maxLength={110} onChange={(e) => cambiarTexto(it.campo.id, 'titular', e.target.value)} onBlur={() => guardarTexto(it.campo.id)} /></Campo>
+                  {lista.length <= 2 && <>
                   <Campo label="El campo" ancho><textarea rows={4} value={(it.texto && it.texto.campo) || ''} maxLength={700} onChange={(e) => cambiarTexto(it.campo.id, 'campo', e.target.value)} onBlur={() => guardarTexto(it.campo.id)} /></Campo>
                   <Campo label="La zona" ancho><textarea rows={3} value={(it.texto && it.texto.zona) || ''} maxLength={600} onChange={(e) => cambiarTexto(it.campo.id, 'zona', e.target.value)} onBlur={() => guardarTexto(it.campo.id)} /></Campo>
+                  </>}
                   <button className="fbcrm-texto" onClick={() => redactar(it.campo.id)}>↻ Redactar de nuevo con IA</button>
                 </div>
               ))}
@@ -3510,6 +3479,9 @@ async function pdfDeFicha(raiz, avance) {
     const lienzo = await window.html2canvas(paginas[i], { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, windowWidth: 1280, scrollX: 0, scrollY: -window.scrollY });
     if (i) pdf.addPage();
     pdf.addImage(lienzo.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+    // Zonas que se pueden tocar dentro del PDF (por ejemplo, cada campo abre su publicación)
+    const caja = paginas[i].getBoundingClientRect(), k = 210 / caja.width;
+    paginas[i].querySelectorAll('[data-enlace]').forEach((el) => { const r = el.getBoundingClientRect(); if (r.width && el.dataset.enlace) pdf.link((r.left - caja.left) * k, (r.top - caja.top) * k, r.width * k, r.height * k, { url: el.dataset.enlace }); });
   }
   return pdf;
 }
@@ -4935,77 +4907,53 @@ const CSS = `
 .doc-ficha .doc-ficha-tecnica dt{font-size:8.3pt;color:#5E6E64}
 .doc-ficha .doc-ficha-tecnica dd{font-size:10pt;font-weight:500;margin:1px 0 0;color:#17261D}
 .doc-ficha-plano .doc-mapa{margin-bottom:8px;border-radius:8px}
-/* ───── Brochure ───── */
+/* ───── Brochure (una página de campos destacados) ───── */
 .br{font-family:'Onest',system-ui,sans-serif;color:#17261D}
 .br .br-pag{padding:0;background:#FBF9F4}
-.br h1,.br h2,.br .br-titular,.br .br-num,.br .br-campo-num{font-family:'Fraunces',Georgia,serif;font-weight:500;letter-spacing:-.01em}
+.br h1,.br h2{font-family:'Fraunces',Georgia,serif;font-weight:500;letter-spacing:-.01em}
 .br .br-sin-foto{background:linear-gradient(135deg,#2D6A45,#1F4D31)}
-.br .br-antetitulo{display:block;font-size:11px;letter-spacing:.22em;text-transform:uppercase;font-weight:600;color:#B5831F}
-.br-portada{position:relative;color:#fff;background:#1F4D31!important}
-.br-portada-foto{position:absolute;inset:0;background-size:cover;background-position:center}
-.br-portada-velo{position:absolute;inset:0;background:linear-gradient(180deg,rgba(15,35,22,.55) 0%,rgba(15,35,22,.05) 30%,rgba(15,35,22,.15) 50%,rgba(12,30,19,.92) 100%)}
-.br-portada-logo{position:absolute;top:56px;left:64px;width:150px}
-.br-portada-txt{position:absolute;left:64px;right:64px;bottom:150px}
-.br-portada-txt .br-antetitulo{color:#E9C46A;margin-bottom:18px}
-.br-portada-txt h1{font-size:54px;line-height:1.05;margin:0 0 22px;color:#fff;max-width:620px}
-.br-portada-txt p{font-size:16px;line-height:1.55;margin:0;max-width:560px;color:rgba(255,255,255,.88)}
-.br-portada-pie{position:absolute;left:64px;right:64px;bottom:56px;display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.35);padding-top:16px;font-size:12.5px;color:rgba(255,255,255,.85);letter-spacing:.02em}
-.br-cab{padding:64px 64px 26px}
-.br-cab h2{font-size:38px;margin:10px 0 0;color:#1F4D31}
-.br-indice-cuerpo{display:flex;gap:28px;padding:0 64px;flex:1;min-height:0}
-.br-indice-lista{list-style:none;margin:0;padding:0;flex:1;display:flex;flex-direction:column;gap:14px}
-.br-indice-lista li{display:flex;gap:16px;align-items:center;padding-bottom:14px;border-bottom:1px solid #E4DDCC}
-.br-indice-lista li:last-child{border-bottom:0}
-.br-indice-foto{width:118px;height:84px;flex:none;border-radius:6px;background-size:cover;background-position:center}
-.br-indice-lista div{display:flex;flex-direction:column;gap:2px;min-width:0}
-.br-indice-lista .br-num{font-size:15px;color:#B5831F}
-.br-indice-lista strong{font-size:15.5px;line-height:1.25;color:#17261D;font-weight:600}
-.br-indice-lista small{font-size:12px;color:#5E6E64}
-.br-indice-lista em{font-style:normal;font-size:12.5px;color:#1F4D31;font-weight:600;margin-top:2px}
-.br-indice-mapa{width:330px;flex:none}
-.br-indice-mapa .doc-mapa{border-radius:8px}
-.br-indice-mapa small{display:block;font-size:10.5px;color:#5E6E64;margin-top:6px}
-.br-pin{position:absolute;width:26px;height:26px;border-radius:50%;background:#1F4D31;color:#fff;border:2px solid #fff;font:600 12px/22px 'Onest',sans-serif;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.4);z-index:2}
-.br-campo-hero{position:relative;height:410px;flex:none;color:#fff}
-.br-campo-foto{position:absolute;inset:0;background-size:cover;background-position:center}
-.br-campo-velo{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,25,16,0) 45%,rgba(10,25,16,.82) 100%)}
-.br-campo-num{position:absolute;top:30px;left:40px;font-size:30px;color:#fff;background:rgba(31,77,49,.82);padding:4px 14px 6px;border-radius:4px;line-height:1}
-.br-campo-tit{position:absolute;left:40px;right:40px;bottom:28px}
-.br-campo-tit h2{font-size:34px;line-height:1.1;margin:0 0 6px;color:#fff}
-.br-campo-tit p{margin:0;font-size:13.5px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.9)}
-.br-campo-cuerpo{padding:26px 40px 0;flex:1;min-height:0;display:flex;flex-direction:column}
-.br-titular{font-size:22px;line-height:1.3;color:#1F4D31;margin:0 0 18px}
+.br .br-antetitulo{display:block;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;font-weight:600;color:#B5831F}
+.br-h-cab{display:flex;align-items:flex-end;gap:30px;padding:40px 44px 22px;border-bottom:1px solid #E4DDCC;margin:0 44px 0 44px;padding-left:0;padding-right:0}
+.br-h-logo{width:118px;flex:none;margin-bottom:4px}
+.br-h-tit{flex:1;min-width:0;border-left:1px solid #E4DDCC;padding-left:28px}
+.br-h-tit h1{font-size:40px;line-height:1.05;margin:8px 0 8px;color:#1F4D31}
+.br-h-tit p{margin:0;font-size:12.5px;line-height:1.5;color:#5E6E64}
+.br-grilla{flex:1;min-height:0;display:grid;gap:16px;padding:22px 44px 22px}
+.br-uno{grid-template-columns:1fr;grid-template-rows:1fr}
+.br-dos{grid-template-columns:1fr;grid-template-rows:1fr 1fr}
+.br-cuatro{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
+.br-seis{grid-template-columns:1fr 1fr;grid-template-rows:repeat(3,1fr)}
+.br-nueve{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:12px}
+.br-tarjeta{display:flex;flex-direction:column;min-height:0;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 0 #E4DDCC,0 6px 18px rgba(31,77,49,.08)}
+.br-t-foto{position:relative;flex:1;min-height:0}
+.br-t-img{position:absolute;inset:0;background-size:cover;background-position:center}
+.br-t-num{position:absolute;top:12px;left:12px;font-family:'Fraunces',Georgia,serif;font-size:17px;line-height:1;color:#fff;background:rgba(31,77,49,.88);padding:5px 9px 6px;border-radius:4px}
+.br-t-tipo{position:absolute;top:12px;right:12px;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;color:#1F4D31;background:rgba(251,249,244,.92);padding:5px 8px;border-radius:3px}
+.br-t-info{flex:none;padding:12px 16px 14px}
+.br-t-info h2{font-size:19px;line-height:1.15;margin:0 0 3px;color:#17261D}
+.br-t-lugar{margin:0 0 8px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#8A7A55;font-weight:600}
+.br-t-datos{display:flex;flex-wrap:wrap;margin:0;font-size:12.5px;font-weight:600;color:#1F4D31}
+.br-t-datos span+span::before{content:'·';margin:0 7px;color:#C9BFA6}
+.br-t-frase{margin:8px 0 0;font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:13.5px;line-height:1.35;color:#3D4C42}
+.br-t-texto{margin:8px 0 0;font-size:12px;line-height:1.55;color:#2A3A30}
+.br-t-link{margin:8px 0 0;font-size:11px;font-weight:600;color:#B5831F;letter-spacing:.02em}
+.br-uno .br-t-info{padding:20px 24px 22px}.br-uno .br-t-info h2{font-size:28px}.br-uno .br-t-frase{font-size:17px}.br-uno .br-t-texto{font-size:13px}
+.br-dos .br-tarjeta{flex-direction:row}.br-dos .br-t-foto{flex:1.15}.br-dos .br-t-info{flex:1;padding:20px 22px;display:flex;flex-direction:column;justify-content:center}.br-dos .br-t-info h2{font-size:24px}.br-dos .br-t-frase{font-size:15px}
+.br-tarjeta.ancha{grid-column:1/-1;flex-direction:row}
+.br-tarjeta.ancha .br-t-foto{flex:1.45}
+.br-tarjeta.ancha .br-t-info{flex:1;display:flex;flex-direction:column;justify-content:center;padding:18px 22px}
+.br-tarjeta.ancha .br-t-info h2{font-size:23px}
+.br-tarjeta.ancha .br-t-frase{font-size:15px}
+.br-nueve .br-t-info{padding:9px 11px 10px}.br-nueve .br-t-info h2{font-size:14.5px}.br-nueve .br-t-lugar{font-size:9px;margin-bottom:5px}.br-nueve .br-t-datos{font-size:10.5px}.br-nueve .br-t-num{font-size:13px;top:8px;left:8px}
+.br-h-pie{flex:none;display:flex;align-items:center;gap:26px;background:#1F4D31;color:#fff;padding:20px 44px 22px}
+.br-h-pie-txt{flex:none;width:210px;display:flex;flex-direction:column;gap:4px}
+.br-h-pie-txt strong{font-family:'Fraunces',Georgia,serif;font-weight:500;font-size:19px;line-height:1.15}
+.br-h-pie-txt span{font-size:11px;line-height:1.45;color:rgba(255,255,255,.75)}
 .fbcrm-doc .br dl{display:block;padding:0;background:none;border-radius:0;gap:0}
-.fbcrm-doc .br dl div{display:block}
 .fbcrm-doc .br dt,.fbcrm-doc .br dd{font-weight:inherit}
-.fbcrm-doc .br .br-datos{display:grid;grid-template-columns:repeat(4,1fr);margin:0 0 20px;padding:0;border-top:1.5px solid #1F4D31;border-bottom:1px solid #E4DDCC}
-.fbcrm-doc .br .br-cierre-datos{display:grid;grid-template-columns:1fr 1fr;gap:22px 30px;margin:0;max-width:600px;border-top:1px solid rgba(255,255,255,.3);padding:26px 0 0}
-.br-datos div{padding:10px 12px 11px 0}
-.br-datos div+div{padding-left:14px;border-left:1px solid #E4DDCC}
-.fbcrm-doc .br .br-datos dt{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#8A7A55;font-weight:600}
-.fbcrm-doc .br .br-datos dd{margin:4px 0 0;font-size:15px;font-weight:600;color:#17261D;line-height:1.25}
-.br-campo-cols{display:flex;gap:26px;flex:1;min-height:0}
-.br-textos{flex:1;min-width:0}
-.br-textos h3{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:#B5831F;margin:0 0 6px;font-weight:700}
-.br-textos p{font-size:13px;line-height:1.6;margin:0 0 16px;color:#2A3A30}
-.br-lado{width:250px;flex:none;display:flex;flex-direction:column;gap:10px}
-.br-lado .doc-mapa{border-radius:6px}
-.br-lado-foto{height:120px;border-radius:6px;background-size:cover;background-position:center}
-.br-mas{display:flex;gap:18px;font-size:11px;color:#5E6E64;margin:8px 0 0;flex-wrap:wrap}
-.br-pie{margin-top:auto;display:flex;justify-content:space-between;padding:14px 40px 18px;font-size:10.5px;color:#8A8F86;letter-spacing:.04em}
-.br-indice .br-pie{padding:14px 64px 22px}
-.br-pie.oscuro{color:rgba(255,255,255,.55);padding:14px 64px 22px}
-.br-cierre{background:#1F4D31!important;color:#fff;position:relative}
-.br-cierre-logo{width:150px;margin:64px 0 0 64px}
-.br-cierre-txt{padding:0 64px;margin-top:150px}
-.br-cierre-txt .br-antetitulo{color:#E9C46A;margin-bottom:16px}
-.br-cierre-txt h2{font-size:48px;line-height:1.05;margin:0 0 20px;color:#fff}
-.br-cierre-txt p{font-size:16px;line-height:1.6;max-width:540px;margin:0 0 40px;color:rgba(255,255,255,.86)}
-.br-cierre-datos{display:grid;grid-template-columns:1fr 1fr;gap:22px 30px;margin:0;max-width:600px;border-top:1px solid rgba(255,255,255,.3);padding-top:26px}
-.fbcrm-doc .br .br-cierre-datos dt{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:#E9C46A;font-weight:600}
-.fbcrm-doc .br .br-cierre-datos dd{margin:5px 0 0;font-size:17px;color:#fff}
-.br-cierre-legal{position:absolute;left:64px;right:64px;bottom:62px;margin:0;font-size:10.5px;line-height:1.5;color:rgba(255,255,255,.55)}
-.br-cierre .br-pie{position:absolute;left:0;right:0;bottom:0}
+.fbcrm-doc .br .br-h-pie-datos{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:10px 22px;margin:0;padding:0 0 0 26px;border-left:1px solid rgba(255,255,255,.25)}
+.fbcrm-doc .br .br-h-pie-datos dt{font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:#E9C46A;font-weight:600}
+.fbcrm-doc .br .br-h-pie-datos dd{margin:3px 0 0;font-size:13px;color:#fff}
 /* Panel para armarlo */
 .br-capa{position:fixed;inset:0;z-index:60;background:rgba(23,38,29,.45);display:flex;justify-content:center;align-items:flex-start;overflow:auto;padding:24px 16px}
 .br-panel{background:var(--hoja);border-radius:18px;width:min(1180px,100%);padding:20px 22px 26px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
