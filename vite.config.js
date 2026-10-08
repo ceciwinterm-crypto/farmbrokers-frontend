@@ -13,6 +13,7 @@ export default defineConfig({
         orden: resolve(__dirname, 'orden.html'),
         plano: resolve(__dirname, 'plano.html'),
         propietario: resolve(__dirname, 'propietario.html'),
+        vende: resolve(__dirname, 'vende.html'),
       },
     },
   },

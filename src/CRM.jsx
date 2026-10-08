@@ -127,6 +127,7 @@ export default function CRM() {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState('');
   const [vista, setVista] = useState('agenda');
+  useEffect(() => { const h = () => setVista('campos'); window.addEventListener('fb-ir-campos', h); return () => window.removeEventListener('fb-ir-campos', h); }, []);
   const [abierto, setAbierto] = useState(null); // {col, item}
   const [importando, setImportando] = useState(false);
   const [impresion, setImpresion] = useState(null); // {tipo:'campo'|'informe', id}
@@ -486,6 +487,7 @@ function ListaCampos({ ctx, importar }) {
   return (
     <section className={verFiltros ? 'ver-filtros' : ''}>
       <div className="solo-pc"><SyncWeb ctx={ctx} /></div>
+      <OfertasWeb ctx={ctx} />
       <div className="fbcrm-barra">
         <div className="fbcrm-chips">{Object.entries(FILTROS).map(([k, [l]]) => <button key={k} className={filtro === k ? 'on' : ''} onClick={() => setFiltro(k)}>{l}</button>)}</div>
         <div className="fbcrm-chips">
@@ -2189,6 +2191,7 @@ function Campana({ ctx }) {
   const marcar = async (ids) => { try { await api('/notificaciones/leidas', { method: 'POST', body: ids ? { ids } : {} }); cargar(); } catch (e) { /* reintenta luego */ } };
   const ir = (n) => {
     marcar([n.id]); setAbierta(false);
+    if (n.ref && n.ref.oferta) { window.__abrirOfertas = true; window.dispatchEvent(new Event('fb-ir-campos')); window.dispatchEvent(new Event('fb-ofertas')); return; }
     if (n.ref && n.ref.tarea) { const t = (datos.tareas || []).find((x) => x.id === n.ref.tarea); if (t && t.ref) { const x = (datos[t.ref.col] || []).find((y) => y.id === t.ref.id); if (x) abrir(t.ref.col, x); } }
   };
   return (
@@ -4400,6 +4403,135 @@ function CompartirPlano({ ctx, campo, setCampo }) {
 }
 
 // Página que abre el cliente
+// ════════════════════════════ Vende o arrienda tu campo (formulario público y bandeja en el CRM) ════════════════════════════
+const linkVende = () => `${window.location.origin}/vende`;
+const TIPOS_OFERTA = [['agricola', 'Agrícola'], ['forestal', 'Forestal'], ['loteo', 'Parcela o loteo'], ['conservacion', 'Conservación o agrado'], ['otro', 'Otro']];
+const ORDEN_REG = ['XV', 'I', 'II', 'III', 'IV', 'V', 'RM', 'VI', 'VII', 'XVI', 'VIII', 'IX', 'XIV', 'X', 'XI', 'XII'];
+export function FormularioVende() {
+  const [f, setF] = useState({ operacion: 'venta', tipo: 'agricola', nombre: '', telefono: '', email: '', region: '', comuna: '', rol: '', hectareas: '', agua: '', plantaciones: '', construcciones: '', precio: '', descripcion: '', acepto: false, sitio: '' });
+  const [aviso, setAviso] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [listo, setListo] = useState(false);
+  useEffect(() => { document.title = 'Vende o arrienda tu campo - Farm Brokers Chile'; }, []);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const enviar = async () => {
+    setEnviando(true); setAviso('');
+    try {
+      const r = await fetch(`${API_BASE}/api/crm/publico-vende`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
+      setListo(true); window.scrollTo && window.scrollTo(0, 0);
+    } catch (e) { setAviso(e.message === 'Failed to fetch' ? 'No se pudo enviar. Revisa tu conexión e inténtalo de nuevo.' : e.message); }
+    setEnviando(false);
+  };
+  const okContacto = f.telefono.trim().length >= 8 || /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(f.email.trim());
+  const listoParaEnviar = f.nombre.trim().length >= 3 && okContacto && (f.comuna.trim() || f.rol.trim()) && f.acepto;
+  const caja = (cab, cuerpo) => (<div className="fbcrm fbcrm-prop fbcrm-vende"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{cab}</header><main className="fbcrm-prop-main">{cuerpo}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA · contacto@farmbrokers.cl · +569 7193 90 40 · farmbrokers.cl</footer></div>);
+  if (listo) return caja(<div><h1>¡Gracias, {primerNombre(f.nombre)}!</h1><p className="fbcrm-sub">Recibimos los datos de tu campo.</p></div>,
+    <section className="fbcrm-bloque"><h2>Te contactaremos pronto</h2><p>Un corredor de Farm Brokers revisará la información y se comunicará contigo{f.telefono ? ` al ${f.telefono}` : f.email ? ` a ${f.email}` : ''} para conversar sobre {f.operacion === 'arriendo' ? 'el arriendo' : 'la venta'} de tu propiedad.</p><p className="fbcrm-nota-suave">Si prefieres, también puedes escribirnos a contacto@farmbrokers.cl.</p></section>);
+  return caja(
+    <div><h1>Vende o arrienda tu campo con nosotros</h1><p className="fbcrm-sub">Cuéntanos de tu propiedad y un corredor de Farm Brokers te contactará. Desde 2015 especialistas en campos agrícolas en Chile.</p></div>,
+    <>
+      <section className="fbcrm-bloque">
+        <h2>¿Qué quieres hacer?</h2>
+        <div className="fbcrm-chips fbcrm-vende-op" role="radiogroup" aria-label="Operación">
+          {[['venta', 'Vender'], ['arriendo', 'Arrendar']].map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={f.operacion === k} className={f.operacion === k ? 'on' : ''} onClick={() => setF({ ...f, operacion: k })}>{l}</button>)}
+        </div>
+      </section>
+      <section className="fbcrm-bloque">
+        <h2>Tus datos</h2>
+        <div className="fbcrm-form">
+          <Campo label="Nombre completo" ancho><input value={f.nombre} onChange={set('nombre')} autoComplete="name" /></Campo>
+          <Campo label="Teléfono"><input type="tel" value={f.telefono} onChange={set('telefono')} autoComplete="tel" placeholder="+56 9 1234 5678" /></Campo>
+          <Campo label="Email"><input type="email" value={f.email} onChange={set('email')} autoComplete="email" /></Campo>
+        </div>
+      </section>
+      <section className="fbcrm-bloque">
+        <h2>Tu propiedad</h2>
+        <div className="fbcrm-form">
+          <Campo label="Tipo de propiedad"><select value={f.tipo} onChange={set('tipo')}>{TIPOS_OFERTA.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Campo>
+          <Campo label="Superficie (hectáreas)"><input inputMode="decimal" value={f.hectareas} onChange={set('hectareas')} placeholder="Ej. 25" /></Campo>
+          <Campo label="Región"><select value={f.region} onChange={set('region')}><option value="">Elige la región</option>{ORDEN_REG.map((r) => <option key={r} value={r}>{REG_NOMBRE[r] || r}</option>)}</select></Campo>
+          <Campo label="Comuna"><input value={f.comuna} onChange={set('comuna')} placeholder="Ej. San Clemente" /></Campo>
+          <Campo label="Rol de avalúo (SII)" ancho><input value={f.rol} onChange={set('rol')} placeholder="Ej. 245-12 (si son varios, sepáralos con coma)" /></Campo>
+        </div>
+      </section>
+      <section className="fbcrm-bloque">
+        <h2>Características</h2>
+        <div className="fbcrm-form">
+          <Campo label="Agua (derechos, pozo, canal)" ancho><input value={f.agua} onChange={set('agua')} placeholder="Ej. 20 acciones del canal, pozo de 10 l/s" /></Campo>
+          <Campo label="Plantaciones o uso actual" ancho><input value={f.plantaciones} onChange={set('plantaciones')} placeholder="Ej. 12 ha de cerezos, resto praderas" /></Campo>
+          <Campo label="Construcciones" ancho><input value={f.construcciones} onChange={set('construcciones')} placeholder="Ej. casa patronal, bodega, galpón" /></Campo>
+          <Campo label={f.operacion === 'arriendo' ? 'Valor de arriendo esperado (opcional)' : 'Precio esperado (opcional)'}><input value={f.precio} onChange={set('precio')} placeholder="Ej. UF 40.000" /></Campo>
+          <Campo label="Cuéntanos más (opcional)" ancho><textarea rows={4} value={f.descripcion} onChange={set('descripcion')} placeholder="Lo que quieras contarnos de tu campo" /></Campo>
+          <input className="fbcrm-trampa" tabIndex={-1} autoComplete="off" aria-hidden="true" value={f.sitio} onChange={set('sitio')} />
+        </div>
+        <label className="fbcrm-check-linea fbcrm-acepto"><input type="checkbox" checked={f.acepto} onChange={(e) => setF({ ...f, acepto: e.target.checked })} />Acepto que Farm Brokers me contacte para conversar sobre mi propiedad.</label>
+        {aviso && <p className="fbcrm-error" role="alert">{aviso}</p>}
+        {!listoParaEnviar && <p className="fbcrm-nota-suave">Para enviar: tu nombre, un teléfono o email, la comuna o el rol, y marcar la casilla.</p>}
+        <div className="fbcrm-prop-pie"><button className="fbcrm-primario" disabled={enviando || !listoParaEnviar} onClick={enviar}>{enviando ? 'Enviando…' : 'Enviar'}</button></div>
+      </section>
+    </>,
+  );
+}
+const ESTADOS_OFERTA = [['nueva', 'Nueva'], ['contactada', 'Contactada'], ['convertida', 'Campo creado'], ['descartada', 'Descartada']];
+function OfertasWeb({ ctx }) {
+  const { datos, api, usuario, cargar, abrir } = ctx;
+  const todas = [...(datos.ofertas || [])].reverse();
+  const pendientes = todas.filter((o) => o.estado === 'nueva' || o.estado === 'contactada');
+  const [abierto, setAbierto] = useState(() => { const v = !!window.__abrirOfertas; window.__abrirOfertas = false; return v; });
+  const [verTodas, setVerTodas] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [notas, setNotas] = useState({});
+  useEffect(() => { const h = () => setAbierto(true); window.addEventListener('fb-ofertas', h); return () => window.removeEventListener('fb-ofertas', h); }, []);
+  const nuevas = todas.filter((o) => o.estado === 'nueva').length;
+  const lista = verTodas ? todas : pendientes;
+  const cambiar = async (o, cambios) => { try { await api(`/ofertas/${o.id}`, { method: 'PUT', body: cambios }); cargar(); } catch (e) { setMsg(e.message); } };
+  const crearCampo = async (o) => { try { const r = await api(`/ofertas/${o.id}/campo`, { method: 'POST' }); await cargar(); abrir('campos', r.campo); } catch (e) { setMsg(e.message); } };
+  const saludo = (o) => `Hola ${primerNombre(o.nombre)}, te escribo de Farm Brokers por el campo que nos ofreciste${o.comuna ? ` en ${o.comuna}` : ''} desde nuestra página web. ¿Cuándo podemos conversar?\n\n${firmaDe(datos, usuario)}`;
+  const copiarLink = () => navigator.clipboard && navigator.clipboard.writeText(linkVende()).then(() => setMsg(`Link del formulario copiado: ${linkVende()}`));
+  return (
+    <div className={`fbcrm-bloque fbcrm-ofertas ${nuevas ? 'hay' : ''}`}>
+      <div className="fbcrm-ofertas-cab">
+        <button className="fbcrm-texto fbcrm-ofertas-tit" onClick={() => setAbierto(!abierto)} aria-expanded={abierto}>
+          <strong>Campos ofrecidos desde la web</strong>{nuevas > 0 ? <span className="fbcrm-badge est-completado">{plural(nuevas, 'nuevo')}</span> : <span className="fbcrm-nota-suave">{pendientes.length ? `${pendientes.length} por revisar` : 'sin pendientes'}</span>}
+        </button>
+        <span className="fbcrm-ofertas-acc"><button className="fbcrm-mini" onClick={copiarLink}>Copiar link del formulario</button><button className="fbcrm-mini" onClick={() => setAbierto(!abierto)}>{abierto ? 'Cerrar' : 'Ver'}</button></span>
+      </div>
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+      {abierto && (
+        <>
+          <div className="fbcrm-chips fbcrm-sep2">{[[false, `Por revisar (${pendientes.length})`], [true, `Todos (${todas.length})`]].map(([k, l]) => <button key={String(k)} className={verTodas === k ? 'on' : ''} onClick={() => setVerTodas(k)}>{l}</button>)}</div>
+          {!lista.length && <p className="fbcrm-nota-suave">{todas.length ? 'No hay formularios por revisar.' : `Aún no llegan formularios. Pon este link en el botón “Vende o arrienda tu campo” de farmbrokers.cl: ${linkVende()}`}</p>}
+          <ul className="fbcrm-ofertas-lista">
+            {lista.map((o) => {
+              const campo = o.campoId && datos.campos.find((c) => c.id === o.campoId);
+              const datosL = [['Rol', o.rol], ['Superficie', o.hectareas ? `${fmtNum(o.hectareas)} ha` : ''], ['Agua', o.agua], ['Plantaciones', o.plantaciones], ['Construcciones', o.construcciones], [o.operacion === 'arriendo' ? 'Arriendo esperado' : 'Precio esperado', o.precio]].filter(([, v]) => v);
+              return (
+                <li key={o.id} className={`est-${o.estado}`}>
+                  <div className="fbcrm-oferta-cab">
+                    <div><strong>{[TIPOS_OFERTA.find(([k]) => k === o.tipo)?.[1] || 'Campo', o.comuna, REG_NOMBRE[o.region]].filter(Boolean).join(' · ')}</strong>
+                      <small>{o.operacion === 'arriendo' ? 'Para arrendar' : 'Para vender'} · llegó el {fmtFechaHora(o.fecha)}</small></div>
+                    <select value={o.estado} onChange={(e) => cambiar(o, { estado: e.target.value })} aria-label="Estado">{ESTADOS_OFERTA.map(([k, l]) => <option key={k} value={k} disabled={k === 'convertida' && !o.campoId}>{l}</option>)}</select>
+                  </div>
+                  <p className="fbcrm-oferta-quien"><strong>{o.nombre}</strong>{[o.telefono, o.email].filter(Boolean).map((x) => <span key={x}> · {x}</span>)}</p>
+                  {datosL.length > 0 && <dl className="fbcrm-oferta-datos">{datosL.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
+                  {o.descripcion && <p className="fbcrm-oferta-desc">{o.descripcion}</p>}
+                  <textarea rows={2} placeholder="Notas del equipo (por ejemplo, qué conversaron)" value={notas[o.id] ?? o.notas ?? ''} onChange={(e) => setNotas({ ...notas, [o.id]: e.target.value })} onBlur={() => notas[o.id] !== undefined && notas[o.id] !== o.notas && cambiar(o, { notas: notas[o.id] })} aria-label="Notas" />
+                  <div className="fbcrm-acciones">
+                    {fonoWa(o.telefono) && <button className="fbcrm-mini fbcrm-wa" onClick={() => { window.open(`https://wa.me/${fonoWa(o.telefono)}?text=${encodeURIComponent(saludo(o))}`, '_blank', 'noopener'); if (o.estado === 'nueva') cambiar(o, { estado: 'contactada' }); }}>WhatsApp</button>}
+                    {o.email && <button className="fbcrm-mini" onClick={() => { window.location.href = `mailto:${o.email}?subject=${encodeURIComponent('Tu campo - Farm Brokers Chile')}&body=${encodeURIComponent(saludo(o))}`; if (o.estado === 'nueva') cambiar(o, { estado: 'contactada' }); }}>Correo</button>}
+                    {campo ? <button className="fbcrm-mini" onClick={() => abrir('campos', campo)}>Ver el campo</button> : <button className="fbcrm-primario fbcrm-mini" onClick={() => crearCampo(o)}>Crear campo</button>}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
 export function FormularioPlano({ token }) {
   const [p, setP] = useState(null);
   const [error, setError] = useState('');
@@ -4478,6 +4610,28 @@ const CSS = `
 .fbcrm *{box-sizing:border-box}
 .fbcrm h1,.fbcrm h2,.fbcrm h3{letter-spacing:-.01em}
 .fbcrm-sub{color:var(--salvia);margin:4px 0 0;font-size:.92rem}
+.fbcrm-ofertas.hay{border-color:var(--trigo);box-shadow:0 0 0 1px var(--trigo-cl)}
+.fbcrm-ofertas-cab{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.fbcrm-ofertas-tit{display:flex;align-items:center;gap:10px;text-decoration:none!important;color:var(--tinta)!important;padding:0!important}
+.fbcrm-ofertas-acc{display:flex;gap:6px;flex-wrap:wrap}
+.fbcrm-ofertas-lista{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:12px}
+.fbcrm-ofertas-lista li{border:1px solid var(--linea);border-radius:12px;padding:14px;background:var(--papel)}
+.fbcrm-ofertas-lista li.est-nueva{border-left:4px solid var(--trigo)}
+.fbcrm-ofertas-lista li.est-descartada,.fbcrm-ofertas-lista li.est-convertida{opacity:.75}
+.fbcrm-oferta-cab{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.fbcrm-oferta-cab div{display:flex;flex-direction:column}
+.fbcrm-oferta-cab small{color:var(--salvia)}
+.fbcrm .fbcrm-oferta-cab select{width:auto!important;max-width:170px;flex:none;padding:6px 10px}
+.fbcrm-oferta-cab > div{flex:1;min-width:0}
+.fbcrm .fbcrm-oferta-datos dd{margin:2px 0 0}
+.fbcrm-oferta-quien{margin:8px 0}
+.fbcrm .fbcrm-oferta-datos{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px 14px;margin:0 0 8px;padding:10px 12px}
+.fbcrm .fbcrm-oferta-datos div{display:block}
+.fbcrm-oferta-datos dt{font-size:.78rem}
+.fbcrm-oferta-desc{white-space:pre-wrap;margin:0 0 8px;font-size:.92rem}
+.fbcrm-ofertas-lista textarea{width:100%;margin-bottom:8px}
+.fbcrm-trampa{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+.fbcrm-vende-op button{min-width:120px;font-size:1rem}
 .fbcrm-contacto-rapido{margin:-6px 0 14px}
 
 /* Estructura */
