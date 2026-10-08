@@ -4295,7 +4295,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   const cli = datos.clientes.find((c) => c.id === clienteId);
   const titulo = (campo.web && campo.web.titulo) || campo.nombre;
   const saludoDe = (c) => { const k = c.clienteId && datos.clientes.find((x) => x.id === c.clienteId); const n = k ? k.contactoNombre : c.destinatario; return n ? ` ${String(n).trim().split(' ')[0]}` : ''; };
-  const mensaje = (c, fichaTk = fichaDeCompartido(campo, c)) => `Hola${saludoDe(c)}, te comparto ${c.kmz === false ? 'los planos' : (c.planos || []).length ? 'el plano y el KMZ' : 'el plano'} de ${titulo}. Es información confidencial: para verlo${c.descarga ? ' y descargarlo' : ''} primero debes aceptar un breve acuerdo de confidencialidad en este link:\n\n${linkPlano(c.token)}\n\nEl link vence el ${fmtFecha(c.vence.slice(0, 10))}.${fichaTk ? `\n\nTambién te dejo la ficha del campo en PDF para que la descargues:\n${linkPublicoFicha(fichaTk, datos.fichasBase)}` : ''}\n\n${firmaDe(datos, usuario)}`;
+  const mensaje = (c, fichaTk = fichaDeCompartido(campo, c)) => `Hola${saludoDe(c)}, te comparto ${c.kmz === false ? 'los planos' : (c.planos || []).length ? 'el plano y el KMZ' : 'el plano'} de ${titulo}. Es información confidencial: para verlo${c.descarga ? ' y descargarlo' : ''} primero debes aceptar un breve acuerdo de confidencialidad en este link:\n\n${linkPlano(c.token)}\n\nEl link vence el ${fmtFecha(c.vence.slice(0, 10))}.${fichaTk ? '\n\nAl aceptar el acuerdo, te llegará a tu correo la ficha del campo en PDF.' : ''}\n\n${firmaDe(datos, usuario)}`;
   // Antes de enviar, asegura que la ficha esté al día (si el campo cambió, se genera de nuevo)
   const fichaAlDia = async () => { try { return tokenDeLinkFicha(await ctx.linkFicha(campo, setMsg, OPC_FICHA_PLANO)); } catch (e) { console.warn('Ficha no preparada:', e); return ''; } };
   const enviarWa = async (c) => {
@@ -4335,7 +4335,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   return (
     <div className="fbcrm-bloque fbcrm-compartir">
       <h3>Enviar plano con confidencialidad {lista.length > 0 && <span>{plural(lista.length, 'envío')}</span>}</h3>
-      <p className="fbcrm-nota-suave">El cliente recibe un link personal (el mensaje lleva aparte el link a la ficha del campo). Para ver el plano primero acepta el acuerdo con su nombre y RUT; después ve y descarga lo que elijas: el contorno con el KMZ (con sus datos grabados) y los planos del loteo.</p>
+      <p className="fbcrm-nota-suave">El cliente recibe un link personal. Para ver el plano primero acepta el acuerdo con su nombre, RUT y email; después ve y descarga lo que elijas: el contorno con el KMZ (con sus datos grabados) y los planos del loteo. Al aceptar, le llega a su correo la ficha del campo en PDF.</p>
       <div className="fbcrm-form">
         <Campo label="Cliente" ancho>
           <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
@@ -4375,7 +4375,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
               <li key={c.token}>
                 <div className="fbcrm-cuerpo">
                   <strong>{c.destinatario}</strong>
-                  <small>{c.aceptacion ? `Aceptó ${c.aceptacion.nombre}, RUT ${c.aceptacion.rut}, el ${fmtFechaHora(c.aceptacion.fecha)}` : `Creado el ${fmtFecha(c.creado.slice(0, 10))} por ${c.creadoPor}, vence el ${fmtFecha(c.vence.slice(0, 10))}`}</small>
+                  <small>{c.aceptacion ? `Aceptó ${c.aceptacion.nombre}, RUT ${c.aceptacion.rut}, el ${fmtFechaHora(c.aceptacion.fecha)}${c.fichaCorreo ? (c.fichaCorreo.ok ? ` · Ficha enviada a ${c.fichaCorreo.email}` : ' · No se pudo enviar la ficha por correo') : ''}` : `Creado el ${fmtFecha(c.creado.slice(0, 10))} por ${c.creadoPor}, vence el ${fmtFecha(c.vence.slice(0, 10))}`}</small>
                 </div>
                 <span className={`fbcrm-badge ${clase}`}>{est}</span>
                 {c.aceptacion && <button className="fbcrm-mini" onClick={() => descargarConstancia(campo, c, datos).catch((e) => setMsg(e.message))}>Constancia PDF</button>}
@@ -4432,10 +4432,10 @@ export function FormularioPlano({ token }) {
       <div className="fbcrm-form fbcrm-sep2">
         <Campo label="Nombre completo" ancho><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} autoComplete="name" /></Campo>
         <RutInput label="RUT" value={f.rut} onChange={(x) => setF({ ...f, rut: x })} />
-        <Campo label="Email"><input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} autoComplete="email" /></Campo>
+        <Campo label={p.fichaPorCorreo ? 'Email (ahí te llega la ficha del campo)' : 'Email'}><input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} autoComplete="email" /></Campo>
       </div>
       <label className="fbcrm-check-linea fbcrm-acepto"><input type="checkbox" checked={f.acepto} onChange={(e) => setF({ ...f, acepto: e.target.checked })} />Leí el acuerdo de confidencialidad y lo acepto. Entiendo que esta aceptación electrónica equivale a mi firma.</label>
-      <div className="fbcrm-prop-pie"><button className="fbcrm-primario" disabled={enviando || !f.acepto || f.nombre.trim().length < 3 || !rutOk(f.rut)} onClick={aceptar}>{enviando ? 'Enviando…' : 'Aceptar y ver el plano'}</button></div>
+      <div className="fbcrm-prop-pie"><button className="fbcrm-primario" disabled={enviando || !f.acepto || f.nombre.trim().length < 3 || !rutOk(f.rut) || !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(f.email.trim())} onClick={aceptar}>{enviando ? 'Enviando…' : 'Aceptar y ver el plano'}</button></div>
     </section>,
   ]);
   const vista = p.plano ? vistaAjustada(p.plano.bbox, ancho, Math.round(ancho * 0.62)) : null;
@@ -4460,6 +4460,7 @@ export function FormularioPlano({ token }) {
         {p.descarga && <div className="fbcrm-prop-pie"><a className="fbcrm-btn-descarga" href={url('/kmz')}>Descargar KMZ</a></div>}
         <p className="fbcrm-nota-suave fbcrm-sep">{p.descarga ? 'El archivo se abre con Google Earth e incluye tus datos, porque es de uso confidencial.' : 'Este plano se entrega solo para ver en línea.'}</p>
       </section>}
+      {p.fichaPorCorreo && p.aceptacion.email && <p className="fbcrm-aviso-ficha">Te enviamos la ficha del campo en PDF a <strong>{p.aceptacion.email}</strong>. Si no la ves, revisa tu carpeta de spam.</p>}
       <p className="fbcrm-nota-suave">Acuerdo aceptado por {p.aceptacion.nombre}, RUT {p.aceptacion.rut}, el {fmtFechaHora(p.aceptacion.fecha)}. Código de verificación {p.aceptacion.codigo}.</p>
     </>,
   ]);
@@ -4475,6 +4476,7 @@ const CSS = `
 .fbcrm *{box-sizing:border-box}
 .fbcrm h1,.fbcrm h2,.fbcrm h3{letter-spacing:-.01em}
 .fbcrm-sub{color:var(--salvia);margin:4px 0 0;font-size:.92rem}
+.fbcrm-aviso-ficha{background:var(--potrero-cl);color:var(--potrero-osc);border-radius:10px;padding:12px 14px;margin:0 0 12px}
 
 /* Estructura */
 .fbcrm-app{display:grid;grid-template-columns:236px minmax(0,1fr);min-height:100vh}
