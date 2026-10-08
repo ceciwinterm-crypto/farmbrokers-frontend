@@ -4405,7 +4405,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
 // Página que abre el cliente
 // ════════════════════════════ Vende o arrienda tu campo (formulario público y bandeja en el CRM) ════════════════════════════
 const linkVende = () => `${window.location.origin}/vende`;
-const TIPOS_OFERTA = [['agricola', 'Agrícola'], ['forestal', 'Forestal'], ['loteo', 'Parcela o loteo'], ['conservacion', 'Conservación o agrado'], ['otro', 'Otro']];
+const TIPOS_OFERTA = [['agricola', 'Agrícola'], ['loteo', 'Parcela'], ['forestal', 'Forestal'], ['conservacion', 'Turística'], ['agroindustrial', 'Industrial'], ['urbano', 'Habitacional'], ['derechos_agua', 'Derechos de agua'], ['otro', 'Otro']];
 const ORDEN_REG = ['XV', 'I', 'II', 'III', 'IV', 'V', 'RM', 'VI', 'VII', 'XVI', 'VIII', 'IX', 'XIV', 'X', 'XI', 'XII'];
 export function FormularioVende() {
   const [f, setF] = useState({ operacion: 'venta', tipo: 'agricola', nombre: '', telefono: '', email: '', region: '', comuna: '', rol: '', hectareas: '', agua: '', plantaciones: '', construcciones: '', precio: '', descripcion: '', acepto: false, sitio: '' });
