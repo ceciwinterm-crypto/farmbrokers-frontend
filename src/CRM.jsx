@@ -1226,6 +1226,9 @@ function FichaCliente({ ctx, inicial, cerrar }) {
   const toggleB = (k, v) => setB(k, b[k].includes(v) ? b[k].filter((x) => x !== v) : [...b[k], v]);
   const setCt = (cid, k, v) => setF((x) => ({ ...x, contactos: x.contactos.map((y) => (y.id === cid ? { ...y, [k]: v } : k === 'principal' && v ? { ...y, principal: false } : y)) }));
   const esEmpresa = f.clase === 'empresa';
+  // Persona natural: la misma persona es el contacto (sin pedir un contacto aparte)
+  const simple = !esEmpresa && f.contactos.length <= 1;
+  const ctP = f.contactos.find((x) => x.principal) || f.contactos[0];
   const [msg, setMsg] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -1233,7 +1236,8 @@ function FichaCliente({ ctx, inicial, cerrar }) {
   const esNuevo = !f.id;
   const grabar = async (extra = {}) => {
     setOcupado(true); setMsg('');
-    try { const r = await guardar('clientes', { ...f, ...extra }); setF(prepararCliente(r)); setMsg('Guardado. El match se recalculó.'); }
+    const base = simple && ctP ? { ...f, contactos: [{ ...ctP, nombre: f.nombre || ctP.nombre, principal: true }] } : f;
+    try { const r = await guardar('clientes', { ...base, ...extra }); setF(prepararCliente(r)); setMsg('Guardado. El match se recalculó.'); }
     catch (e) { setMsg(e.message); }
     setOcupado(false);
   };
@@ -1259,6 +1263,11 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         <div className="fbcrm-form fbcrm-sep2">
           <Campo label={esEmpresa ? 'Razón social o nombre de la empresa' : 'Nombre'} ancho><input value={f.nombre || ''} onChange={set('nombre')} placeholder={esEmpresa ? 'Ej. Agrícola Los Robles SpA' : ''} /></Campo>
           {esEmpresa && <Campo label="RUT"><input value={f.rut || ''} onChange={set('rut')} placeholder="76.123.456-7" /></Campo>}
+          {simple && ctP && <>
+            <Campo label="RUT"><input value={ctP.rut || ''} onChange={(e) => setCt(ctP.id, 'rut', e.target.value)} placeholder="12.345.678-9" /></Campo>
+            <Campo label="Teléfono"><input type="tel" value={ctP.telefono || ''} onChange={(e) => setCt(ctP.id, 'telefono', e.target.value)} placeholder="9 1234 5678" /></Campo>
+            <Campo label="Email" ancho><input type="email" value={ctP.email || ''} onChange={(e) => setCt(ctP.id, 'email', e.target.value)} /></Campo>
+          </>}
           <Campo label="Corredor"><SelectorCorredor ctx={ctx} value={f.corredor || ''} onChange={(v) => setF((x) => ({ ...x, corredor: v }))} /></Campo>
           <Campo label="Fecha del requerimiento"><input type="date" value={(f.fechaRequerimiento || '').length === 10 ? f.fechaRequerimiento : (f.fechaRequerimiento ? f.fechaRequerimiento + '-01' : '')} onChange={set('fechaRequerimiento')} /></Campo>
           <Campo label="Observaciones" ancho><textarea rows={2} value={f.observaciones || ''} onChange={set('observaciones')} /></Campo>
@@ -1266,7 +1275,16 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         <label className="fbcrm-check-linea"><input type="checkbox" checked={!!f.revisar} onChange={() => setF({ ...f, revisar: !f.revisar })} />Marcar como “por completar”</label>
       </div>
 
-      <div className="fbcrm-bloque">
+      {simple && ctP && !esNuevo && (fonoWa(ctP.telefono) || emailsDe(ctP.email).length > 0) && (
+        <div className="fbcrm-acciones fbcrm-contacto-rapido">
+          {fonoWa(ctP.telefono) && <button className="fbcrm-mini fbcrm-wa" onClick={() => setEscribir({ ct: { ...ctP, nombre: f.nombre }, canal: 'whatsapp' })}>WhatsApp</button>}
+          {emailsDe(ctP.email).length > 0 && <button className="fbcrm-mini" onClick={() => setEscribir({ ct: { ...ctP, nombre: f.nombre }, canal: 'correo' })}>Correo</button>}
+          <button className="fbcrm-mini" onClick={() => setOrdenPara(ctP.id)}>Orden de visita</button>
+        </div>
+      )}
+      {simple && ordenPara && <NuevaOrden ctx={ctx} clienteId={f.id} contactoId={ordenPara} campos={camposQueCalzan.map((x) => x.campo)} cerrar={() => setOrdenPara(null)} />}
+      {simple && escribir && <EscribirCliente ctx={ctx} cli={f} contacto={escribir.ct} canal={escribir.canal} campos={camposQueCalzan.map((x) => x.campo)} cerrar={() => setEscribir(null)} alEnviar={(r) => { if (r && r.historial) setF((x) => ({ ...x, historial: r.historial })); }} />}
+      {!simple && <div className="fbcrm-bloque">
         <h3>{esEmpresa ? 'Personas de contacto' : 'Contacto'} {f.contactos.length > 1 && <span>{f.contactos.length}</span>}</h3>
         <ul className="fbcrm-contactos">
           {f.contactos.map((ct) => (
@@ -1291,7 +1309,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         <button className="fbcrm-mini" onClick={() => setF((x) => ({ ...x, contactos: [...x.contactos, { id: nuevoId(), nombre: '', cargo: '', telefono: '', email: '', principal: false }] }))}>+ Agregar {esEmpresa ? 'otra persona' : 'otro contacto'}</button>
         {ordenPara && <NuevaOrden ctx={ctx} clienteId={f.id} contactoId={ordenPara} campos={camposQueCalzan.map((x) => x.campo)} cerrar={() => setOrdenPara(null)} />}
         {escribir && <EscribirCliente ctx={ctx} cli={f} contacto={escribir.ct} canal={escribir.canal} campos={camposQueCalzan.map((x) => x.campo)} cerrar={() => setEscribir(null)} alEnviar={(r) => { if (r && r.historial) setF((x) => ({ ...x, historial: r.historial })); }} />}
-      </div>
+      </div>}
 
       <div className="fbcrm-bloque">
         <h3>Qué busca {f.busquedas.length > 1 && <span>{plural(f.busquedas.length, 'búsqueda', 'búsquedas')}</span>}</h3>
@@ -4448,6 +4466,7 @@ const CSS = `
 .fbcrm *{box-sizing:border-box}
 .fbcrm h1,.fbcrm h2,.fbcrm h3{letter-spacing:-.01em}
 .fbcrm-sub{color:var(--salvia);margin:4px 0 0;font-size:.92rem}
+.fbcrm-contacto-rapido{margin:-6px 0 14px}
 
 /* Estructura */
 .fbcrm-app{display:grid;grid-template-columns:236px minmax(0,1fr);min-height:100vh}
