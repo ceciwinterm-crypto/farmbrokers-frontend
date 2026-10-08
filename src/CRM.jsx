@@ -1424,6 +1424,18 @@ function datosBrochure(c) {
     url: (w && w.url) || (/^https?:\/\//.test(c.linkWeb || '') ? c.linkWeb : ''),
   };
 }
+// Sin fotos: la tarjeta muestra el campo desde el satélite (con su contorno si tiene KMZ)
+function SateliteTarjeta({ campo }) {
+  const W = 760, H = 460, g = campo.geo, d = datosBrochure(campo);
+  const v = g ? vistaAjustada(g.bbox, 380, 230) : d.coord ? { lat: d.coord.lat, lng: d.coord.lng, z: d.coord.aprox ? 12 : 15 } : null;
+  if (!v) return <div className="br-t-img br-sin-foto" />;
+  return (
+    <div className="br-t-img br-t-sat">
+      <div style={{ position: 'absolute', left: '50%', top: '50%', marginLeft: -W / 2, marginTop: -H / 2 }}><MapaTiles lat={v.lat} lng={v.lng} z={Math.min(v.z, 16)} w={W} h={H} fuente="satelite" anillos={g && g.anillos} partes={g && g.partes} /></div>
+      <span className="br-t-sat-etq">Vista satelital</span>
+    </div>
+  );
+}
 async function fotosCRM(c, usuario) {
   const fotos = (c.archivos || []).filter((a) => a.tipo === 'foto').slice(0, 6);
   const urls = await Promise.all(fotos.map((a) => fetch(`${API_BASE}/api/crm/campos/${c.id}/archivos/${a.id}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(usuario) } })
@@ -1454,7 +1466,7 @@ function DocBrochure({ items, usuario, datosUsuario, busca }) {
             return (
               <article key={it.campo.id} className={`br-tarjeta ${i === 0 && n % 2 === 1 && n >= 3 && n < 9 ? 'ancha' : ''}`} data-enlace={d.url || undefined}>
                 <div className="br-t-foto">
-                  {it.fotos.length ? <Foto src={it.fotos[it.foto || 0]} clase="br-t-img" /> : <div className="br-t-img br-sin-foto" />}
+                  {it.fotos.length ? <Foto src={it.fotos[it.foto || 0]} clase="br-t-img" /> : <SateliteTarjeta campo={it.campo} />}
                   <span className="br-t-num">{dosDig(i + 1)}</span>
                   {d.tipo && forma !== 'nueve' && <span className="br-t-tipo">{d.tipo}</span>}
                 </div>
@@ -1519,7 +1531,7 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
       let texto = (nuevos[id] && nuevos[id].texto) || null, aviso = '';
       if (!texto) { try { texto = await api(`/campos/${id}/brochure`, { method: 'POST', body: { busca } }); } catch (e) { aviso = e.message; texto = { titular: '', campo: corto((c.descripcionFicha || ((c.web && c.web.descripcion) || []).join(' ')), 420), zona: '' }; } }
       let cw = c;
-      const tieneLink = [c.linkWeb, c.linkPortal].some((u) => /^https:\/\/(www\.)?farmbrokers\.cl\/propiedad\//.test(String(u || '').trim()));
+      const tieneLink = [c.linkWeb, c.linkPortal, c.web && c.web.url].some((u) => /^https?:\/\/(www\.)?farmbrokers\.cl\/propiedad\//i.test(String(u || '').trim()));
       if (!(nuevos[id] && nuevos[id].fotos.length) && !(c.web && c.web.fotos && c.web.fotos.length) && tieneLink) { try { cw = await api(`/campos/${id}/web`, { method: 'POST' }); } catch (e) { /* se usan las fotos del CRM */ } }
       let fotos = (nuevos[id] && nuevos[id].fotos.length) ? nuevos[id].fotos : (cw.web && cw.web.fotos && cw.web.fotos.length ? cw.web.fotos.slice(0, 6) : []);
       if (!fotos.length) fotos = await fotosCRM(c, usuario);
@@ -1527,6 +1539,19 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
       setItems({ ...nuevos });
     }
     setEstado(''); setPaso('editar');
+  };
+  const [subiendo, setSubiendo] = useState('');
+  const subirFotos = async (id, files) => {
+    if (!files.length) return;
+    setSubiendo(id);
+    try {
+      let c = campoDe(id);
+      for (const file of files) { const a = await leerArchivo(file, 'foto'); c = (await api(`/campos/${id}/archivo`, { method: 'POST', body: { ...a, tipo: 'foto' } })).campo; }
+      const nuevas = await fotosCRM(c, usuario);
+      setItems((x) => ({ ...x, [id]: { ...x[id], fotos: [...nuevas.slice(-files.length), ...((x[id] && x[id].fotos) || [])], foto: 0 } }));
+      ctx.cargar(); setEstado('');
+    } catch (e) { setEstado(e.message); }
+    setSubiendo('');
   };
   const cambiarTexto = (id, k, v) => setItems((x) => ({ ...x, [id]: { ...x[id], texto: { ...x[id].texto, [k]: v } } }));
   const guardarTexto = (id) => { const t = items[id] && items[id].texto; if (t) api(`/campos/${id}/brochure`, { method: 'PUT', body: t }).catch(() => {}); };
@@ -1583,7 +1608,10 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
                   <h3>{i + 1}. {it.campo.nombre}</h3>
                   {it.aviso && <p className="fbcrm-nota-suave">{it.aviso}</p>}
                   {it.fotos.length > 1 && <div className="br-fotos-elegir"><span>Foto principal:</span>{it.fotos.map((u, k) => <button key={k} className={k === (it.foto || 0) ? 'on' : ''} style={{ backgroundImage: `url("${prox(u)}")` }} aria-label={`Foto ${k + 1}`} onClick={() => setItems((x) => ({ ...x, [it.campo.id]: { ...x[it.campo.id], foto: k } }))} />)}</div>}
-                  {!it.fotos.length && <p className="fbcrm-nota-suave">Este campo no tiene fotos: agrega el link de farmbrokers.cl o sube fotos en el campo.</p>}
+                  <div className="br-subir">
+                    {!it.fotos.length && <span className="fbcrm-nota-suave">Sin fotos: va la vista satelital del campo. Puedes subir fotos aquí (quedan guardadas en el campo).</span>}
+                    <label className="fbcrm-mini br-subir-btn">{subiendo === it.campo.id ? 'Subiendo…' : it.fotos.length ? '+ Subir otra foto' : '+ Subir fotos'}<input type="file" accept="image/*" multiple hidden disabled={!!subiendo} onChange={(e) => { subirFotos(it.campo.id, [...e.target.files]); e.target.value = ''; }} /></label>
+                  </div>
                   <Campo label="Frase destacada" ancho><input value={(it.texto && it.texto.titular) || ''} maxLength={110} onChange={(e) => cambiarTexto(it.campo.id, 'titular', e.target.value)} onBlur={() => guardarTexto(it.campo.id)} /></Campo>
                   {lista.length <= 2 && <>
                   <Campo label="El campo" ancho><textarea rows={4} value={(it.texto && it.texto.campo) || ''} maxLength={700} onChange={(e) => cambiarTexto(it.campo.id, 'campo', e.target.value)} onBlur={() => guardarTexto(it.campo.id)} /></Campo>
@@ -4927,6 +4955,11 @@ const CSS = `
 .br-tarjeta{display:flex;flex-direction:column;min-height:0;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 0 #E4DDCC,0 6px 18px rgba(31,77,49,.08)}
 .br-t-foto{position:relative;flex:1;min-height:0}
 .br-t-img{position:absolute;inset:0;background-size:cover;background-position:center}
+.br-t-sat{overflow:hidden;background:#2F3B2F}
+.br-t-sat-etq{position:absolute;left:10px;bottom:9px;font-size:9px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;color:#fff;background:rgba(0,0,0,.45);padding:4px 7px;border-radius:3px}
+.br-t-sat .doc-mapa-cred{display:none}
+.br-subir{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}
+.br-subir-btn{cursor:pointer;display:inline-flex;align-items:center;border:1px solid var(--linea);background:var(--papel);border-radius:9px;padding:5px 11px;font-size:.85rem;font-weight:500;color:var(--tinta)}
 .br-t-num{position:absolute;top:12px;left:12px;font-family:'Fraunces',Georgia,serif;font-size:17px;line-height:1;color:#fff;background:rgba(31,77,49,.88);padding:5px 9px 6px;border-radius:4px}
 .br-t-tipo{position:absolute;top:12px;right:12px;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;color:#1F4D31;background:rgba(251,249,244,.92);padding:5px 8px;border-radius:3px}
 .br-t-info{flex:none;padding:12px 16px 14px}
