@@ -7,7 +7,7 @@ import CRM, { FormularioPropietario, FormularioPlano, FormularioOrden, Formulari
 const ruta = window.location.pathname.match(/^\/(orden|plano|propietario)\/([^/?#]+)/)
 const hash = ruta ? `#${ruta[1]}/${ruta[2]}` : window.location.hash
 let pantalla = <App />
-if (/^\/vende\/?$/.test(window.location.pathname)) pantalla = <FormularioVende />
+if (/^\/vende\/?$/.test(window.location.pathname) || /^vende\./i.test(window.location.hostname)) pantalla = <FormularioVende />
 else if (hash.startsWith('#propietario/')) pantalla = <FormularioPropietario token={hash.split('/')[1]} />
 else if (hash.startsWith('#plano/')) pantalla = <FormularioPlano token={hash.split('/')[1]} />
 else if (hash.startsWith('#orden/')) pantalla = <FormularioOrden token={hash.split('/')[1]} />

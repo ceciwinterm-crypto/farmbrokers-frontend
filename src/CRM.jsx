@@ -4412,7 +4412,18 @@ export function FormularioVende() {
   const [aviso, setAviso] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [listo, setListo] = useState(false);
+  // Dentro de farmbrokers.cl (iframe): sin encabezado propio y avisando su altura para que la página la ajuste
+  const embebido = typeof window !== 'undefined' && (new URLSearchParams(window.location.search).get('embed') === '1' || window.self !== window.top);
+  const avisar = (m) => { try { window.parent.postMessage({ fbVende: true, ...m }, '*'); } catch (e) { /* sin página contenedora */ } };
   useEffect(() => { document.title = 'Vende o arrienda tu campo - Farm Brokers Chile'; }, []);
+  useEffect(() => {
+    if (!embebido) return undefined;
+    const medir = () => avisar({ alto: Math.ceil(document.documentElement.scrollHeight) });
+    medir();
+    const ro = window.ResizeObserver ? new ResizeObserver(medir) : null; if (ro) ro.observe(document.body);
+    window.addEventListener('resize', medir);
+    return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', medir); };
+  }, []);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const enviar = async () => {
     setEnviando(true); setAviso('');
@@ -4420,13 +4431,13 @@ export function FormularioVende() {
       const r = await fetch(`${API_BASE}/api/crm/publico-vende`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
-      setListo(true); window.scrollTo && window.scrollTo(0, 0);
+      setListo(true); window.scrollTo && window.scrollTo(0, 0); if (embebido) avisar({ arriba: true });
     } catch (e) { setAviso(e.message === 'Failed to fetch' ? 'No se pudo enviar. Revisa tu conexión e inténtalo de nuevo.' : e.message); }
     setEnviando(false);
   };
   const okContacto = f.telefono.trim().length >= 8 || /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(f.email.trim());
   const listoParaEnviar = f.nombre.trim().length >= 3 && okContacto && (f.comuna.trim() || f.rol.trim()) && f.acepto;
-  const caja = (cab, cuerpo) => (<div className="fbcrm fbcrm-prop fbcrm-vende"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{cab}</header><main className="fbcrm-prop-main">{cuerpo}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA · contacto@farmbrokers.cl · +569 7193 90 40 · farmbrokers.cl</footer></div>);
+  const caja = (cab, cuerpo) => embebido ? (<div className="fbcrm fbcrm-prop fbcrm-vende embebido"><style>{CSS}</style><main className="fbcrm-prop-main">{listo ? cab : null}{cuerpo}</main></div>) : (<div className="fbcrm fbcrm-prop fbcrm-vende"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{cab}</header><main className="fbcrm-prop-main">{cuerpo}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA · contacto@farmbrokers.cl · +569 7193 90 40 · farmbrokers.cl</footer></div>);
   if (listo) return caja(<div><h1>¡Gracias, {primerNombre(f.nombre)}!</h1><p className="fbcrm-sub">Recibimos los datos de tu campo.</p></div>,
     <section className="fbcrm-bloque"><h2>Te contactaremos pronto</h2><p>Un corredor de Farm Brokers revisará la información y se comunicará contigo{f.telefono ? ` al ${f.telefono}` : f.email ? ` a ${f.email}` : ''} para conversar sobre {f.operacion === 'arriendo' ? 'el arriendo' : 'la venta'} de tu propiedad.</p><p className="fbcrm-nota-suave">Si prefieres, también puedes escribirnos a contacto@farmbrokers.cl.</p></section>);
   return caja(
@@ -4632,6 +4643,9 @@ const CSS = `
 .fbcrm-ofertas-lista textarea{width:100%;margin-bottom:8px}
 .fbcrm-trampa{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
 .fbcrm-vende-op button{min-width:120px;font-size:1rem}
+.fbcrm-vende.embebido{min-height:0;background:transparent;padding:0}
+.fbcrm-vende.embebido .fbcrm-prop-main{max-width:none;padding:4px 2px 8px;margin:0}
+.fbcrm-vende.embebido h1{font-size:1.4rem;margin:0 0 4px}
 .fbcrm-contacto-rapido{margin:-6px 0 14px}
 
 /* Estructura */
