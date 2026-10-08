@@ -515,6 +515,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
   const [verMandato, setVerMandato] = useState(false);
   const [tareaForm, setTareaForm] = useState(null);
   const [verPublicar, setVerPublicar] = useState(false);
+  const [verOrdenNueva, setVerOrdenNueva] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const esNuevo = !f.id;
   const sinGuardar = !esNuevo && huella(f) !== base;
@@ -587,6 +588,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           </label>
           <button onClick={() => ctx.imprimir({ tipo: 'campo', id: f.id })}><Icono n="pdf" s={18} />Ficha PDF</button>
           <button className={tareaForm ? 'on' : ''} onClick={() => setTareaForm(tareaForm ? null : { titulo: '' })}>Tarea</button>
+          <button className={verOrdenNueva ? 'on' : ''} onClick={() => setVerOrdenNueva(!verOrdenNueva)}>Orden de visita</button>
           <button className={verPublicar ? 'on' : ''} onClick={() => setVerPublicar(!verPublicar)}>{linkPublicadoDe(f) ? 'Publicado en web ✓' : visibDe(f) === 'reservada' ? 'Web: reservada 🔒' : f.wp ? 'Borrador web ✓' : 'Publicar en web'}</button>
           <button className={verMandato ? 'on' : ''} aria-expanded={verMandato} onClick={() => setVerMandato(!verMandato)}>
             Mandato {cap ? <span className={`fbcrm-badge est-${cap.estado}`}>{ETIQUETA_CAP[cap.estado]}</span> : <span className="fbcrm-badge gris">Sin link</span>}
@@ -596,6 +598,8 @@ function FichaCampo({ ctx, inicial, cerrar }) {
       )}
       {!esNuevo && tareaForm && <FormTarea ctx={ctx} refInicial={{ col: 'campos', id: f.id, nombre: f.nombre }} tituloInicial={tareaForm.titulo} alListo={() => setTareaForm(null)} />}
       {!esNuevo && verPublicar && <PublicarWeb ctx={ctx} campo={f} setCampo={setCampo} sinGuardar={sinGuardar} />}
+      {!esNuevo && verOrdenNueva && <NuevaOrden ctx={ctx} campoId={f.id} cerrar={() => setVerOrdenNueva(false)} />}
+      {!esNuevo && <OrdenesDe ctx={ctx} filtro={(o) => o.campoId === f.id} titulo="Órdenes de visita de este campo" />}
       {!esNuevo && <TareasDe ctx={ctx} refId={f.id} />}
       {!esNuevo && verMandato && <Captacion ctx={ctx} campo={f} setCampo={setCampo} />}
 
@@ -1168,6 +1172,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
   const setF = (x) => setF0((prev) => { const n = typeof x === 'function' ? x(prev) : x; return n.contactos && n.busquedas ? n : prepararCliente(n); });
   const [bSel, setBSel] = useState(0);
   const [escribir, setEscribir] = useState(null);
+  const [ordenPara, setOrdenPara] = useState(null);
   const b = f.busquedas[Math.min(bSel, f.busquedas.length - 1)];
   const setB = (k, v) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, [k]: v } : y)) }));
   const toggleB = (k, v) => setB(k, b[k].includes(v) ? b[k].filter((x) => x !== v) : [...b[k], v]);
@@ -1221,6 +1226,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
               <div className="fbcrm-form">
                 <Campo label="Nombre"><input value={ct.nombre || ''} onChange={(e) => setCt(ct.id, 'nombre', e.target.value)} placeholder={esEmpresa ? 'Ej. Juan Pérez' : f.nombre || ''} /></Campo>
                 {esEmpresa && <Campo label="Cargo"><input value={ct.cargo || ''} onChange={(e) => setCt(ct.id, 'cargo', e.target.value)} placeholder="Ej. Gerente general" /></Campo>}
+                <Campo label="RUT"><input value={ct.rut || ''} onChange={(e) => setCt(ct.id, 'rut', e.target.value)} placeholder="12.345.678-9" /></Campo>
                 <Campo label="Teléfono"><input type="tel" value={ct.telefono || ''} onChange={(e) => setCt(ct.id, 'telefono', e.target.value)} placeholder="9 1234 5678" /></Campo>
                 <Campo label="Email"><input type="email" value={ct.email || ''} onChange={(e) => setCt(ct.id, 'email', e.target.value)} /></Campo>
               </div>
@@ -1228,12 +1234,14 @@ function FichaCliente({ ctx, inicial, cerrar }) {
                 {f.contactos.length > 1 && <label className="fbcrm-check-mini"><input type="radio" name="principal" checked={!!ct.principal} onChange={() => setCt(ct.id, 'principal', true)} />Contacto principal</label>}
                 {!esNuevo && fonoWa(ct.telefono) && <button className="fbcrm-mini fbcrm-wa" onClick={() => setEscribir({ ct, canal: 'whatsapp' })}>WhatsApp</button>}
                 {!esNuevo && emailsDe(ct.email).length > 0 && <button className="fbcrm-mini" onClick={() => setEscribir({ ct, canal: 'correo' })}>Correo</button>}
+                {!esNuevo && <button className="fbcrm-mini" onClick={() => setOrdenPara(ct.id)}>Orden de visita</button>}
                 {f.contactos.length > 1 && <button className="fbcrm-mini fbcrm-peligro" onClick={() => setF((x) => { const cs = x.contactos.filter((y) => y.id !== ct.id); if (ct.principal && cs[0]) cs[0] = { ...cs[0], principal: true }; return { ...x, contactos: cs }; })}>Quitar</button>}
               </div>
             </li>
           ))}
         </ul>
         <button className="fbcrm-mini" onClick={() => setF((x) => ({ ...x, contactos: [...x.contactos, { id: nuevoId(), nombre: '', cargo: '', telefono: '', email: '', principal: false }] }))}>+ Agregar {esEmpresa ? 'otra persona' : 'otro contacto'}</button>
+        {ordenPara && <NuevaOrden ctx={ctx} clienteId={f.id} contactoId={ordenPara} campos={camposQueCalzan.map((x) => x.campo)} cerrar={() => setOrdenPara(null)} />}
         {escribir && <EscribirCliente ctx={ctx} cli={f} contacto={escribir.ct} canal={escribir.canal} campos={camposQueCalzan.map((x) => x.campo)} cerrar={() => setEscribir(null)} alEnviar={(r) => { if (r && r.historial) setF((x) => ({ ...x, historial: r.historial })); }} />}
       </div>
 
@@ -1287,6 +1295,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
           })}
         </div>
       )}
+      {!esNuevo && <OrdenesDe ctx={ctx} filtro={(o) => o.clienteId === f.id} titulo="Órdenes de visita" />}
       {!esNuevo && <Historial col="clientes" f={f} setF={setF} api={api} cargar={cargar} />}
     </Hoja>
   );
@@ -1343,6 +1352,224 @@ function EscribirCliente({ ctx, cli, contacto, canal, campos, cerrar, alEnviar }
       {estado && <p className="fbcrm-msg" role="status">{estado}</p>}
     </div>
   );
+}
+
+// ════════════════════════════ Orden de visita ════════════════════════════
+const linkOrden = (token) => `${window.location.origin}${window.location.pathname}#orden/${token}`;
+const ETQ_ORDEN = [['clienteNombre', 'Cliente'], ['clienteRut', 'RUT'], ['empresa', 'Empresa'], ['empresaRut', 'RUT empresa'], ['email', 'Email'],
+  ['propiedad', 'Propiedad'], ['ubicacion', 'Ubicación'], ['tipo', 'Tipo'], ['superficie', 'Superficie'], ['codigo', 'Código propiedad'], ['enlace', 'Enlace'], ['comision', 'Comisión']];
+const MESES_L = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const fechaLargaO = (iso) => { const d = new Date(`${String(iso || '').slice(0, 10)}T12:00:00`); return isNaN(d) ? '' : `${d.getDate()} de ${MESES_L[d.getMonth()]} de ${d.getFullYear()}`; };
+const textoOrdenF = (d) => {
+  const com = d.comision || '2 % + IVA';
+  return [
+    `El Cliente certifica y declara haber solicitado a Farm Brokers Chile SpA, oficina de corretaje de propiedades, rol único tributario N° 77.089.307-0, orden para visitar la propiedad descrita anteriormente, y deja expresa constancia de que ésta es la primera oficina en ofrecer esta propiedad. Por lo tanto, se compromete a encargar a Farm Brokers Chile SpA la realización de cualquier gestión ante el propietario para adquirirla o arrendarla, comprometiéndose a pagar una comisión correspondiente a ${com} del valor total del contrato respectivo de compraventa y/o arriendo, en caso de efectuarse el negocio.`,
+    'Las partes se obligan, para sí y para los colaboradores que designen, a mantener la más estricta confidencialidad respecto de toda conversación, información y documentación referente al proceso de compra y/o arriendo de la propiedad, quedando estrictamente prohibida su divulgación a cualquier tercero, así como la utilización de tal información o conocimiento en cualquier otra actividad, ya sea en beneficio propio o de terceros.',
+    'En caso de que el suscrito transmita a terceros cualquier información de la propiedad sin consentimiento previo y por escrito de Farm Brokers Chile SpA; en caso de tratar directamente con los propietarios, haciendo el negocio por su cuenta directa o indirectamente; o en caso de que la propiedad sea adquirida por personas relacionadas familiar o laboralmente con el suscrito, aunque la orden de venta de la propiedad haya vencido, sea ésta exclusiva o no exclusiva, el suscrito estará obligado a pagar íntegramente la comisión correspondiente a Farm Brokers Chile SpA.',
+    'Esta orden es personal e intransferible y, para todos los efectos legales, las partes fijan su domicilio en la ciudad de Santiago.',
+  ];
+};
+// Vista previa: la hoja A4 se reduce al ancho disponible; el PDF se arma con una copia a tamaño real fuera de la vista
+function OrdenPrevia({ o, refPdf }) {
+  const caja = useRef(null);
+  const [esc, setEsc] = useState(0.7);
+  useLayoutEffect(() => {
+    const medir = () => { if (caja.current) setEsc(Math.min(1, caja.current.clientWidth / 794)); };
+    medir(); window.addEventListener('resize', medir); return () => window.removeEventListener('resize', medir);
+  }, []);
+  return (
+    <>
+      <div ref={caja} className="doc-orden-ancho"><div className="doc-orden-prev" style={{ width: 794 * esc, height: 1123 * esc }}><div className="fbcrm-doc doc-orden-hoja" style={{ transform: `scale(${esc})`, transformOrigin: 'top left', width: 794 }}><DocOrden o={o} /></div></div></div>
+      <div className="fbcrm-generador" aria-hidden="true"><div className="fbcrm-doc doc-orden-hoja" ref={refPdf}><DocOrden o={o} /></div></div>
+    </>
+  );
+}
+// El documento (en pantalla, en el PDF y en la página que firma el cliente)
+function DocOrden({ o }) {
+  const d = o.datos || {}, texto = o.texto || textoOrdenF(d), firma = o.firma;
+  const fila = (k, l) => (d[k] ? <div key={k}><dt>{l}</dt><dd className={k === 'enlace' ? 'doc-url' : ''}>{d[k]}</dd></div> : null);
+  return (
+    <section className="doc-pagina doc-orden">
+      <div className="doc-pagina-cuerpo">
+        <header className="doc-orden-cab">
+          <img src={LOGO_FB} alt="Farm Brokers Chile" className="doc-orden-logo" />
+          <div className="doc-orden-tit"><h1>Orden de visita</h1><p>Santiago, {o.fechaTexto || fechaLargaO(o.fecha)}</p></div>
+        </header>
+        <div className="doc-orden-datos">
+          <div className="doc-orden-caja"><h2>Cliente</h2><dl>{[['clienteNombre', 'Nombre'], ['clienteRut', 'RUT'], ['empresa', 'Empresa'], ['empresaRut', 'RUT empresa'], ['email', 'Email']].map(([k, l]) => fila(k, l))}</dl></div>
+          <div className="doc-orden-caja"><h2>Propiedad</h2><dl>{[['propiedad', 'Propiedad'], ['ubicacion', 'Ubicación'], ['tipo', 'Tipo'], ['superficie', 'Superficie'], ['codigo', 'Código'], ['enlace', 'Enlace']].map(([k, l]) => fila(k, l))}</dl></div>
+        </div>
+        <div className="doc-orden-texto">{texto.map((t, i) => <p key={i}>{t}</p>)}</div>
+        <div className="doc-orden-firmas">
+          <div className="doc-orden-firma">
+            {firma ? <div className="doc-orden-firmado"><b>Firmado electrónicamente</b><span>{firma.nombre}</span><span>RUT {firma.rut}</span><span>{fmtFechaHora(firma.fecha)}</span><span>Código de verificación {firma.codigo}</span></div> : <div className="doc-orden-linea" />}
+            <p><b>{firma ? firma.nombre : d.clienteNombre || 'Cliente'}</b>{d.empresa ? `, en representación de ${d.empresa}` : ''}</p>
+            <p className="doc-rol">El Cliente{(firma ? firma.rut : d.clienteRut) ? `, RUT ${firma ? firma.rut : d.clienteRut}` : ''}</p>
+          </div>
+          <div className="doc-orden-firma">
+            <div className="doc-orden-sello"><img src={LOGO_FB} alt="" /></div>
+            <p><b>Farm Brokers Chile SpA</b></p>
+            <p className="doc-rol">RUT 77.089.307-0</p>
+          </div>
+        </div>
+      </div>
+      <footer className="doc-pagina-pie doc-orden-pie"><span>Farm Brokers Chile SpA · Estoril 120, of. 615, Las Condes · contacto@farmbrokers.cl · farmbrokers.cl</span><span>{d.codigo ? `Propiedad ${d.codigo}` : ''}</span></footer>
+    </section>
+  );
+}
+// Crear una orden: desde el campo se elige el cliente; desde el cliente se elige el campo
+function NuevaOrden({ ctx, campoId, clienteId, contactoId, campos = [], cerrar }) {
+  const { datos, api, cargar } = ctx;
+  const [campo, setCampo] = useState(campoId || (campos[0] && campos[0].id) || '');
+  const [cli, setCli] = useState(clienteId || '');
+  const [ct, setCt] = useState(contactoId || '');
+  const [fecha, setFecha] = useState(hoyISO());
+  const [msg, setMsg] = useState('');
+  const [creada, setCreada] = useState(null);
+  const cliente = datos.clientes.find((x) => x.id === cli);
+  const cts = contactosDe(cliente);
+  const listaCampos = campos.length ? [...campos, ...datos.campos.filter((c) => !campos.some((x) => x.id === c.id))] : datos.campos;
+  const crear = async () => {
+    setMsg('');
+    try { const o = await api('/ordenes', { method: 'POST', body: { campoId: campo, clienteId: cli, contactoId: ct || (cts.find((x) => x.principal) || cts[0] || {}).id, fecha } }); await cargar(); setCreada(o); }
+    catch (e) { setMsg(e.message); }
+  };
+  if (creada) return <VerOrden ctx={ctx} orden={creada} cerrar={cerrar} />;
+  return (
+    <div className="fbcrm-bloque fbcrm-orden-nueva">
+      <h3>Nueva orden de visita</h3>
+      <div className="fbcrm-form">
+        {!campoId && <Campo label="Campo" ancho><select value={campo} onChange={(e) => setCampo(e.target.value)}><option value="">Elige el campo…</option>{listaCampos.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.sector ? `, ${c.sector}` : ''}{campos.some((x) => x.id === c.id) ? ' (le calza)' : ''}</option>)}</select></Campo>}
+        {!clienteId && <Campo label="Cliente" ancho><select value={cli} onChange={(e) => { setCli(e.target.value); setCt(''); }}><option value="">Elige el cliente…</option>{[...datos.clientes].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></Campo>}
+        {cliente && cts.length > 1 && <Campo label="Quién firma"><select value={ct || (cts.find((x) => x.principal) || cts[0]).id} onChange={(e) => setCt(e.target.value)}>{cts.map((x) => <option key={x.id} value={x.id}>{x.nombre || x.email || x.telefono}{x.cargo ? `, ${x.cargo}` : ''}</option>)}</select></Campo>}
+        <Campo label="Fecha"><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></Campo>
+      </div>
+      <p className="fbcrm-nota-suave">Los datos del cliente y del campo se llenan solos. En el paso siguiente puedes corregirlos antes de enviarla.</p>
+      <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={!campo || !cli} onClick={crear}>Crear orden</button><button onClick={cerrar}>Cancelar</button></div>
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+    </div>
+  );
+}
+// Ver, corregir, enviar y descargar una orden
+function VerOrden({ ctx, orden, cerrar }) {
+  const { datos, api, cargar, usuario } = ctx;
+  const [o, setO] = useState(orden);
+  const [edit, setEdit] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [ocupado, setOcupado] = useState('');
+  const ref = useRef(null);
+  useEffect(() => { const act = (datos.ordenes || []).find((x) => x.id === orden.id); if (act && act.estado !== o.estado) setO(act); }, [datos.ordenes]);
+  const link = linkOrden(o.token);
+  const firmaTxt = firmaDe(datos, usuario);
+  const mensaje = `Hola ${primerNombre(o.datos.clienteNombre)},\n\nTe envío la orden de visita de ${o.datos.propiedad} para que la revises y la firmes en línea:\n${link}\n\n${firmaTxt}`.replace('Hola ,', 'Hola,');
+  const guardarEdit = async () => { try { const r = await api(`/ordenes/${o.id}`, { method: 'PUT', body: { datos: edit, fecha: edit.fecha } }); setO(r); setEdit(null); cargar(); setMsg('Orden actualizada.'); } catch (e) { setMsg(e.message); } };
+  const anular = async () => { if (!window.confirm('¿Anular esta orden de visita? El link dejará de funcionar.')) return; try { setO(await api(`/ordenes/${o.id}/anular`, { method: 'POST' })); cargar(); } catch (e) { setMsg(e.message); } };
+  const pdf = async () => {
+    setOcupado('Armando el PDF…');
+    try { const doc = await pdfDeFicha(ref.current, setOcupado); doc.save(`Orden de visita ${o.datos.propiedad} - ${o.datos.empresa || o.datos.clienteNombre}.pdf`.replace(/[\\/:*?"<>|]/g, '')); } catch (e) { setMsg(e.message); }
+    setOcupado('');
+  };
+  const fono = fonoWa(o.datos.telefono) || fonoWa(((datos.clientes.find((c) => c.id === o.clienteId) || {}).telefono) || '');
+  return (
+    <div className="fbcrm-orden-ver" role="dialog" aria-label="Orden de visita">
+      <div className="fbcrm-orden-barra">
+        <strong>Orden de visita · {o.datos.propiedad}</strong>
+        <span className={`fbcrm-badge est-orden-${o.estado}`}>{o.estado === 'firmada' ? 'Firmada' : o.estado === 'anulada' ? 'Anulada' : 'Pendiente de firma'}</span>
+        <span className="fbcrm-orden-acc">
+          {o.estado === 'pendiente' && <>
+            <button className="fbcrm-mini" onClick={async () => { await navigator.clipboard.writeText(link); setMsg('Link para firmar copiado.'); }}>Copiar link para firmar</button>
+            {fono && <a className="fbcrm-mini fbcrm-wa" href={`https://wa.me/${fono}?text=${encodeURIComponent(mensaje)}`} target="_blank" rel="noreferrer">WhatsApp</a>}
+            {o.datos.email && <a className="fbcrm-mini" href={`mailto:${encodeURIComponent(o.datos.email)}?subject=${encodeURIComponent(`Orden de visita ${o.datos.propiedad}`)}&body=${encodeURIComponent(mensaje)}`}>Correo</a>}
+            {!edit && <button className="fbcrm-mini" onClick={() => setEdit({ ...o.datos, fecha: o.fecha })}>Corregir datos</button>}
+          </>}
+          <button className="fbcrm-mini fbcrm-primario" disabled={!!ocupado} onClick={pdf}>{ocupado || 'Descargar PDF'}</button>
+          {o.estado === 'pendiente' && <button className="fbcrm-mini fbcrm-peligro" onClick={anular}>Anular</button>}
+          <button className="fbcrm-mini" onClick={cerrar}>Cerrar</button>
+        </span>
+      </div>
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+      {edit && (
+        <div className="fbcrm-bloque">
+          <div className="fbcrm-form">
+            <Campo label="Fecha"><input type="date" value={edit.fecha} onChange={(e) => setEdit({ ...edit, fecha: e.target.value })} /></Campo>
+            {ETQ_ORDEN.map(([k, l]) => <Campo key={k} label={l} ancho={k === 'enlace'}><input value={edit[k] || ''} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} /></Campo>)}
+          </div>
+          <div className="fbcrm-acciones"><button className="fbcrm-primario" onClick={guardarEdit}>Guardar</button><button onClick={() => setEdit(null)}>Cancelar</button></div>
+        </div>
+      )}
+      <OrdenPrevia o={edit ? { ...o, datos: edit, fecha: edit.fecha } : o} refPdf={ref} />
+    </div>
+  );
+}
+function OrdenesDe({ ctx, filtro, titulo }) {
+  const { datos } = ctx;
+  const [ver, setVer] = useState(null);
+  const lista = (datos.ordenes || []).filter(filtro).sort((a, b) => b.creado.localeCompare(a.creado));
+  if (!lista.length && !ver) return null;
+  return (
+    <div className="fbcrm-bloque">
+      <h3>{titulo} <span>{lista.length}</span></h3>
+      <ul className="fbcrm-ordenes">
+        {lista.map((o) => (
+          <li key={o.id}>
+            <span className="fbcrm-cuerpo"><strong>{o.datos.propiedad}</strong><small>{[o.datos.clienteNombre, o.datos.empresa, fechaLargaO(o.fecha), o.autor].filter(Boolean).join(' · ')}</small></span>
+            <span className={`fbcrm-badge est-orden-${o.estado}`}>{o.estado === 'firmada' ? `Firmada ${fmtFecha(o.firma.fecha)}` : o.estado === 'anulada' ? 'Anulada' : 'Pendiente'}</span>
+            <button className="fbcrm-mini" onClick={() => setVer(o)}>Ver</button>
+          </li>
+        ))}
+      </ul>
+      {ver && <VerOrden ctx={ctx} orden={ver} cerrar={() => setVer(null)} />}
+    </div>
+  );
+}
+// Página pública donde el cliente lee y firma la orden
+export function FormularioOrden({ token }) {
+  const [o, setO] = useState(null);
+  const [error, setError] = useState('');
+  const [f, setF] = useState({ nombre: '', rut: '', email: '', acepto: false });
+  const [aviso, setAviso] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [pdfEstado, setPdfEstado] = useState('');
+  const ref = useRef(null);
+  const url = (r) => `${API_BASE}/api/crm/publico-orden/${token}${r}`;
+  useEffect(() => {
+    fetch(url('')).then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Link no válido.'); setO(j); setF((x) => ({ ...x, nombre: j.datos.clienteNombre || '', rut: j.datos.clienteRut || '', email: j.datos.email || '' })); }).catch((e) => setError(e.message));
+  }, []);
+  useEffect(() => { document.title = o ? `Orden de visita ${o.datos.propiedad} - Farm Brokers` : 'Farm Brokers Chile'; }, [o]);
+  const firmar = async () => {
+    setEnviando(true); setAviso('');
+    try {
+      const r = await fetch(url('/firmar'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...f, hash: o.hash }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
+      setO(j); window.scrollTo && window.scrollTo(0, 0);
+    } catch (e) { setAviso(e.message); }
+    setEnviando(false);
+  };
+  const pdf = async () => { setPdfEstado('Armando el PDF…'); try { (await pdfDeFicha(ref.current, setPdfEstado)).save(`Orden de visita ${o.datos.propiedad}.pdf`.replace(/[\\/:*?"<>|]/g, '')); } catch (e) { setAviso(e.message); } setPdfEstado(''); };
+  const caja = (hijos) => (<div className="fbcrm fbcrm-prop"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{hijos[0]}</header><main className="fbcrm-prop-main">{hijos[1]}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 7193 90 40</footer></div>);
+  if (error) return caja([<h1 key="t">Link no disponible</h1>, <p key="m" className="fbcrm-sub">{error}</p>]);
+  if (!o) return caja([<p key="t" className="fbcrm-sub">Cargando…</p>, null]);
+  return caja([
+    <div key="t"><h1>Orden de visita</h1><p className="fbcrm-sub">{o.datos.propiedad}{o.datos.ubicacion ? `, ${o.datos.ubicacion}` : ''}</p></div>,
+    <>
+      {o.firma && <p className="fbcrm-geo-ok">Orden firmada por {o.firma.nombre}, RUT {o.firma.rut}, el {fmtFechaHora(o.firma.fecha)}. Código de verificación {o.firma.codigo}. <button className="fbcrm-mini" disabled={!!pdfEstado} onClick={pdf}>{pdfEstado || 'Descargar PDF'}</button></p>}
+      <div className="fbcrm-orden-publica"><OrdenPrevia o={o} refPdf={ref} /></div>
+      {!o.firma && (
+        <section className="fbcrm-bloque">
+          <h2>Firmar la orden de visita</h2>
+          {aviso && <p className="fbcrm-error" role="alert">{aviso}</p>}
+          <div className="fbcrm-form">
+            <Campo label="Nombre completo" ancho><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} autoComplete="name" /></Campo>
+            <RutInput label="RUT" value={f.rut} onChange={(x) => setF({ ...f, rut: x })} />
+            <Campo label="Email"><input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} autoComplete="email" /></Campo>
+          </div>
+          <label className="fbcrm-check-linea fbcrm-acepto"><input type="checkbox" checked={f.acepto} onChange={(e) => setF({ ...f, acepto: e.target.checked })} />Leí la orden de visita y la acepto. Entiendo que esta aceptación electrónica tiene el mismo valor que mi firma.</label>
+          <div className="fbcrm-prop-pie"><button className="fbcrm-primario" disabled={enviando || !f.acepto || f.nombre.trim().length < 3 || !rutOk(f.rut)} onClick={firmar}>{enviando ? 'Firmando…' : 'Firmar orden de visita'}</button></div>
+        </section>
+      )}
+    </>,
+  ]);
 }
 
 // ════════════════════════════ Tasaciones ════════════════════════════
@@ -4496,6 +4723,46 @@ const CSS = `
 .fbcrm-escribir-firma{margin:6px 0;font:inherit;font-size:.84rem;color:var(--salvia);white-space:pre-wrap}
 .fbcrm-wa-contactos{display:inline-flex;flex-wrap:wrap;gap:4px;justify-content:flex-end}
 .fbcrm-tag-clase{display:inline-block;margin-left:6px;padding:0 7px;border-radius:999px;background:#EEF1F6;color:#4A5A72;font-size:.72rem;font-weight:600;vertical-align:1px}
+/* Orden de visita */
+.doc-orden{font-family:'Onest',system-ui,sans-serif;color:#17261D}
+.doc-orden-cab{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;padding-bottom:6mm;border-bottom:2px solid #2D6A45;margin-bottom:7mm}
+.doc-orden-logo{width:46mm;height:auto;display:block}
+.doc-orden-tit{text-align:right}
+.doc-orden-tit h1{margin:0;font-size:20pt;letter-spacing:.06em;text-transform:uppercase;color:#1F4D31;font-weight:700}
+.doc-orden-tit p{margin:2px 0 0;font-size:9.5pt;color:#5E6E64}
+.doc-orden-datos{display:grid;grid-template-columns:1fr 1fr;gap:5mm;margin-bottom:7mm}
+.doc-orden-caja{border:1px solid #DCE3DC;border-radius:3mm;padding:4mm 5mm;background:#F7FAF7}
+.fbcrm-doc .doc-orden-caja h2{margin:0 0 2.5mm;font-size:8.5pt;letter-spacing:.12em;text-transform:uppercase;color:#2D6A45;font-weight:700}
+.fbcrm-doc .doc-orden-caja dl{margin:0;display:grid;grid-template-columns:1fr;gap:1.6mm;padding:0;background:none;border-radius:0}
+.fbcrm-doc .doc-orden-caja dl>div{display:grid;grid-template-columns:23mm 1fr;gap:3mm;font-size:9.3pt;line-height:1.35}
+.fbcrm-doc .doc-orden-caja dt{color:#5E6E64}
+.fbcrm-doc .doc-orden-caja dd{margin:0;font-weight:600;word-break:break-word}
+.doc-orden-caja dd.doc-url{font-weight:400;font-size:8.3pt;color:#2F6F9A}
+.doc-orden-texto p{margin:0 0 3.4mm;font-size:9.6pt;line-height:1.55;text-align:justify}
+.doc-orden-firmas{display:grid;grid-template-columns:1fr 1fr;gap:12mm;margin-top:10mm}
+.doc-orden-firma p{margin:0;font-size:9.3pt;text-align:center}
+.doc-orden-firma .doc-rol{color:#5E6E64;font-size:8.5pt}
+.doc-orden-linea{height:20mm;border-bottom:1px solid #17261D;margin-bottom:2mm}
+.doc-orden-sello{height:20mm;border-bottom:1px solid #17261D;margin-bottom:2mm;display:flex;align-items:flex-end;justify-content:center;padding-bottom:1.5mm}
+.doc-orden-sello img{width:30mm;opacity:.9}
+.doc-orden-firmado{height:20mm;border-bottom:1px solid #17261D;margin-bottom:2mm;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:1.5mm;font-size:7.8pt;color:#1F4D31;line-height:1.3}
+.doc-orden-firmado b{font-size:8.5pt;text-transform:uppercase;letter-spacing:.06em}
+.doc-orden-pie span:first-child{font-size:7.2pt}
+.fbcrm-orden-ver{margin-top:12px;border:1px solid var(--linea);border-radius:14px;background:var(--hoja);padding:12px;overflow:auto}
+.fbcrm-orden-barra{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin-bottom:10px}
+.fbcrm-orden-acc{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.fbcrm .fbcrm-orden-acc a.fbcrm-mini{text-decoration:none;display:inline-flex;align-items:center}
+.fbcrm-doc.doc-orden-hoja{background:none;box-shadow:none;padding:0!important;max-width:none;border-radius:0;margin:0}
+.doc-orden-prev{overflow:hidden;margin:0 auto}
+.doc-orden-prev .doc-pagina{transform-origin:top left;margin:0}
+.doc-orden-hoja .doc-pagina{margin:0 auto}
+.fbcrm-badge.est-orden-pendiente{background:var(--trigo-cl);color:var(--trigo-osc)}
+.fbcrm-badge.est-orden-firmada{background:var(--potrero-cl);color:var(--potrero-osc)}
+.fbcrm-badge.est-orden-anulada{background:#EEE;color:#777}
+.fbcrm-ordenes{list-style:none;margin:0;padding:0}
+.fbcrm-ordenes li{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--linea2);flex-wrap:wrap}
+.fbcrm-ordenes li:last-child{border-bottom:0}
+.fbcrm-orden-publica{margin:0 0 16px}
 .fbcrm-opc-envio{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:12px 0 0;padding:10px 12px;background:var(--hoja);border-radius:11px;font-size:.9rem}
 .fbcrm-opc-envio>span{color:var(--salvia)}
 .fbcrm-opc-envio label{display:inline-flex;align-items:center;gap:6px;font-weight:500;cursor:pointer}
