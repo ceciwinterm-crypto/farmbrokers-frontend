@@ -3944,6 +3944,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   const planosC = (campo.archivos || []).filter((a) => a.tipo === 'plano' && (a.vistas || []).length);
   const [conKmz, setConKmz] = useState(true);
   const [conPlanos, setConPlanos] = useState(true);
+  const [preparando, setPreparando] = useState('');
   if (!campo.geo && !planosC.length) return (
     <div className="fbcrm-bloque"><h3>Enviar plano con confidencialidad</h3>
       <p className="fbcrm-nota-suave">Cuando el campo tenga su KMZ o sus planos (en “Archivos y plano”), podrás enviárselos a un cliente con un link personal: primero acepta el acuerdo de confidencialidad y después ve el plano y lo descarga.</p></div>
@@ -3956,7 +3957,6 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   const mensaje = (c, fichaTk = fichaDeCompartido(campo, c)) => `Hola${saludoDe(c)}, te comparto ${c.kmz === false ? 'los planos' : (c.planos || []).length ? 'el plano y el KMZ' : 'el plano'} de ${titulo}. Es información confidencial: para verlo${c.descarga ? ' y descargarlo' : ''} primero debes aceptar un breve acuerdo de confidencialidad en este link:\n\n${linkPlano(c.token)}\n\nEl link vence el ${fmtFecha(c.vence.slice(0, 10))}.${fichaTk ? `\n\nTambién te dejo la ficha del campo en PDF para que la descargues:\n${linkPublicoFicha(fichaTk, datos.fichasBase)}` : ''}\n\n${firmaDe(datos, usuario)}`;
   // Antes de enviar, asegura que la ficha esté al día (si el campo cambió, se genera de nuevo)
   const fichaAlDia = async () => { try { return tokenDeLinkFicha(await ctx.linkFicha(campo, setMsg, OPC_FICHA_PLANO)); } catch (e) { console.warn('Ficha no preparada:', e); return ''; } };
-  const [preparando, setPreparando] = useState('');
   const enviarWa = async (c) => {
     const win = window.open('', '_blank');
     if (win) { try { win.document.title = 'Farm Brokers'; win.document.body.innerHTML = '<p style="font-family:system-ui,sans-serif;padding:28px;color:#1F4D31;font-size:17px">Preparando la ficha de Farm Brokers…</p>'; } catch (e) { /* sin acceso */ } }
