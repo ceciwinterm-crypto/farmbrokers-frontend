@@ -2142,7 +2142,7 @@ function AvisosCorreo({ ctx }) {
   return (
     <div className="fbcrm-bloque fbcrm-avisos">
       <h3>Avisos por correo</h3>
-      {!c.configurado ? <p className="fbcrm-aviso-linea">Los correos todavía no están activados: falta conectar el servicio de envío en Railway (la variable RESEND_API_KEY).</p>
+      {!c.configurado ? <p className="fbcrm-aviso-linea">Los correos todavía no están activados: falta conectar el servicio de envío en Railway (la variable BREVO_API_KEY).</p>
         : <p className="fbcrm-nota-suave">Los avisos salen desde <b>{c.remitente}</b>. Llegan al correo de cada persona (el de “Editar contacto”): al momento cuando le asignan una tarea, cuando alguien pide eliminar algo, cuando un cliente firma una orden de visita o un mandato o acepta un plano, y cada mañana a las 8:00 un resumen de sus pendientes del día.</p>}
       <table className="fbcrm-avisos-tabla">
         <thead><tr><th>Persona</th><th>Correo</th><th>Al momento</th><th>Resumen 8:00</th></tr></thead>
