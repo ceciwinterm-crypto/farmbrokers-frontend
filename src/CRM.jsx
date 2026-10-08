@@ -4335,7 +4335,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   return (
     <div className="fbcrm-bloque fbcrm-compartir">
       <h3>Enviar plano con confidencialidad {lista.length > 0 && <span>{plural(lista.length, 'envío')}</span>}</h3>
-      <p className="fbcrm-nota-suave">El cliente recibe un link personal y, junto a él, la ficha del campo en PDF para descargar. Para ver el plano primero acepta el acuerdo con su nombre y RUT; después ve y descarga lo que elijas: el contorno con el KMZ (con sus datos grabados) y los planos del loteo.</p>
+      <p className="fbcrm-nota-suave">El cliente recibe un link personal (el mensaje lleva aparte el link a la ficha del campo). Para ver el plano primero acepta el acuerdo con su nombre y RUT; después ve y descarga lo que elijas: el contorno con el KMZ (con sus datos grabados) y los planos del loteo.</p>
       <div className="fbcrm-form">
         <Campo label="Cliente" ancho>
           <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
@@ -4419,13 +4419,6 @@ export function FormularioPlano({ token }) {
     setEnviando(false);
   };
   const ancho = Math.min(typeof window !== 'undefined' ? window.innerWidth - 36 : 700, 820);
-  const bloqueFicha = (k) => p && p.ficha ? (
-    <section key={k} className="fbcrm-bloque fbcrm-ficha-adj">
-      <h2>Ficha del campo</h2>
-      <p className="fbcrm-nota-suave">Toda la información del campo en un PDF para guardar o imprimir.</p>
-      <div className="fbcrm-prop-pie"><a className="fbcrm-btn-descarga" href={`${linkPublicoFicha(p.ficha, p.fichasBase)}?descargar=1`}>Descargar la ficha (PDF)</a><a className="fbcrm-texto" href={linkPublicoFicha(p.ficha, p.fichasBase)} target="_blank" rel="noreferrer">Verla en línea</a></div>
-    </section>
-  ) : null;
   const caja = (hijos) => (<div className="fbcrm fbcrm-prop"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{hijos[0]}</header><main className="fbcrm-prop-main">{hijos[1]}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 7193 90 40</footer></div>);
   if (error) return caja([<h1 key="t">Link no disponible</h1>, <p key="m" className="fbcrm-sub">{error}</p>]);
   if (!p) return caja([<p key="t" className="fbcrm-sub">Cargando…</p>, null]);
@@ -4444,7 +4437,7 @@ export function FormularioPlano({ token }) {
       <label className="fbcrm-check-linea fbcrm-acepto"><input type="checkbox" checked={f.acepto} onChange={(e) => setF({ ...f, acepto: e.target.checked })} />Leí el acuerdo de confidencialidad y lo acepto. Entiendo que esta aceptación electrónica equivale a mi firma.</label>
       <div className="fbcrm-prop-pie"><button className="fbcrm-primario" disabled={enviando || !f.acepto || f.nombre.trim().length < 3 || !rutOk(f.rut)} onClick={aceptar}>{enviando ? 'Enviando…' : 'Aceptar y ver el plano'}</button></div>
     </section>,
-  ].map((x, i) => (i === 1 ? <>{bloqueFicha('fa')}{x}</> : x)));
+  ]);
   const vista = p.plano ? vistaAjustada(p.plano.bbox, ancho, Math.round(ancho * 0.62)) : null;
   return caja([
     <div key="t"><h1>Plano de {p.titulo}</h1><p className="fbcrm-sub">{p.lugar}</p></div>,
@@ -4467,7 +4460,6 @@ export function FormularioPlano({ token }) {
         {p.descarga && <div className="fbcrm-prop-pie"><a className="fbcrm-btn-descarga" href={url('/kmz')}>Descargar KMZ</a></div>}
         <p className="fbcrm-nota-suave fbcrm-sep">{p.descarga ? 'El archivo se abre con Google Earth e incluye tus datos, porque es de uso confidencial.' : 'Este plano se entrega solo para ver en línea.'}</p>
       </section>}
-      {bloqueFicha('fb')}
       <p className="fbcrm-nota-suave">Acuerdo aceptado por {p.aceptacion.nombre}, RUT {p.aceptacion.rut}, el {fmtFechaHora(p.aceptacion.fecha)}. Código de verificación {p.aceptacion.codigo}.</p>
     </>,
   ]);
@@ -4483,7 +4475,6 @@ const CSS = `
 .fbcrm *{box-sizing:border-box}
 .fbcrm h1,.fbcrm h2,.fbcrm h3{letter-spacing:-.01em}
 .fbcrm-sub{color:var(--salvia);margin:4px 0 0;font-size:.92rem}
-.fbcrm-ficha-adj .fbcrm-prop-pie{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
 
 /* Estructura */
 .fbcrm-app{display:grid;grid-template-columns:236px minmax(0,1fr);min-height:100vh}
