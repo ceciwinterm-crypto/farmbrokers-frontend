@@ -3840,20 +3840,23 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   const [msg, setMsg] = useState('');
   const [verAcuerdo, setVerAcuerdo] = useState(false);
   const [texto, setTexto] = useState(datos.acuerdo || '');
-  if (!campo.geo) return (
+  const planosC = (campo.archivos || []).filter((a) => a.tipo === 'plano' && (a.vistas || []).length);
+  const [conKmz, setConKmz] = useState(true);
+  const [conPlanos, setConPlanos] = useState(true);
+  if (!campo.geo && !planosC.length) return (
     <div className="fbcrm-bloque"><h3>Enviar plano con confidencialidad</h3>
-      <p className="fbcrm-nota-suave">Cuando el campo tenga su KMZ, podrás enviarle el plano a un cliente con un link personal: primero acepta el acuerdo de confidencialidad y después ve el plano y descarga el KMZ con sus datos grabados.</p></div>
+      <p className="fbcrm-nota-suave">Cuando el campo tenga su KMZ o sus planos (en “Archivos y plano”), podrás enviárselos a un cliente con un link personal: primero acepta el acuerdo de confidencialidad y después ve el plano y lo descarga.</p></div>
   );
   const calzan = (datos.matches[campo.id] || []).map((m) => m.clienteId);
   const opciones = [...datos.clientes].filter((c) => c.etapa === 'Activo').sort((a, b) => (calzan.includes(b.id) - calzan.includes(a.id)) || a.nombre.localeCompare(b.nombre, 'es'));
   const cli = datos.clientes.find((c) => c.id === clienteId);
   const titulo = (campo.web && campo.web.titulo) || campo.nombre;
   const saludoDe = (c) => { const k = c.clienteId && datos.clientes.find((x) => x.id === c.clienteId); const n = k ? k.contactoNombre : c.destinatario; return n ? ` ${String(n).trim().split(' ')[0]}` : ''; };
-  const mensaje = (c) => `Hola${saludoDe(c)}, te comparto el plano de ${titulo}. Es información confidencial: para verlo y descargar el KMZ primero debes aceptar un breve acuerdo de confidencialidad en este link:\n\n${linkPlano(c.token)}\n\nEl link vence el ${fmtFecha(c.vence.slice(0, 10))}.\n\n${usuario}\nFarm Brokers Chile`;
+  const mensaje = (c) => `Hola${saludoDe(c)}, te comparto ${c.kmz === false ? 'los planos' : (c.planos || []).length ? 'el plano y el KMZ' : 'el plano'} de ${titulo}. Es información confidencial: para verlo${c.descarga ? ' y descargarlo' : ''} primero debes aceptar un breve acuerdo de confidencialidad en este link:\n\n${linkPlano(c.token)}\n\nEl link vence el ${fmtFecha(c.vence.slice(0, 10))}.\n\n${usuario}\nFarm Brokers Chile`;
   const crear = async () => {
     setMsg('');
     try {
-      const r = await api(`/campos/${campo.id}/compartir`, { method: 'POST', body: { clienteId, nombre: nombre || (cli ? cli.nombre : ''), email: email || (cli ? emailsDe(cli.email)[0] || '' : ''), telefono: telefono || (cli ? cli.telefono : ''), dias, descarga } });
+      const r = await api(`/campos/${campo.id}/compartir`, { method: 'POST', body: { clienteId, nombre: nombre || (cli ? cli.nombre : ''), email: email || (cli ? emailsDe(cli.email)[0] || '' : ''), telefono: telefono || (cli ? cli.telefono : ''), dias, descarga, kmz: !!campo.geo && conKmz, planos: conPlanos ? planosC.map((a) => a.id) : false } });
       setCampo(r); cargar(); setClienteId(''); setNombre(''); setEmail(''); setTelefono('');
       setMsg('Link creado. Envíaselo por WhatsApp o correo desde la lista de abajo.');
     } catch (e) { setMsg(e.message); }
@@ -3869,7 +3872,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   return (
     <div className="fbcrm-bloque fbcrm-compartir">
       <h3>Enviar plano con confidencialidad {lista.length > 0 && <span>{plural(lista.length, 'envío')}</span>}</h3>
-      <p className="fbcrm-nota-suave">El cliente recibe un link personal. Primero acepta el acuerdo con su nombre y RUT; después ve el plano y descarga el KMZ con sus datos grabados.</p>
+      <p className="fbcrm-nota-suave">El cliente recibe un link personal. Primero acepta el acuerdo con su nombre y RUT; después ve y descarga lo que elijas: el contorno con el KMZ (con sus datos grabados) y los planos del loteo.</p>
       <div className="fbcrm-form">
         <Campo label="Cliente" ancho>
           <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
@@ -3881,10 +3884,15 @@ function CompartirPlano({ ctx, campo, setCampo }) {
         {!clienteId && <Campo label="Teléfono"><input type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} /></Campo>}
         {!clienteId && <Campo label="Email" ancho><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Campo>}
         <Campo label="El link vence en (días)"><input type="number" min="1" max="365" value={dias} onChange={(e) => setDias(e.target.value)} /></Campo>
-        <label className="fbcrm-check-linea"><input type="checkbox" checked={descarga} onChange={(e) => setDescarga(e.target.checked)} />Permitir descargar el KMZ</label>
+        <div className="fbcrm-opc-envio ancho"><span>El link lleva:</span>
+          {campo.geo && <label><input type="checkbox" checked={conKmz} onChange={(e) => setConKmz(e.target.checked)} />Contorno y KMZ</label>}
+          {planosC.length > 0 && <label><input type="checkbox" checked={conPlanos} onChange={(e) => setConPlanos(e.target.checked)} />{planosC.length === 1 ? `Plano (${planosC[0].nombre})` : `${planosC.length} planos`}</label>}
+          {!planosC.length && (campo.archivos || []).some((a) => a.tipo === 'plano') && <small>Hay planos sin preparar: usa “Poner en la ficha” en “Archivos y plano” para poder enviarlos.</small>}
+        </div>
+        <label className="fbcrm-check-linea"><input type="checkbox" checked={descarga} onChange={(e) => setDescarga(e.target.checked)} />Permitir descargar los archivos (KMZ y planos)</label>
       </div>
       <div className="fbcrm-acciones">
-        <button className="fbcrm-primario" disabled={!clienteId && !nombre.trim()} onClick={crear}>Crear link para {cli ? cli.nombre : nombre || 'el cliente'}</button>
+        <button className="fbcrm-primario" disabled={(!clienteId && !nombre.trim()) || !((campo.geo && conKmz) || (planosC.length && conPlanos))} onClick={crear}>Crear link para {cli ? cli.nombre : nombre || 'el cliente'}</button>
         <button className="fbcrm-texto" onClick={() => setVerAcuerdo(!verAcuerdo)}>{verAcuerdo ? 'Ocultar el texto del acuerdo' : 'Ver o editar el texto del acuerdo'}</button>
       </div>
       {verAcuerdo && (
@@ -3952,7 +3960,7 @@ export function FormularioPlano({ token }) {
   if (!p) return caja([<p key="t" className="fbcrm-sub">Cargando…</p>, null]);
   if (!p.disponible) return caja([<h1 key="t">{p.titulo}</h1>, <section key="m" className="fbcrm-bloque"><h2>El plano no está disponible</h2><p>{p.motivo} Si lo necesitas, escríbenos y te enviamos un link nuevo.</p></section>]);
   if (!p.aceptacion) return caja([
-    <div key="t"><h1>Plano de {p.titulo}</h1><p className="fbcrm-sub">{p.lugar ? `${p.lugar}. ` : ''}Información confidencial preparada para {p.destinatario}. Para ver el plano y descargar el KMZ, lee y acepta el acuerdo.</p></div>,
+    <div key="t"><h1>Plano de {p.titulo}</h1><p className="fbcrm-sub">{p.lugar ? `${p.lugar}. ` : ''}Información confidencial preparada para {p.destinatario}. Para ver {p.incluye && !p.incluye.kmz ? 'los planos' : p.incluye && p.incluye.planos ? 'el plano y el KMZ' : 'el plano'}{p.descarga ? ' y descargarlos' : ''}, lee y acepta el acuerdo.</p></div>,
     <section key="m" className="fbcrm-bloque">
       <h2>Acuerdo de confidencialidad</h2>
       <div className="fbcrm-acuerdo-texto">{p.acuerdo}</div>
@@ -3966,11 +3974,19 @@ export function FormularioPlano({ token }) {
       <div className="fbcrm-prop-pie"><button className="fbcrm-primario" disabled={enviando || !f.acepto || f.nombre.trim().length < 3 || !rutOk(f.rut)} onClick={aceptar}>{enviando ? 'Enviando…' : 'Aceptar y ver el plano'}</button></div>
     </section>,
   ]);
-  const vista = vistaAjustada(p.plano.bbox, ancho, Math.round(ancho * 0.62));
+  const vista = p.plano ? vistaAjustada(p.plano.bbox, ancho, Math.round(ancho * 0.62)) : null;
   return caja([
     <div key="t"><h1>Plano de {p.titulo}</h1><p className="fbcrm-sub">{p.lugar}</p></div>,
     <>
-      <section className="fbcrm-bloque">
+      {(p.planos || []).map((pl) => (
+        <section key={pl.id} className="fbcrm-bloque fbcrm-plano-loteo">
+          <h2>{/loteo|lote|parcela|subdivisi/i.test(pl.nombre) ? 'Plano de loteo' : 'Plano'}</h2>
+          {pl.vistas.map((v, i) => <a key={i} href={url(`/planos/${pl.id}/vista/${i}`)} target="_blank" rel="noreferrer"><img src={url(`/planos/${pl.id}/vista/${i}`)} alt={`${pl.nombre}, hoja ${i + 1}`} style={{ aspectRatio: `${v.w} / ${v.h}` }} /></a>)}
+          <p className="fbcrm-nota-suave">Toca la imagen para verla en grande.</p>
+          {p.descarga && <div className="fbcrm-prop-pie"><a className="fbcrm-btn-descarga" href={url(`/planos/${pl.id}`)}>Descargar {/\.pdf$/i.test(pl.nombre) ? 'el plano en PDF' : 'el plano'}</a></div>}
+        </section>
+      ))}
+      {p.plano && <section className="fbcrm-bloque">
         <MapaTiles lat={vista.lat} lng={vista.lng} z={vista.z} w={ancho} h={Math.round(ancho * 0.62)} fuente="satelite" anillos={p.plano.anillos} />
         <dl className="fbcrm-plano-datos">
           <div><dt>Superficie según plano</dt><dd>{fmtHa(p.plano.areaHa)} ha</dd></div>
@@ -3978,7 +3994,7 @@ export function FormularioPlano({ token }) {
         </dl>
         {p.descarga && <div className="fbcrm-prop-pie"><a className="fbcrm-btn-descarga" href={url('/kmz')}>Descargar KMZ</a></div>}
         <p className="fbcrm-nota-suave fbcrm-sep">{p.descarga ? 'El archivo se abre con Google Earth e incluye tus datos, porque es de uso confidencial.' : 'Este plano se entrega solo para ver en línea.'}</p>
-      </section>
+      </section>}
       <p className="fbcrm-nota-suave">Acuerdo aceptado por {p.aceptacion.nombre}, RUT {p.aceptacion.rut}, el {fmtFechaHora(p.aceptacion.fecha)}. Código de verificación {p.aceptacion.codigo}.</p>
     </>,
   ]);
@@ -4763,6 +4779,10 @@ const CSS = `
 .fbcrm-ordenes li{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--linea2);flex-wrap:wrap}
 .fbcrm-ordenes li:last-child{border-bottom:0}
 .fbcrm-orden-publica{margin:0 0 16px}
+.fbcrm-plano-loteo img{display:block;width:100%;height:auto;border:1px solid var(--linea);border-radius:10px;background:#fff;margin:0 0 10px}
+.fbcrm-opc-envio.ancho{grid-column:1/-1;margin-top:0}
+.fbcrm .fbcrm-form .fbcrm-opc-envio label{display:inline-flex;flex-direction:row;align-items:center;gap:6px;margin:0}
+.fbcrm .fbcrm-form>label.fbcrm-check-linea{display:flex;flex-direction:row;align-items:center;gap:8px;grid-column:1/-1}
 .fbcrm-opc-envio{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin:12px 0 0;padding:10px 12px;background:var(--hoja);border-radius:11px;font-size:.9rem}
 .fbcrm-opc-envio>span{color:var(--salvia)}
 .fbcrm-opc-envio label{display:inline-flex;align-items:center;gap:6px;font-weight:500;cursor:pointer}
