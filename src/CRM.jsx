@@ -3363,7 +3363,19 @@ function vistaAjustada(bbox, w, h) {
   }
   return { z: 4, lng: (bbox[0] + bbox[2]) / 2, lat: (bbox[1] + bbox[3]) / 2 };
 }
-function MapaTiles({ lat, lng, z, w, h, fuente, aprox, anillos }) {
+// Cada KMZ se dibuja con su color cuando el campo tiene varios
+const COLORES_KMZ = ['#FFD65A', '#5AD6FF', '#FF7AB8', '#8CF27A', '#FFA24D', '#FFFFFF'];
+const colorAnillo = (partes, i) => { if (!partes || partes.length < 2) return null; const k = partes.findIndex((p) => i >= p.desde && i < p.hasta); return k < 0 ? null : COLORES_KMZ[k % COLORES_KMZ.length]; };
+function LeyendaKmz({ partes, total }) {
+  if (!partes || partes.length < 2) return null;
+  return (
+    <ul className="doc-leyenda-kmz">
+      {partes.map((p, i) => <li key={i}><span style={{ background: COLORES_KMZ[i % COLORES_KMZ.length] }} />{p.nombre}<small>{fmtHa(p.areaHa)} ha{p.dentro ? ', dentro de otro' : ''}</small></li>)}
+      {total != null && <li className="total">Total<small>{fmtHa(total)} ha</small></li>}
+    </ul>
+  );
+}
+function MapaTiles({ lat, lng, z, w, h, fuente, aprox, anillos, partes }) {
   const cx = lng2x(lng, z), cy = lat2y(lat, z);
   const x0 = cx - w / 2, y0 = cy - h / 2, max = 2 ** z;
   const tiles = [];
@@ -3375,7 +3387,7 @@ function MapaTiles({ lat, lng, z, w, h, fuente, aprox, anillos }) {
       {tiles}
       {anillos && anillos.length ? (
         <svg className="doc-mapa-poly" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
-          {anillos.map((a, i) => <polygon key={i} points={a.map(([x, y]) => `${(lng2x(x, z) - x0).toFixed(1)},${(lat2y(y, z) - y0).toFixed(1)}`).join(' ')} />)}
+          {anillos.map((a, i) => <polygon key={i} style={colorAnillo(partes, i) ? { stroke: colorAnillo(partes, i), fill: `${colorAnillo(partes, i)}29` } : undefined} points={a.map(([x, y]) => `${(lng2x(x, z) - x0).toFixed(1)},${(lat2y(y, z) - y0).toFixed(1)}`).join(' ')} />)}
         </svg>
       ) : aprox && z >= 10 ? <span className="doc-mapa-zona" style={{ left: w / 2 - 60, top: h / 2 - 60, transform: 'none' }} /> : (
         <span className="doc-pin" style={{ left: w / 2 - 12, top: h / 2 - 34 }} aria-hidden="true" />
@@ -3554,7 +3566,8 @@ function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usua
   if (vista) {
     add(<div className="doc-ficha-plano">
       <h2 className="doc-h2 doc-h2-sep">{g ? 'Plano y ubicación' : 'Ubicación'}</h2>
-      <MapaTiles lat={vista.lat} lng={vista.lng} z={vista.z} w={690} h={330} fuente="satelite" aprox={!g && coord && coord.aprox} anillos={g && g.anillos} />
+      <MapaTiles lat={vista.lat} lng={vista.lng} z={vista.z} w={690} h={330} fuente="satelite" aprox={!g && coord && coord.aprox} anillos={g && g.anillos} partes={g && g.partes} />
+      {g && <LeyendaKmz partes={g.partes} />}
       <div className="doc-ficha-ubic-fila">
         <MapaTiles lat={vista.lat} lng={vista.lng} z={7} w={250} h={160} fuente="mapa" />
         <dl className="doc-ficha-ubic-datos">
@@ -3659,7 +3672,7 @@ function ArchivosCampo({ ctx, campo, setCampo }) {
   return (
     <div className="fbcrm-bloque">
       <h3>Archivos y plano {archivos.length > 0 && <span>{archivos.length}</span>}</h3>
-      {g ? <p className="fbcrm-geo-ok">KMZ: {plural(g.anillos.length, 'polígono')}, {fmtNum(g.areaHa)} ha {g.fuente === 'tasacion' ? '(desde la tasación)' : `(desde ${g.archivo})`}. El contorno aparece sobre el mapa satelital de la ficha.</p>
+      {g ? <p className="fbcrm-geo-ok">{(g.partes || []).length > 1 ? `${g.partes.length} KMZ dibujados juntos (${g.partes.map((x) => x.nombre).join(', ')}): ${plural(g.anillos.length, 'polígono')}, ${fmtNum(g.areaHa)} ha en total. Cada uno aparece con su color en el mapa de la ficha y en el plano que envías.` : <>KMZ: {plural(g.anillos.length, 'polígono')}, {fmtNum(g.areaHa)} ha {g.fuente === 'tasacion' ? '(desde la tasación)' : `(desde ${g.archivo})`}. El contorno aparece sobre el mapa satelital de la ficha.</>}</p>
         : <p className="fbcrm-nota-suave">Sin KMZ todavía. Con el KMZ la ficha muestra el contorno del predio sobre el mapa satelital.</p>}
       {planosFicha.length > 0 ? <p className="fbcrm-geo-ok">Plano en la ficha: {planosFicha.map((a) => `${a.nombre} (${plural(a.vistas.length, 'hoja', 'hojas')})`).join(', ')}. Va al final de la ficha, en hoja aparte y a tamaño completo.</p>
         : <p className="fbcrm-nota-suave">Sin plano en la ficha. Sube el plano en PDF o imagen (por ejemplo el plano de loteo) y va como hoja aparte al final de la ficha.</p>}
@@ -4116,7 +4129,8 @@ export function FormularioPlano({ token }) {
         </section>
       ))}
       {p.plano && <section className="fbcrm-bloque">
-        <MapaTiles lat={vista.lat} lng={vista.lng} z={vista.z} w={ancho} h={Math.round(ancho * 0.62)} fuente="satelite" anillos={p.plano.anillos} />
+        <MapaTiles lat={vista.lat} lng={vista.lng} z={vista.z} w={ancho} h={Math.round(ancho * 0.62)} fuente="satelite" anillos={p.plano.anillos} partes={p.plano.partes} />
+        <LeyendaKmz partes={p.plano.partes} total={p.plano.areaHa} />
         <dl className="fbcrm-plano-datos">
           <div><dt>Superficie según plano</dt><dd>{fmtHa(p.plano.areaHa)} ha</dd></div>
           <div><dt>Coordenadas del centro</dt><dd>{p.plano.centro.lat.toFixed(5)}, {p.plano.centro.lng.toFixed(5)}</dd></div>
@@ -4673,6 +4687,11 @@ const CSS = `
 .doc-ficha .doc-ficha-tecnica dd{font-size:10pt;font-weight:500;margin:1px 0 0;color:#17261D}
 .doc-ficha-plano .doc-mapa{margin-bottom:8px;border-radius:8px}
 .doc-mapa-poly{position:absolute;inset:0}
+.doc-leyenda-kmz{list-style:none;margin:8px 0 4px;padding:0;display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:#17261D}
+.doc-leyenda-kmz li{display:flex;align-items:center;gap:6px}
+.doc-leyenda-kmz span{width:14px;height:14px;border-radius:3px;border:1.5px solid rgba(0,0,0,.45);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.doc-leyenda-kmz small{color:#5E6E64;margin-left:2px}
+.doc-leyenda-kmz li.total{font-weight:600}
 .doc-mapa-poly polygon{fill:rgba(255,214,90,.16);stroke:#FFD65A;stroke-width:2.5;stroke-linejoin:round;filter:drop-shadow(0 0 2px rgba(0,0,0,.6))}
 .doc-ficha-ubic-fila{display:flex;gap:12px;align-items:stretch}
 .doc-ficha .doc-ficha-ubic-datos{flex:1;display:flex;flex-direction:column;gap:6px;margin:0;padding:10px 12px;background:#F3F6F2;border-radius:8px}
