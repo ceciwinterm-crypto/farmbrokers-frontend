@@ -248,8 +248,8 @@ function InstalarApp() {
       <img src="/icons/icono-192.png" alt="" />
       <div className="fbcrm-instalar-texto">
         <strong>Instala el CRM en tu {ios || android ? 'celular' : 'computador'}</strong>
-        {ios ? <span>En <b>Safari</b>, toca <b>Compartir</b> <span aria-hidden="true">(el cuadrado con la flecha hacia arriba)</span> y luego <b>“Agregar a inicio”</b>. Queda como una app más, con el ícono de Farm Brokers.</span>
-          : puede ? <span>Queda como una app más, con el ícono de Farm Brokers, y se abre directo en el CRM.</span>
+        {ios ? <span>En <b>Safari</b>, abre <b>farmbrokers-frontend.vercel.app</b> (la plataforma de tasaciones), toca <b>Compartir</b> <span aria-hidden="true">(el cuadrado con la flecha hacia arriba)</span> y luego <b>“Agregar a inicio”</b>. Queda como una app más, con el ícono de Farm Brokers; desde la plataforma pasas al CRM con el botón “CRM”.</span>
+          : puede ? <span>Queda como una app más, con el ícono de Farm Brokers. Se abre en la plataforma de tasaciones y con el botón “CRM” pasas al CRM.</span>
           : <span>En <b>Chrome</b>, toca el menú <b>⋮</b> (arriba a la derecha) y luego <b>“Instalar app”</b> o <b>“Agregar a pantalla de inicio”</b>.</span>}
         {ver && !ios && <span>Si no aparece la opción, ábrelo en Chrome y usa el menú ⋮ › “Instalar app”.</span>}
       </div>

@@ -2570,16 +2570,18 @@ export default function App(){
   @page{size:A4;margin:20mm 15mm 22mm}
 }`}</style>
 
-      <header style={{background:G,color:"#fff",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:60,boxShadow:"0 2px 10px rgba(0,0,0,0.2)"}}>
+      <style>{`@media (max-width:640px){.fb-hdr{height:auto!important;min-height:56px;padding:8px 12px!important;gap:8px;flex-wrap:wrap}.fb-hdr-tit{display:none}.fb-hdr-der{flex-wrap:wrap;justify-content:flex-end;gap:8px!important;flex:1 1 auto}.fb-hdr-der button{padding:6px 10px!important;font-size:12px!important}.fb-hdr-der button br{display:none}}`}</style>
+      <header className="fb-hdr" style={{background:G,color:"#fff",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:60,boxShadow:"0 2px 10px rgba(0,0,0,0.2)"}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <img src={LOGO_WHITE} alt="Farm Brokers" style={{height:40,width:"auto",objectFit:"contain"}}/>
-          <div>
+          <div className="fb-hdr-tit">
             <div style={{fontFamily:FONT,fontWeight:700,fontSize:17}}>Farm Brokers Chile</div>
             <div style={{fontSize:10,opacity:0.65,letterSpacing:2,textTransform:"uppercase"}}>Plataforma de Tasaciones</div>
           </div>
         </div>
         {/* UF en tiempo real en el header */}
-        <div style={{textAlign:"right",display:"flex",gap:14,alignItems:"center"}}>
+        <div className="fb-hdr-der" style={{textAlign:"right",display:"flex",gap:14,alignItems:"center"}}>
+          <button onClick={()=>{window.location.hash="#crm";window.location.reload();}} title="Abrir el CRM del equipo" style={{background:"rgba(255,255,255,0.14)",color:"#fff",border:"1px solid rgba(255,255,255,0.45)",borderRadius:8,padding:"7px 14px",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:FONT,whiteSpace:"nowrap"}}>CRM</button>
 
                 {/* El aviso flota sobre la barra de pasos: sin pointerEvents:"none" se comia los
             clics de "Inicio" y "Datos del Predio" mientras estaba visible. */}
