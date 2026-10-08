@@ -1462,6 +1462,7 @@ function DocBrochure({ items, usuario, datosUsuario, busca }) {
         <div className={`br-grilla br-${forma}`}>
           {items.map((it, i) => {
             const d = datosBrochure(it.campo), t = it.texto || {};
+            if (!d.url && it.url) d.url = it.url;
             const datos = [d.ha, d.precio, d.agua && corto(d.agua, forma === 'nueve' ? 22 : 34)].filter(Boolean);
             return (
               <article key={it.campo.id} className={`br-tarjeta ${i === 0 && n % 2 === 1 && n >= 3 && n < 9 ? 'ancha' : ''}`} data-enlace={d.url || undefined}>
@@ -1525,6 +1526,7 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
   const preparar = async () => {
     setPaso('preparando'); setLink('');
     const nuevos = { ...items };
+    let enlazados = false;
     for (const [k, id] of sel.slice(0, 9).entries()) {
       const c = campoDe(id); if (!c) continue;
       setEstado(`Preparando ${k + 1} de ${Math.min(sel.length, 9)}: ${c.nombre}…`);
@@ -1535,9 +1537,21 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
       if (!(nuevos[id] && nuevos[id].fotos.length) && !(c.web && c.web.fotos && c.web.fotos.length) && tieneLink) { try { cw = await api(`/campos/${id}/web`, { method: 'POST' }); } catch (e) { /* se usan las fotos del CRM */ } }
       let fotos = (nuevos[id] && nuevos[id].fotos.length) ? nuevos[id].fotos : (cw.web && cw.web.fotos && cw.web.fotos.length ? cw.web.fotos.slice(0, 6) : []);
       if (!fotos.length) fotos = await fotosCRM(c, usuario);
-      nuevos[id] = { texto, fotos, foto: (nuevos[id] && nuevos[id].foto) || 0, aviso };
+      let url = '';
+      // Sin link a la web: se busca su publicación en farmbrokers.cl (y queda enlazado)
+      if (!fotos.length && !tieneLink) {
+        setEstado(`Buscando la publicación de ${c.nombre} en farmbrokers.cl…`);
+        try {
+          const b = await api(`/campos/${id}/buscar-web`, { method: 'POST' });
+          if (b.estado === 'enlazado' && b.campo && b.campo.web) { fotos = (b.campo.web.fotos || []).slice(0, 6); url = b.campo.web.url || b.url || ''; enlazados = true; aviso = [aviso, `Se enlazó a su publicación: “${b.titulo || b.campo.web.titulo}”. Revisa que sea la correcta.`].filter(Boolean).join(' '); }
+          else if (b.estado === 'otro') { fotos = b.fotos || []; url = b.url || ''; aviso = [aviso, `Fotos tomadas de la publicación “${b.titulo}”${b.nombre ? ` (en el CRM está como “${b.nombre}”, parece repetido)` : ''}.`].filter(Boolean).join(' '); }
+          else if (b.motivo) aviso = [aviso, `${b.motivo} Pega el link de su publicación en los datos del campo o sube fotos aquí.`].filter(Boolean).join(' ');
+        } catch (e) { /* se usa la vista satelital */ }
+      }
+      nuevos[id] = { texto, fotos, foto: (nuevos[id] && nuevos[id].foto) || 0, aviso, url };
       setItems({ ...nuevos });
     }
+    if (enlazados) ctx.cargar();
     setEstado(''); setPaso('editar');
   };
   const [subiendo, setSubiendo] = useState('');
