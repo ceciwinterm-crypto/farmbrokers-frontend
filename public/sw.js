@@ -7,7 +7,7 @@ self.addEventListener('fetch', (e) => {
   const r = e.request;
   if (r.method !== 'GET' || r.mode !== 'navigate') return; // datos y archivos: directo a internet
   e.respondWith(
-    fetch(r).then((resp) => { const copia = resp.clone(); caches.open(CACHE).then((c) => c.put('/', copia)).catch(() => {}); return resp; })
+    fetch(r).then((resp) => { if (new URL(r.url).pathname === '/') { const copia = resp.clone(); caches.open(CACHE).then((c) => c.put('/', copia)).catch(() => {}); } return resp; })
       .catch(() => caches.match('/').then((x) => x || new Response('<h1 style="font-family:sans-serif">Sin conexión</h1><p style="font-family:sans-serif">Revisa tu internet y vuelve a abrir Farm Brokers.</p>', { headers: { 'Content-Type': 'text/html; charset=utf-8' } })))
   );
 });

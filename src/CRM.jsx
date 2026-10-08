@@ -1691,7 +1691,7 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
 }
 
 // ════════════════════════════ Orden de visita ════════════════════════════
-const linkOrden = (token) => `${window.location.origin}${window.location.pathname}#orden/${token}`;
+const linkOrden = (token) => `${window.location.origin}/orden/${token}`;
 const ETQ_ORDEN = [['clienteNombre', 'Cliente'], ['clienteRut', 'RUT'], ['empresa', 'Empresa'], ['empresaRut', 'RUT empresa'], ['email', 'Email'],
   ['propiedad', 'Propiedad'], ['ubicacion', 'Ubicación'], ['tipo', 'Tipo'], ['superficie', 'Superficie'], ['codigo', 'Código propiedad'], ['enlace', 'Enlace'], ['comision', 'Comisión']];
 const MESES_L = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -3039,7 +3039,7 @@ const ESTADO_CAP = {
 };
 const ETIQUETA_CAP = { enviado: 'Enviado', en_progreso: 'Completando', completado: 'Por firmar', tasacion: 'Pidió tasación', firmado: 'Firmado' };
 const TIPOS_ARCHIVO = { kmz: 'Plano y KMZ', foto: 'Foto', dominio: 'Dominio vigente', hipotecas: 'Hipotecas y gravámenes', avaluo: 'Avalúo fiscal', aguas: 'Derechos de agua', plano: 'Plano', otro: 'Otro' };
-const linkPropietario = (token) => `${window.location.origin}${window.location.pathname}#propietario/${token}`;
+const linkPropietario = (token) => `${window.location.origin}/propietario/${token}`;
 const pesoArchivo = (b) => (b > 1048576 ? `${fmtNum(b / 1048576)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
 function Captacion({ ctx, campo, setCampo }) {
@@ -4235,7 +4235,7 @@ function KmzMasivo({ ctx, cerrar }) {
 }
 
 // ════════════════════════════ Plano con acuerdo de confidencialidad ════════════════════════════
-const linkPlano = (token) => `${window.location.origin}${window.location.pathname}#plano/${token}`;
+const linkPlano = (token) => `${window.location.origin}/plano/${token}`;
 function estadoCompartido(c) {
   if (!c.activo) return ['Desactivado', 'gris'];
   if (Date.now() > new Date(c.vence).getTime()) return ['Vencido', 'gris'];
