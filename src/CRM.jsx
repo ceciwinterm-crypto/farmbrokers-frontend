@@ -1469,6 +1469,16 @@ function SateliteTarjeta({ campo }) {
     </div>
   );
 }
+async function fotoComoDataUrl(url, max = 1400) {
+  const r = await fetch(url, { mode: 'cors' });
+  if (!r.ok) throw new Error(`foto ${r.status}`);
+  const blob = await r.blob();
+  const img = await new Promise((ok, mal) => { const i = new Image(); const u = URL.createObjectURL(blob); i.onload = () => { URL.revokeObjectURL(u); ok(i); }; i.onerror = () => mal(new Error('foto dañada')); i.src = u; });
+  const esc = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const cv = document.createElement('canvas'); cv.width = Math.round(img.naturalWidth * esc); cv.height = Math.round(img.naturalHeight * esc);
+  cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+  return cv.toDataURL('image/jpeg', 0.85);
+}
 async function fotosCRM(c, usuario) {
   const fotos = (c.archivos || []).filter((a) => a.tipo === 'foto').slice(0, 6);
   const urls = await Promise.all(fotos.map((a) => fetch(`${API_BASE}/api/crm/campos/${c.id}/archivos/${a.id}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(usuario) } })
@@ -1500,7 +1510,7 @@ function DocBrochure({ items, usuario, datosUsuario, busca }) {
             return (
               <article key={it.campo.id} className={`br-tarjeta ${i === 0 && n % 2 === 1 && n >= 3 && n < 9 ? 'ancha' : ''}`} data-enlace={d.url || undefined}>
                 <div className="br-t-foto">
-                  {it.fotos.length ? <Foto src={it.fotos[it.foto || 0]} clase="br-t-img" /> : <SateliteTarjeta campo={it.campo} />}
+                  {it.fotos.length ? <Foto src={it.fotoPdf || it.fotos[it.foto || 0]} clase="br-t-img" /> : <SateliteTarjeta campo={it.campo} />}
                   <span className="br-t-num">{dosDig(i + 1)}</span>
                   {d.tipo && forma !== 'nueve' && <span className="br-t-tipo">{d.tipo}</span>}
                 </div>
@@ -1607,15 +1617,26 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
     try { const t = await api(`/campos/${id}/brochure`, { method: 'POST', body: { busca, forzar: true } }); setItems((x) => ({ ...x, [id]: { ...x[id], texto: t, aviso: '' } })); setEstado(''); } catch (e) { setEstado(e.message); }
   };
   const generar = async () => {
-    setEstado('Armando el brochure…');
+    setEstado('Preparando las fotos…');
     try {
-      await new Promise((r) => setTimeout(r, 300));
+      // Cada foto principal se descarga y se achica antes de armar el PDF (así no se pierden por demora)
+      const fallidas = [];
+      const listos = { ...items };
+      for (const it of lista) {
+        const src = it.fotos[it.foto || 0];
+        if (!src || /^data:/.test(src)) continue;
+        try { const d = await fotoComoDataUrl(prox(src)); listos[it.campo.id] = { ...listos[it.campo.id], fotoPdf: d }; }
+        catch (e) { fallidas.push(it.campo.nombre); }
+      }
+      setItems(listos);
+      setEstado('Armando el brochure…');
+      await new Promise((r) => setTimeout(r, 700));
       const pdf = await pdfDeFicha(refPdf.current, setEstado);
       setEstado('Subiendo el brochure…');
       const blob = pdf.output('blob');
       const r = await api('/brochures', { method: 'POST', body: { base64: await blobABase64(blob), clienteId: cli.id, campoIds: sel.slice(0, 9), titulo: 'Seleccion de campos' } });
       setLink(r.link || `${API_BASE}/api/crm/publico-brochure/${r.token}`);
-      setEstado(''); setPaso('listo'); ctx.cargar();
+      setEstado(fallidas.length ? `Ojo: no se pudo cargar la foto de ${fallidas.join(', ')}. Revisa el PDF antes de enviarlo.` : ''); setPaso('listo'); ctx.cargar();
     } catch (e) { setEstado(e.message); }
   };
   const mensaje = () => `Hola ${primerNombre(contacto.nombre) || ''},\n\nTe preparé una selección de ${lista.length === 1 ? 'un campo' : `${lista.length} campos`} que calzan con lo que buscas. Aquí está el brochure:\n${link}\n\n${lista.map((it, i) => { const d = datosBrochure(it.campo); return `${i + 1}. ${[d.titulo, d.comuna, d.ha].filter(Boolean).join(', ')}`; }).join('\n')}\n\nSi alguno te interesa, coordinamos una visita.\n\n${firmaDe(datos, usuario)}`.replace('Hola ,', 'Hola,');
@@ -1654,7 +1675,7 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
                 <div key={it.campo.id} className="fbcrm-bloque br-item">
                   <h3>{i + 1}. {it.campo.nombre}</h3>
                   {it.aviso && <p className="fbcrm-nota-suave">{it.aviso}</p>}
-                  {it.fotos.length > 1 && <div className="br-fotos-elegir"><span>Foto principal:</span>{it.fotos.map((u, k) => <button key={k} className={k === (it.foto || 0) ? 'on' : ''} style={{ backgroundImage: `url("${prox(u)}")` }} aria-label={`Foto ${k + 1}`} onClick={() => setItems((x) => ({ ...x, [it.campo.id]: { ...x[it.campo.id], foto: k } }))} />)}</div>}
+                  {it.fotos.length > 1 && <div className="br-fotos-elegir"><span>Foto principal:</span>{it.fotos.map((u, k) => <button key={k} className={k === (it.foto || 0) ? 'on' : ''} style={{ backgroundImage: `url("${prox(u)}")` }} aria-label={`Foto ${k + 1}`} onClick={() => setItems((x) => ({ ...x, [it.campo.id]: { ...x[it.campo.id], foto: k, fotoPdf: '' } }))} />)}</div>}
                   <div className="br-subir">
                     {!it.fotos.length && <span className="fbcrm-nota-suave">Sin fotos: va la vista satelital del campo. Puedes subir fotos aquí (quedan guardadas en el campo).</span>}
                     <label className="fbcrm-mini br-subir-btn">{subiendo === it.campo.id ? 'Subiendo…' : it.fotos.length ? '+ Subir otra foto' : '+ Subir fotos'}<input type="file" accept="image/*" multiple hidden disabled={!!subiendo} onChange={(e) => { subirFotos(it.campo.id, [...e.target.files]); e.target.value = ''; }} /></label>
@@ -3522,8 +3543,12 @@ export function FormularioPropietario({ token }) {
 }
 
 // ════════════════════════════ Ficha para cliente (datos de farmbrokers.cl) ════════════════════════════
-const HOSTS_PUENTE = /^https:\/\/((www\.)?farmbrokers\.cl|server\.arcgisonline\.com|([abc]\.)?tile\.openstreetmap\.org)\//;
-const prox = (u) => (HOSTS_PUENTE.test(u || '') ? `${API_BASE}/api/crm/publico-img?u=${encodeURIComponent(u)}` : u);
+// Toda imagen de otro sitio pasa por el puente del servidor (llega con permiso para copiarla al PDF)
+const prox = (u) => {
+  const t = String(u || '');
+  if (!/^https?:\/\//i.test(t) || t.startsWith(API_BASE) || (typeof window !== 'undefined' && t.startsWith(window.location.origin))) return t;
+  return `${API_BASE}/api/crm/publico-img?u=${encodeURIComponent(t)}`;
+};
 const Foto = ({ src, clase, alt }) => <div className={clase} role="img" aria-label={alt || ''} style={{ backgroundImage: `url("${prox(src)}")` }} />;
 function cargarScript(src, nombre) {
   if (window[nombre]) return Promise.resolve(window[nombre]);
