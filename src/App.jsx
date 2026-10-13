@@ -314,7 +314,7 @@ function kmzDePiezas(piezas,{nombre,region,numTasacion}={}){
     if(!geo)return "";
     const titulo=p.rol?("Rol "+p.rol+(p.comuna?" — "+capTxt(p.comuna):"")):nombrePredio;
     const desc=[p.rol?"Rol SII: "+p.rol:"",p.comuna?"Comuna: "+capTxt(p.comuna):"",
-      p.ha>0?"Superficie del poligono: "+p.ha.toFixed(2).replace(".",",")+" ha":""].filter(Boolean).join("\n");
+      p.ha>0?"Superficie del poligono: "+p.ha.toFixed(2).replace(".",",")+" ha":"",p.fuente==="SII"?"Fuente: cartografia SII (via Catastral.cl)":""].filter(Boolean).join("\n");
     return "<Placemark><name>"+escXml(titulo)+"</name><description>"+escXml(desc)+
       "</description><styleUrl>#fb</styleUrl>"+geo+"</Placemark>";
   }).filter(Boolean).join("");
@@ -323,7 +323,7 @@ function kmzDePiezas(piezas,{nombre,region,numTasacion}={}){
     varios?(piezas.length+" roles: "+piezas.map(p=>p.rol).filter(Boolean).join(" + ")):(piezas[0].rol?"Rol "+piezas[0].rol:""),
     region?"Región de "+regionTxt(region):"",
     totalHa>0?("Superficie total del poligono: "+totalHa.toFixed(2).replace(".",",")+" ha"):"",
-    "Fuente: catastro de propiedades rurales (CIREN / IDE Minagri). Poligono referencial: validar con titulos y mensura."
+    "Fuente: "+(piezas.some(p=>p.fuente==="SII")?(piezas.some(p=>p.fuente!=="SII")?"CIREN (IDE Minagri) y cartografia SII (via Catastral.cl)":"cartografia SII (via Catastral.cl)"):"catastro de propiedades rurales (CIREN / IDE Minagri)")+". Poligono referencial: validar con titulos y mensura."
   ].filter(Boolean).join("\n");
   const cuerpo=varios?("<Folder><name>Roles del predio ("+piezas.length+")</name><open>1</open>"+marcas+"</Folder>"):marcas;
   const kml='<?xml version="1.0" encoding="UTF-8"?>\n'+
@@ -358,18 +358,26 @@ function SoloKMZ({backendUrl,cerrar,G,bP,bS}){
     if(!region){setEstado({error:"No reconozco la comuna \""+roles[0].comuna+"\". Revisa cómo está escrita."});return;}
     setEstado({cargando:true,msg:roles.length>1?"Buscando "+roles.length+" roles en el catastro…":"Buscando el rol en el catastro…"});
     const piezas=[],faltan=[];let nombreCat="";
-    for(const r of roles){
+    const srv=String(backendUrl||"").replace(/\/$/,"");
+    const pedir=async(ruta,cuerpo)=>{
       const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),60000);
-      try{
-        const resp=await fetch(String(backendUrl||"").replace(/\/$/,"")+"/suelos-rol",{method:"POST",headers:{"Content-Type":"application/json"},signal:ctl.signal,
-          body:JSON.stringify({rol:r.rol,comuna:r.comuna,region:getRegion(r.comuna)||region,soloGeo:true})});
-        const d=await resp.json();
-        if(d&&d.ok&&d.predioGeo){
-          piezas.push({g:d.predioGeo,rol:r.rol,comuna:r.comuna,ha:areaHaGeo(d.predioGeo)});
-          if(!nombreCat&&d.nombrePredio)nombreCat=String(d.nombrePredio).trim();
-        } else faltan.push(r.rol+(d&&d.sinCatastroRural?" (no está en el catastro rural)":d&&d.mensaje?" ("+String(d.mensaje).slice(0,160)+")":""));
-      }catch(e){faltan.push(r.rol+(e&&e.name==="AbortError"?" (el catastro no respondió a tiempo, intenta de nuevo)":" (sin conexión con el servidor)"));}
+      try{return await (await fetch(srv+ruta,{method:"POST",headers:{"Content-Type":"application/json"},signal:ctl.signal,body:JSON.stringify(cuerpo)})).json();}
+      catch(e){return {ok:false,mensaje:e&&e.name==="AbortError"?"no respondió a tiempo":"sin conexión con el servidor"};}
       finally{clearTimeout(t);}
+    };
+    for(const r of roles){
+      // 1) Catastro rural CIREN
+      const d=await pedir("/suelos-rol",{rol:r.rol,comuna:r.comuna,region:getRegion(r.comuna)||region,soloGeo:true});
+      if(d&&d.ok&&d.predioGeo){
+        piezas.push({g:d.predioGeo,rol:r.rol,comuna:r.comuna,ha:areaHaGeo(d.predioGeo),fuente:"CIREN"});
+        if(!nombreCat&&d.nombrePredio)nombreCat=String(d.nombrePredio).trim();
+        continue;
+      }
+      // 2) Respaldo: cartografía del SII vía Catastral.cl
+      setEstado({cargando:true,msg:"No está en CIREN, buscando "+r.rol+" en el SII…"});
+      const c=await pedir("/poligono-catastral",{rol:r.rol,comuna:r.comuna});
+      if(c&&c.ok&&c.predioGeo){piezas.push({g:c.predioGeo,rol:r.rol,comuna:r.comuna,ha:areaHaGeo(c.predioGeo),fuente:"SII"});continue;}
+      faltan.push(r.rol+" ("+((c&&c.mensaje)||"no se encontró")+")");
     }
     if(!piezas.length){setEstado({error:"No pude sacar el polígono: "+faltan.join(" · ")});return;}
     const k=kmzDePiezas(piezas,{nombre:nombre||nombreCat||"Predio",region});
