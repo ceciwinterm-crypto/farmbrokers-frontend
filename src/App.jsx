@@ -359,17 +359,19 @@ function SoloKMZ({backendUrl,cerrar,G,bP,bS}){
     setEstado({cargando:true,msg:roles.length>1?"Buscando "+roles.length+" roles en el catastro…":"Buscando el rol en el catastro…"});
     const piezas=[],faltan=[];let nombreCat="";
     for(const r of roles){
+      const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),60000);
       try{
-        const resp=await fetch(String(backendUrl||"").replace(/\/$/,"")+"/suelos-rol",{method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({rol:r.rol,comuna:r.comuna,region:getRegion(r.comuna)||region})});
+        const resp=await fetch(String(backendUrl||"").replace(/\/$/,"")+"/suelos-rol",{method:"POST",headers:{"Content-Type":"application/json"},signal:ctl.signal,
+          body:JSON.stringify({rol:r.rol,comuna:r.comuna,region:getRegion(r.comuna)||region,soloGeo:true})});
         const d=await resp.json();
         if(d&&d.ok&&d.predioGeo){
           piezas.push({g:d.predioGeo,rol:r.rol,comuna:r.comuna,ha:areaHaGeo(d.predioGeo)});
           if(!nombreCat&&d.nombrePredio)nombreCat=String(d.nombrePredio).trim();
-        } else faltan.push(r.rol);
-      }catch(e){faltan.push(r.rol);}
+        } else faltan.push(r.rol+(d&&d.sinCatastroRural?" (no está en el catastro rural)":d&&d.mensaje?" ("+String(d.mensaje).slice(0,160)+")":""));
+      }catch(e){faltan.push(r.rol+(e&&e.name==="AbortError"?" (el catastro no respondió a tiempo, intenta de nuevo)":" (sin conexión con el servidor)"));}
+      finally{clearTimeout(t);}
     }
-    if(!piezas.length){setEstado({error:"No encontré el polígono de "+(faltan.length>1?"esos roles":"ese rol")+" en el catastro rural (CIREN). Revisa el rol y la comuna."});return;}
+    if(!piezas.length){setEstado({error:"No pude sacar el polígono: "+faltan.join(" · ")});return;}
     const k=kmzDePiezas(piezas,{nombre:nombre||nombreCat||"Predio",region});
     if(!k){setEstado({error:"El catastro devolvió un polígono sin coordenadas válidas."});return;}
     bajarBlob(k.blob,k.archivo);
