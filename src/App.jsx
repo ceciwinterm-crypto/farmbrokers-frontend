@@ -304,6 +304,104 @@ function evaluarAptitudFotovoltaica(form){
 // Acepta el formato nuevo ({rol,comuna,g}) y el antiguo (geometria suelta).
 function geomDe(x){ return (x && x.type) ? x : (x && x.g ? x.g : null); }
 
+// Arma el .kmz (Blob) a partir de piezas {g,rol,comuna,ha}. Lo usan el informe y "Solo KMZ".
+function kmzDePiezas(piezas,{nombre,region,numTasacion}={}){
+  const nombrePredio=capTxt(nombre)||"Predio";
+  const totalHa=piezas.reduce((s,p)=>s+(p.ha||0),0);
+  const varios=piezas.length>1;
+  const marcas=piezas.map(p=>{
+    const geo=poligonoKml(p.g);
+    if(!geo)return "";
+    const titulo=p.rol?("Rol "+p.rol+(p.comuna?" — "+capTxt(p.comuna):"")):nombrePredio;
+    const desc=[p.rol?"Rol SII: "+p.rol:"",p.comuna?"Comuna: "+capTxt(p.comuna):"",
+      p.ha>0?"Superficie del poligono: "+p.ha.toFixed(2).replace(".",",")+" ha":""].filter(Boolean).join("\n");
+    return "<Placemark><name>"+escXml(titulo)+"</name><description>"+escXml(desc)+
+      "</description><styleUrl>#fb</styleUrl>"+geo+"</Placemark>";
+  }).filter(Boolean).join("");
+  if(!marcas)return null;
+  const descDoc=[nombrePredio,
+    varios?(piezas.length+" roles: "+piezas.map(p=>p.rol).filter(Boolean).join(" + ")):(piezas[0].rol?"Rol "+piezas[0].rol:""),
+    region?"Región de "+regionTxt(region):"",
+    totalHa>0?("Superficie total del poligono: "+totalHa.toFixed(2).replace(".",",")+" ha"):"",
+    "Fuente: catastro de propiedades rurales (CIREN / IDE Minagri). Poligono referencial: validar con titulos y mensura."
+  ].filter(Boolean).join("\n");
+  const cuerpo=varios?("<Folder><name>Roles del predio ("+piezas.length+")</name><open>1</open>"+marcas+"</Folder>"):marcas;
+  const kml='<?xml version="1.0" encoding="UTF-8"?>\n'+
+    '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>'+
+    "<name>"+escXml(nombrePredio+(numTasacion?" ("+numTasacion+")":""))+"</name>"+
+    "<description>"+escXml(descDoc)+"</description>"+
+    '<Style id="fb"><LineStyle><color>ff00d4ff</color><width>3</width></LineStyle>'+
+    "<PolyStyle><color>3300d4ff</color><fill>1</fill><outline>1</outline></PolyStyle></Style>"+
+    cuerpo+"</Document></kml>";
+  const limpiar=t=>String(t||"").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^0-9a-zA-Z]+/g,"-").replace(/^-|-$/g,"");
+  const archivo=limpiar(nombrePredio)+(piezas.length===1&&piezas[0].rol?("_Rol-"+limpiar(piezas[0].rol)):(varios?"_"+piezas.length+"-roles":""))+".kmz";
+  return {blob:zipUnArchivo("doc.kml",kml),archivo,totalHa,n:piezas.length};
+}
+function bajarBlob(blob,nombre){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=url;a.download=nombre;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
+}
+
+// ── Solo KMZ: rol + comuna -> poligono del catastro -> .kmz, sin llenar la tasacion ──
+function SoloKMZ({backendUrl,cerrar,G,bP,bS}){
+  const [filas,setFilas]=useState([{rol:"",comuna:""}]);
+  const [nombre,setNombre]=useState("");
+  const [estado,setEstado]=useState({});
+  const upd=(i,k,v)=>setFilas(fs=>fs.map((f,j)=>j===i?{...f,[k]:v}:f));
+  const generar=async()=>{
+    const base=String((filas[0]||{}).comuna||"").trim();
+    const roles=filas.filter(f=>String(f.rol).trim()).map(f=>({rol:String(f.rol).trim(),comuna:String(f.comuna||"").trim()||base}));
+    if(!roles.length||!roles[0].comuna){setEstado({error:"Escribe al menos un rol y su comuna."});return;}
+    const region=getRegion(roles[0].comuna);
+    if(!region){setEstado({error:"No reconozco la comuna \""+roles[0].comuna+"\". Revisa cómo está escrita."});return;}
+    setEstado({cargando:true,msg:roles.length>1?"Buscando "+roles.length+" roles en el catastro…":"Buscando el rol en el catastro…"});
+    const piezas=[],faltan=[];let nombreCat="";
+    for(const r of roles){
+      try{
+        const resp=await fetch(String(backendUrl||"").replace(/\/$/,"")+"/suelos-rol",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({rol:r.rol,comuna:r.comuna,region:getRegion(r.comuna)||region})});
+        const d=await resp.json();
+        if(d&&d.ok&&d.predioGeo){
+          piezas.push({g:d.predioGeo,rol:r.rol,comuna:r.comuna,ha:areaHaGeo(d.predioGeo)});
+          if(!nombreCat&&d.nombrePredio)nombreCat=String(d.nombrePredio).trim();
+        } else faltan.push(r.rol);
+      }catch(e){faltan.push(r.rol);}
+    }
+    if(!piezas.length){setEstado({error:"No encontré el polígono de "+(faltan.length>1?"esos roles":"ese rol")+" en el catastro rural (CIREN). Revisa el rol y la comuna."});return;}
+    const k=kmzDePiezas(piezas,{nombre:nombre||nombreCat||"Predio",region});
+    if(!k){setEstado({error:"El catastro devolvió un polígono sin coordenadas válidas."});return;}
+    bajarBlob(k.blob,k.archivo);
+    setEstado({ok:"✓ KMZ descargado: "+k.n+(k.n===1?" rol, ":" roles, ")+k.totalHa.toFixed(2).replace(".",",")+" ha"+
+      (faltan.length?". Sin polígono en el catastro: "+faltan.join(", "):"")});
+  };
+  const inp={padding:"9px 10px",border:"1px solid #ccc",borderRadius:6,fontSize:14,width:"100%",boxSizing:"border-box"};
+  return (
+    <div onClick={cerrar} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:98,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",color:"#222",borderRadius:12,padding:24,width:"min(520px,92vw)",maxHeight:"85vh",overflow:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+          <div style={{fontWeight:700,fontSize:17,color:G}}>🌍 Solo KMZ</div>
+          <button onClick={cerrar} style={{border:"none",background:"transparent",fontSize:18,cursor:"pointer"}}>✕</button>
+        </div>
+        <div style={{fontSize:12.5,color:"#666",marginBottom:14}}>Escribe el rol y la comuna y te descargo el polígono del predio para Google Earth. No se crea ninguna tasación.</div>
+        {filas.map((f,i)=>(
+          <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1.3fr auto",gap:8,marginBottom:8,alignItems:"center"}}>
+            <input style={inp} placeholder="Rol (ej. 123-45)" value={f.rol} onChange={e=>upd(i,"rol",e.target.value)}/>
+            <input style={inp} placeholder={i===0?"Comuna":"Comuna (igual a la primera si la dejas vacía)"} value={f.comuna} onChange={e=>upd(i,"comuna",e.target.value)}/>
+            {filas.length>1?<button onClick={()=>setFilas(fs=>fs.filter((_,j)=>j!==i))} style={{border:"none",background:"transparent",cursor:"pointer",fontSize:16,color:"#999"}} title="Quitar">✕</button>:<span/>}
+          </div>
+        ))}
+        <button onClick={()=>setFilas(fs=>[...fs,{rol:"",comuna:""}])} style={{...bS,padding:"6px 12px",fontSize:12,marginBottom:12}}>+ Otro rol</button>
+        <input style={{...inp,marginBottom:14}} placeholder="Nombre del predio (opcional)" value={nombre} onChange={e=>setNombre(e.target.value)}/>
+        <button onClick={generar} disabled={estado.cargando} style={{...bP,width:"100%",opacity:estado.cargando?0.6:1}}>{estado.cargando?estado.msg:"Descargar KMZ"}</button>
+        {estado.error&&<div style={{marginTop:12,fontSize:13,color:"#9B4B43"}}>{estado.error}</div>}
+        {estado.ok&&<div style={{marginTop:12,fontSize:13,color:G}}>{estado.ok}</div>}
+      </div>
+    </div>
+  );
+}
+
 // ZIP minimo en modo "almacenado" (sin compresion): un .kmz es un .zip con el .kml dentro.
 // Se implementa aqui para no depender de ninguna libreria externa en el navegador.
 const TABLA_CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})();
@@ -718,6 +816,7 @@ export default function App(){
   const [genError,setGenError]=useState("");
   const [form,setForm]=useState(()=>conGKey(EMPTY));
   const [showTas,setShowTas]=useState(false);
+  const [showKmz,setShowKmz]=useState(false);
   const [idTasacionActual,setIdTasacionActual]=useState(null);
   useEffect(()=>{if(window.__cargarReportePrueba){setReport(window.__cargarReportePrueba);setStep(3);}},[]);
   // La URL del backend se recuerda aparte para que el parche de fetch pueda
@@ -2205,44 +2304,10 @@ export default function App(){
       alert("Todavia no hay poligonos del predio.\n\nPresiona \"Suelos Auto\" en Antecedentes Tecnicos: ahi se descarga el poligono de cada rol desde el catastro, y con eso se arma el KMZ.");
       return;
     }
-    const nombrePredio=capTxt(base.predioNombre)||"Predio";
-    const totalHa=piezas.reduce((s,p)=>s+p.ha,0);
-    const varios=piezas.length>1;
-    const marcas=piezas.map(p=>{
-      const geo=poligonoKml(p.g);
-      if(!geo)return "";
-      const titulo=p.rol?("Rol "+p.rol+(p.comuna?" — "+capTxt(p.comuna):"")):nombrePredio;
-      const desc=[p.rol?"Rol SII: "+p.rol:"",p.comuna?"Comuna: "+capTxt(p.comuna):"",
-        p.ha>0?"Superficie del poligono: "+p.ha.toFixed(2).replace(".",",")+" ha":""].filter(Boolean).join("\n");
-      return "<Placemark><name>"+escXml(titulo)+"</name><description>"+escXml(desc)+
-        "</description><styleUrl>#fb</styleUrl>"+geo+"</Placemark>";
-    }).filter(Boolean).join("");
-    if(!marcas){alert("Los poligonos guardados no tienen coordenadas validas. Vuelve a correr \"Suelos Auto\".");return;}
-
-    const descDoc=[nombrePredio,
-      varios?(piezas.length+" roles: "+piezas.map(p=>p.rol).filter(Boolean).join(" + ")):(piezas[0].rol?"Rol "+piezas[0].rol:""),
-      base.region?"Región de "+regionTxt(base.region):"",
-      totalHa>0?("Superficie total del poligono: "+totalHa.toFixed(2).replace(".",",")+" ha"):"",
-      "Fuente: catastro de propiedades rurales (CIREN / IDE Minagri). Poligono referencial: validar con titulos y mensura."
-    ].filter(Boolean).join("\n");
-
-    // Con varios roles van dentro de una carpeta (se ven juntos y se pueden apagar uno a uno)
-    const cuerpo=varios?("<Folder><name>Roles del predio ("+piezas.length+")</name><open>1</open>"+marcas+"</Folder>"):marcas;
-    const kml='<?xml version="1.0" encoding="UTF-8"?>\n'+
-      '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>'+
-      "<name>"+escXml(nombrePredio+(base.numTasacion?" ("+base.numTasacion+")":""))+"</name>"+
-      "<description>"+escXml(descDoc)+"</description>"+
-      '<Style id="fb"><LineStyle><color>ff00d4ff</color><width>3</width></LineStyle>'+
-      "<PolyStyle><color>3300d4ff</color><fill>1</fill><outline>1</outline></PolyStyle></Style>"+
-      cuerpo+"</Document></kml>";
-
-    const limpiar=t=>String(t||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^0-9a-zA-Z]+/g,"-").replace(/^-|-$/g,"");
-    const nombreArch=limpiar(nombrePredio||"Predio")+(piezas.length===1&&piezas[0].rol?("_Rol-"+limpiar(piezas[0].rol)):(varios?"_"+piezas.length+"-roles":""))+".kmz";
-    const blob=zipUnArchivo("doc.kml",kml);
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");a.href=url;a.download=nombreArch;
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(url),4000);
+    const k=kmzDePiezas(piezas,{nombre:base.predioNombre,region:base.region,numTasacion:base.numTasacion});
+    if(!k){alert("Los poligonos guardados no tienen coordenadas validas. Vuelve a correr \"Suelos Auto\".");return;}
+    bajarBlob(k.blob,k.archivo);
+    const totalHa=k.totalHa,varios=k.n>1;
     setAvisoGuardado("✓ KMZ generado: "+(varios?(piezas.length+" roles, "+totalHa.toFixed(2).replace(".",",")+" ha en total"):("1 rol, "+totalHa.toFixed(2).replace(".",",")+" ha")));
     setTimeout(()=>setAvisoGuardado(""),6000);
   };
@@ -2695,6 +2760,7 @@ export default function App(){
             </div>
           </div>
         </div>:null}
+        {showKmz&&<SoloKMZ backendUrl={form.backendUrl} cerrar={()=>setShowKmz(false)} G={G} bP={bP} bS={bS}/>}
         {showTas?<div onClick={()=>setShowTas(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:98,display:"flex",alignItems:"center",justifyContent:"center"}}>
                   <div onClick={e=>e.stopPropagation()} style={{background:"#fff",color:"#222",borderRadius:12,padding:24,width:"min(640px,92vw)",maxHeight:"80vh",overflow:"auto"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -2834,6 +2900,7 @@ export default function App(){
               <p style={{opacity:0.75,fontSize:14,margin:"0 0 28px",maxWidth:500,lineHeight:1.6}}>Multiples roles SII, comarca enlazada con region, UF del dia automatica, plano SII y satelital integrados.</p>
               <button onClick={()=>{setForm(conGKey({...EMPTY}));setIdTasacionActual(null);setReport(null);dbGuardar({id:"__borrador__",nombre:"(borrador en curso)",fecha:new Date().toISOString(),form:{...EMPTY}}).catch(()=>{});setStep(1);}} style={{...bP,background:ORO}}>Nueva Tasacion →</button>
               <button onClick={abrirMisTasaciones} style={{...bS,marginLeft:10}}>📂 Continuar una guardada</button>
+              <button onClick={()=>setShowKmz(true)} style={{...bS,marginLeft:10}} title="Descarga el polígono del predio con solo el rol y la comuna">🌍 Solo KMZ</button>
               {ufStatus==="ok"&&<div style={{position:"absolute",top:20,right:30,background:"rgba(255,255,255,0.1)",borderRadius:10,padding:"12px 20px",textAlign:"center"}}>
                 <div style={{fontSize:11,opacity:0.7}}>UF hoy {form.ufFecha}</div>
                 <div style={{fontWeight:700,fontSize:22,color:ORO}}>${form.ufBase}</div>
