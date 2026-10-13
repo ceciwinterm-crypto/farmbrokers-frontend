@@ -8,7 +8,7 @@ const LOGO_FB_BLANCO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAggAAAFvCA
 const SHEETJS = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 
 const REG_NOMBRE = { XV: 'Arica', I: 'Tarapacá', II: 'Antofagasta', III: 'Atacama', IV: 'Coquimbo', V: 'Valparaíso', RM: 'Metropolitana', VI: "O'Higgins",
-  VII: 'Maule', XVI: 'Ñuble', VIII: 'Biobío', IX: 'Araucanía', XIV: 'Los Ríos', X: 'Los Lagos', XI: 'Aysén', XII: 'Magallanes' };
+  VII: 'Maule', XVI: 'Ñuble', VIII: 'Biobío', IX: 'Araucanía', XIV: 'Los Ríos', X: 'Los Lagos', XI: 'Aysén', XII: 'Magallanes', PE: 'Perú' };
 const TIPOS = { agricola: 'Agrícola', loteo: 'Loteo', forestal: 'Forestal', conservacion: 'Conservación', urbano: 'Urbano', agroindustrial: 'Agroindustrial', derechos_agua: 'Derechos de agua', energia: 'Energía' };
 const CERRADAS_TAS = ['Pagada', 'Perdida'];
 
@@ -679,7 +679,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           <Campo label="Nombre" ancho><input value={f.nombre || ''} onChange={set('nombre')} placeholder="Ej. Fundo Mahuidanche" /></Campo>
           <Campo label={etqWeb('Tipo de propiedad', 'tipo')}>{deWeb('tipo') ? <input value={(datos.tipos || {})[f.tipo] || TIPOS[f.tipo] || f.tipo || ''} disabled /> : <SelectTipo ctx={ctx} value={f.tipo || 'agricola'} onChange={(v) => setF((x) => ({ ...x, tipo: v }))} />}</Campo>
           {esNuevo && <Campo label="Etapa"><select value={f.etapa} onChange={set('etapa')}>{datos.etapas.campos.map((e) => <option key={e}>{e}</option>)}</select></Campo>}
-          <Campo label={etqWeb('Región', 'region')}><select value={f.region || ''} disabled={deWeb('region')} onChange={set('region')}><option value="">Sin región</option>{datos.regiones.map((r) => <option key={r} value={r}>{r}, {REG_NOMBRE[r]}</option>)}</select></Campo>
+          <Campo label={etqWeb('Región', 'region')}><select value={f.region || ''} disabled={deWeb('region')} onChange={set('region')}><option value="">Sin región</option>{datos.regiones.map((r) => <option key={r} value={r}>{r === 'PE' ? 'Perú' : `${r}, ${REG_NOMBRE[r]}`}</option>)}</select></Campo>
           <Campo label={etqWeb('Comuna o sector', 'sector')}><input value={f.sector || ''} disabled={deWeb('sector')} onChange={set('sector')} /></Campo>
           <Campo label="Rol SII"><input value={f.rol || ''} onChange={set('rol')} placeholder="28-95" /></Campo>
           <Campo label={etqWeb('Código', 'codigo')}><input value={f.codigo || ''} disabled={deWeb('codigo')} onChange={set('codigo')} /></Campo>
@@ -1352,7 +1352,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         <p className="fbcrm-etq">Cultivos</p>
         <div className="fbcrm-chips">{Object.entries(datos.cultivos).map(([k, l]) => <button key={k} className={b.cultivos.includes(k) ? 'on' : ''} aria-pressed={b.cultivos.includes(k)} onClick={() => toggleB('cultivos', k)}>{l}</button>)}</div>
         <p className="fbcrm-etq">Regiones</p>
-        <div className="fbcrm-chips">{datos.regiones.map((r) => <button key={r} className={b.regiones.includes(r) ? 'on' : ''} aria-pressed={b.regiones.includes(r)} title={REG_NOMBRE[r]} onClick={() => toggleB('regiones', r)}>{r}</button>)}</div>
+        <div className="fbcrm-chips">{datos.regiones.map((r) => <button key={r} className={b.regiones.includes(r) ? 'on' : ''} aria-pressed={b.regiones.includes(r)} title={REG_NOMBRE[r]} onClick={() => toggleB('regiones', r)}>{r === 'PE' ? 'Perú' : r}</button>)}</div>
         {(() => { const n = [(b.regiones || []).length > 0, b.haMin !== '' && b.haMin != null || b.haMax !== '' && b.haMax != null, (b.cultivos || []).length > 0].filter(Boolean).length; return n < 2 && !(b.zona || '').trim() && <p className="fbcrm-aviso-linea">Para que esta búsqueda haga match, indica al menos dos de estos datos: regiones, hectáreas o cultivos (o una comuna en “Zonas”).</p>; })()}
         {f.busquedas.length > 1 && <p className="fbcrm-sep2"><button className="fbcrm-texto fbcrm-peligro-texto" onClick={() => { if (!window.confirm(`¿Quitar la búsqueda “${b.nombre}”?`)) return; setF((x) => ({ ...x, busquedas: x.busquedas.filter((y) => y.id !== b.id) })); setBSel(0); }}>Quitar esta búsqueda</button></p>}
       </div>
@@ -4507,7 +4507,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
 // ════════════════════════════ Vende o arrienda tu campo (formulario público y bandeja en el CRM) ════════════════════════════
 const linkVende = () => `${window.location.origin}/vende`;
 const TIPOS_OFERTA = [['agricola', 'Agrícola'], ['loteo', 'Parcela'], ['forestal', 'Forestal'], ['conservacion', 'Turística'], ['agroindustrial', 'Industrial'], ['urbano', 'Habitacional'], ['derechos_agua', 'Derechos de agua'], ['otro', 'Otro']];
-const ORDEN_REG = ['XV', 'I', 'II', 'III', 'IV', 'V', 'RM', 'VI', 'VII', 'XVI', 'VIII', 'IX', 'XIV', 'X', 'XI', 'XII'];
+const ORDEN_REG = ['XV', 'I', 'II', 'III', 'IV', 'V', 'RM', 'VI', 'VII', 'XVI', 'VIII', 'IX', 'XIV', 'X', 'XI', 'XII', 'PE'];
 export function FormularioVende() {
   const [f, setF] = useState({ operacion: 'venta', tipo: 'agricola', nombre: '', telefono: '', email: '', region: '', comuna: '', rol: '', hectareas: '', agua: '', plantaciones: '', construcciones: '', precio: '', descripcion: '', acepto: false, sitio: '' });
   const [aviso, setAviso] = useState('');
