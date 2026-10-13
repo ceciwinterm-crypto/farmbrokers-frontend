@@ -4387,7 +4387,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
       </div>
       {verAcuerdo && (
         <div className="fbcrm-acuerdo-editor">
-          <p className="fbcrm-nota-suave">Borrador basado en la cláusula de confidencialidad de tu mandato: revísalo con tu abogado. Escribe {'{CAMPO}'} donde quieras que aparezca el nombre del campo.</p>
+          <p className="fbcrm-nota-suave">Borrador basado en la cláusula de confidencialidad de tu mandato: revísalo con tu abogado. Escribe {'{NOMBRE}'} y {'{RUT}'} donde va el nombre y RUT de quien firma (se completan solos), y {'{CAMPO}'} donde quieras que aparezca el nombre del campo.</p>
           <textarea rows={12} value={texto} onChange={(e) => setTexto(e.target.value)} aria-label="Texto del acuerdo de confidencialidad" />
           <div className="fbcrm-acciones"><button className="fbcrm-primario" onClick={() => guardarAcuerdo(texto)}>Guardar texto</button><button onClick={() => guardarAcuerdo('')}>Restaurar el borrador base</button></div>
         </div>
@@ -4594,7 +4594,7 @@ export function FormularioPlano({ token }) {
     <div key="t"><h1>Plano de {p.titulo}</h1><p className="fbcrm-sub">{p.lugar ? `${p.lugar}. ` : ''}Información confidencial preparada para {p.destinatario}. Para ver {p.incluye && !p.incluye.kmz ? 'los planos' : p.incluye && p.incluye.planos ? 'el plano y el KMZ' : 'el plano'}{p.descarga ? ' y descargarlos' : ''}, lee y acepta el acuerdo.</p></div>,
     <section key="m" className="fbcrm-bloque">
       <h2>Acuerdo de confidencialidad</h2>
-      <div className="fbcrm-acuerdo-texto">{p.acuerdo}</div>
+      <div className="fbcrm-acuerdo-texto">{String(p.acuerdo).split(/(\{NOMBRE\}|\{RUT\})/).map((t, i) => (t === '{NOMBRE}' ? <strong key={i} className="fbcrm-firmante">{f.nombre.trim() || '(tu nombre completo)'}</strong> : t === '{RUT}' ? <strong key={i} className="fbcrm-firmante">{f.rut.trim() || '(tu RUT)'}</strong> : t))}</div>
       {aviso && <p className="fbcrm-error" role="alert">{aviso}</p>}
       <div className="fbcrm-form fbcrm-sep2">
         <Campo label="Nombre completo" ancho><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} autoComplete="name" /></Campo>
@@ -4642,6 +4642,7 @@ const CSS = `
 .fbcrm *{box-sizing:border-box}
 .fbcrm h1,.fbcrm h2,.fbcrm h3{letter-spacing:-.01em}
 .fbcrm-sub{color:var(--salvia);margin:4px 0 0;font-size:.92rem}
+.fbcrm-firmante{background:var(--trigo-cl);color:var(--trigo-osc);padding:0 4px;border-radius:4px}
 .fbcrm-ofertas.hay{border-color:var(--trigo);box-shadow:0 0 0 1px var(--trigo-cl)}
 .fbcrm-ofertas-cab{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .fbcrm-ofertas-tit{display:flex;align-items:center;gap:10px;text-decoration:none!important;color:var(--tinta)!important;padding:0!important}
