@@ -718,7 +718,15 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           {verEstilo && <EstiloReferencia ctx={ctx} cerrar={() => setVerEstilo(false)} />}
           {f.web && f.web.descripcion && f.web.descripcion.length > 0 && <button type="button" onClick={() => setF({ ...f, descripcionFicha: f.web.descripcion.join('\n') })}>Copiar desde farmbrokers.cl</button>}
         </div>
-        <textarea rows={9} aria-label="Descripción para la ficha PDF" value={f.descripcionFicha || ''} onChange={set('descripcionFicha')} placeholder={'Escribe aquí el texto para el cliente, o usa “Redactar con IA” para armarlo con los datos del campo, de la web y de la tasación.\nUn párrafo por línea. Para destacar un título escribe, por ejemplo, "Suelos: …"'} />
+        <textarea rows={9} aria-label="Descripción para la ficha PDF" value={f.descripcionFicha || ''} onChange={set('descripcionFicha')} onPaste={(e) => {
+          const nuevo = textoPegado(e.clipboardData.getData('text/html'), e.clipboardData.getData('text/plain'));
+          if (nuevo == null) return;
+          e.preventDefault();
+          const el = e.target, a = el.selectionStart, b = el.selectionEnd, v = f.descripcionFicha || '';
+          const antes = v.slice(0, a), despues = v.slice(b);
+          setF({ ...f, descripcionFicha: `${antes}${antes && !antes.endsWith('\n') ? '\n' : ''}${nuevo}${despues && !despues.startsWith('\n') ? '\n' : ''}${despues}` });
+          setMsgDesc('Se pegó con la tabla. En la ficha PDF se verá como tabla (cada fila es una línea con | entre columnas).');
+        }} placeholder={'Escribe aquí el texto para el cliente, o usa “Redactar con IA” para armarlo con los datos del campo, de la web y de la tasación.\nPuedes pegar tablas desde Word, Excel o Google Docs: salen como tabla en la ficha.\nUn párrafo por línea. Para destacar un título escribe, por ejemplo, "Suelos: …"'} />
         {msgDesc && <p className="fbcrm-msg" role="status">{msgDesc}</p>}
         <p className="fbcrm-seccion">Propietario</p>
         <div className="fbcrm-form">
@@ -3804,13 +3812,47 @@ function ParrafoFicha({ t }) {
   return <p>{t}</p>;
 }
 // Ordena los párrafos que vienen de la web: separa títulos pegados y une "Título:" con su texto
+// ── Tablas dentro de la descripción: cada fila se guarda como una línea "| celda | celda |" ──
+const esFilaTabla = (l) => /^\s*\|.*\|\s*$/.test(String(l || ''));
+const celdasFila = (l) => String(l).trim().replace(/^\||\|$/g, '').split('|').map((x) => x.trim());
+const limpiaCelda = (t) => String(t || '').replace(/\|/g, '/').replace(/\s+/g, ' ').trim();
+// Convierte lo que se pega (Word, Excel, Google Docs, una página web) en texto con las tablas como filas "| a | b |"
+function textoPegado(html, plano) {
+  if (html && /<table/i.test(html)) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const out = [];
+    const recorrer = (nodo) => {
+      for (const el of nodo.children) {
+        const tag = el.tagName.toLowerCase();
+        if (tag === 'table') {
+          const filas = [...el.querySelectorAll('tr')].map((tr) => [...tr.children].filter((c) => /^t[dh]$/i.test(c.tagName)).map((c) => limpiaCelda(c.textContent))).filter((f) => f.some(Boolean));
+          const n = Math.max(0, ...filas.map((f) => f.length));
+          filas.forEach((f) => out.push(`| ${[...f, ...Array(n - f.length).fill('')].join(' | ')} |`));
+          out.push('');
+        } else if (/^(p|h[1-6]|li|pre|blockquote)$/.test(tag)) { const t = el.textContent.replace(/\s+/g, ' ').trim(); if (t) out.push(tag === 'li' ? `• ${t}` : t); }
+        else if (el.querySelector && el.querySelector('table, p, li, h1, h2, h3, div')) recorrer(el);
+        else { const t = (el.textContent || '').replace(/\s+/g, ' ').trim(); if (t) out.push(t); }
+      }
+    };
+    recorrer(doc.body);
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  const lineas = String(plano || '').replace(/\r/g, '').split('\n');
+  const conTab = lineas.filter((l) => l.includes('\t')).length;
+  if (conTab >= 2) return lineas.map((l) => (l.includes('\t') ? `| ${l.split('\t').map(limpiaCelda).join(' | ')} |` : l)).join('\n');
+  return null; // texto normal: se pega como siempre
+}
+function TablaFicha({ filas }) {
+  const [cab, ...resto] = filas.map(celdasFila);
+  return <table className="doc-ficha-tabla"><thead><tr>{cab.map((c, i) => <th key={i}>{c}</th>)}</tr></thead><tbody>{resto.map((f, i) => <tr key={i}>{f.map((c, k) => <td key={k}>{c}</td>)}</tr>)}</tbody></table>;
+}
 function prepararDescripcion(lineas) {
   const etq = /^[A-ZÁÉÍÓÚÑ][^:•]{1,40}:$/;
-  const arr = lineas.filter((l) => !/<\/?[a-z][^>]*|class=["']/i.test(String(l)) && !/^[•\s–-]*$/.test(String(l))).flatMap((l) => String(l).replace(/([.;])\s*(?=[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,30}:(\s|$))/g, '$1\n').split('\n')).map((x) => x.trim()).filter(Boolean);
+  const arr = lineas.filter((l) => !/<\/?[a-z][^>]*|class=["']/i.test(String(l)) && !/^[•\s–-]*$/.test(String(l))).flatMap((l) => esFilaTabla(l) ? [String(l).trim()] : String(l).replace(/([.;])\s*(?=[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ ]{2,30}:(\s|$))/g, '$1\n').split('\n')).map((x) => x.trim()).filter(Boolean);
   const out = [];
   for (let i = 0; i < arr.length; i++) {
     const l = arr[i], sig = arr[i + 1];
-    if (etq.test(l) && sig && !etq.test(sig) && !/^[•–-]/.test(sig) && !/:$/.test(sig)) { out.push(`${l} ${sig}`); i++; }
+    if (etq.test(l) && sig && !etq.test(sig) && !/^[•–-]/.test(sig) && !/:$/.test(sig) && !esFilaTabla(sig)) { out.push(`${l} ${sig}`); i++; }
     else out.push(l);
   }
   return out;
@@ -3962,7 +4004,14 @@ function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usua
   if (datosClave.length) add(<dl className="doc-ficha-datos">{datosClave.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>);
   if (descripcion.length) {
     add(<h2 className="doc-h2">Descripción</h2>, { conSiguiente: true });
-    descripcion.forEach((t, i) => add(<div className="doc-ficha-desc"><ParrafoFicha t={t} /></div>, { conSiguiente: /:$/.test(t) && !!descripcion[i + 1] }));
+    for (let i = 0; i < descripcion.length; i++) {
+      const t = descripcion[i];
+      if (esFilaTabla(t)) {
+        const filas = []; while (i < descripcion.length && esFilaTabla(descripcion[i])) filas.push(descripcion[i++]); i--;
+        const [cab, ...resto] = filas;
+        for (let k = 0; k < Math.max(1, resto.length); k += 14) add(<div className="doc-ficha-desc"><TablaFicha filas={[cab, ...resto.slice(k, k + 14)]} /></div>);
+      } else add(<div className="doc-ficha-desc"><ParrafoFicha t={t} /></div>, { conSiguiente: /:$/.test(t) && !!descripcion[i + 1] });
+    }
   }
   add(<h2 className="doc-h2 doc-h2-sep">Ficha técnica</h2>, { conSiguiente: true });
   for (let i = 0; i < tecnica.length; i += 2) {
@@ -5158,6 +5207,10 @@ const CSS = `
 .doc-ficha-hero{width:100%;height:82mm;object-fit:cover;border-radius:6px;display:block}
 .doc-ficha-titulo{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin:16px 0 14px}
 .doc-ficha-titulo h1{font-size:23pt;margin:0;line-height:1.1;letter-spacing:-.02em}
+.doc-ficha-tabla{width:100%;border-collapse:collapse;margin:4px 0 10px;font-size:9.5pt}
+.doc-ficha-tabla th{background:#E4F0E7;color:#1F4D31;text-align:left;font-weight:600;padding:5px 8px;border:1px solid #CFDCCF;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.doc-ficha-tabla td{padding:5px 8px;border:1px solid #DCE3DC;vertical-align:top}
+.doc-ficha-tabla tbody tr:nth-child(even) td{background:#F7FAF6;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .doc-offmarket{display:inline-block;margin:0 0 6px;padding:3px 9px;border-radius:4px;background:#1F4D31;color:#E9C46A;font-size:8.5pt;font-weight:700;letter-spacing:.12em;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .br-t-off{background:#1F4D31!important;color:#E9C46A!important}
 .doc-ficha-titulo p{margin:5px 0 0;color:#5E6E64;font-size:11pt}
