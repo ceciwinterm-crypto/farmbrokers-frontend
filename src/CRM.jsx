@@ -329,7 +329,7 @@ function Agenda({ ctx, irA, importar }) {
       <p>{datos.campos.length || datos.clientes.length ? frase : 'Carga la planilla para empezar a ver seguimientos y calces.'}</p>
       <div className="fbcrm-banda-acc">
         <button onClick={() => irA('calendario')}><Icono n="calendario" s={18} />Ver calendario</button>
-        <button onClick={() => ctx.imprimir({ tipo: 'informe' })}><Icono n="pdf" s={18} />Informe PDF</button>
+        <button onClick={() => ctx.imprimir({ tipo: 'informe' })}><Icono n="pdf" s={18} />Informe de gestión</button>
       </div>
     </section>
   );
