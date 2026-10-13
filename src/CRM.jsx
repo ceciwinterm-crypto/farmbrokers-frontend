@@ -521,7 +521,7 @@ function ListaCampos({ ctx, importar }) {
         const enVenta = datos.campos.filter((c) => ['Mandato firmado', 'En venta', 'En arriendo', 'En negociación'].includes(c.etapa));
         const n = (v) => enVenta.filter((c) => visibDe(c) === v).length;
         const arr = enVenta.filter((c) => c.etapa === 'En arriendo').length, ven = enVenta.filter((c) => c.etapa === 'En venta').length;
-        return enVenta.length > 0 && <p className="fbcrm-resumen-venta solo-pc"><b>{plural(enVenta.length, 'campo activo', 'campos activos')}:</b> {ven} en venta, {arr} en arriendo{enVenta.length - ven - arr ? `, ${enVenta.length - ven - arr} con mandato o en negociación` : ''}. {plural(n('publica'), 'público', 'públicos')} en la web, {plural(n('reservada'), 'reservado', 'reservados')}{n('interna') ? `, ${n('interna')} sin definir` : ''}.</p>;
+        return enVenta.length > 0 && <p className="fbcrm-resumen-venta solo-pc"><b>{plural(enVenta.length, 'campo activo', 'campos activos')}:</b> {ven} en venta, {arr} en arriendo{enVenta.length - ven - arr ? `, ${enVenta.length - ven - arr} con mandato o en negociación` : ''}. {plural(n('publica'), 'público', 'públicos')} en la web, {n('reservada')} off market{n('interna') ? `, ${n('interna')} sin definir` : ''}.</p>;
       })()}
       <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); setFPerfiles([]); setFVisib([]); setFOper(''); setFCorredor(''); setFDif(false); }}>Quitar filtros</button></>}</p>
       {!lista.length && <p className="fbcrm-vacio">{datos.campos.length ? 'Ningún campo coincide con el filtro.' : 'Aún no hay campos. Importa la planilla o usa “Nuevo campo”.'}</p>}
@@ -638,7 +638,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           <label className={`fbcrm-etapa-sel fbcrm-visib-sel v-${visibDe(f)}`} title={VISIB[visibDe(f)][1]}>
             <span>Visibilidad</span>
             <select value={visibDe(f)} disabled={ocupado} onChange={(e) => grabar({ visibilidad: e.target.value })}>
-              {Object.entries(VISIB).map(([k, [l]]) => <option key={k} value={k}>{k === 'reservada' ? '🔒 ' : ''}{l}</option>)}
+              {Object.entries(VISIB).map(([k, [l]]) => <option key={k} value={k}>{k === 'reservada' ? '★ ' : ''}{l}</option>)}
             </select>
           </label>
           <label className={`fbcrm-etapa-sel e-${grupoEtapaCampo(f.etapa)}`}>
@@ -648,7 +648,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           <button onClick={() => ctx.imprimir({ tipo: 'campo', id: f.id })}><Icono n="pdf" s={18} />Ficha PDF</button>
           <button className={tareaForm ? 'on' : ''} onClick={() => setTareaForm(tareaForm ? null : { titulo: '' })}>Tarea</button>
           <button className={verOrdenNueva ? 'on' : ''} onClick={() => setVerOrdenNueva(!verOrdenNueva)}>Orden de visita</button>
-          <button className={`solo-pc ${verPublicar ? 'on' : ''}`} onClick={() => setVerPublicar(!verPublicar)}>{linkPublicadoDe(f) ? 'Publicado en web ✓' : visibDe(f) === 'reservada' ? 'Web: reservada 🔒' : f.wp ? 'Borrador web ✓' : 'Publicar en web'}</button>
+          <button className={`solo-pc ${verPublicar ? 'on' : ''}`} onClick={() => setVerPublicar(!verPublicar)}>{linkPublicadoDe(f) ? 'Publicado en web ✓' : visibDe(f) === 'reservada' ? 'Off market ★' : f.wp ? 'Borrador web ✓' : 'Publicar en web'}</button>
           <button className={`solo-pc ${verMandato ? 'on' : ''}`} aria-expanded={verMandato} onClick={() => setVerMandato(!verMandato)}>
             Mandato {cap ? <span className={`fbcrm-badge est-${cap.estado}`}>{ETIQUETA_CAP[cap.estado]}</span> : <span className="fbcrm-badge gris">Sin link</span>}
           </button>
@@ -877,9 +877,9 @@ const fechaIngresoCliente = (c) => {
 };
 const OPER = { venta: 'Venta', arriendo: 'Arriendo', ambas: 'Venta o arriendo' };
 const operDe = (c) => c.operacion || 'venta';
-const VISIB = { publica: ['Pública', 'Se publica en farmbrokers.cl'], reservada: ['Reservada', 'Se ofrece solo a clientes elegidos, sin publicar'], interna: ['Interna', 'Todavía no se ofrece'] };
+const VISIB = { publica: ['Pública', 'Se publica en farmbrokers.cl'], reservada: ['Off market', 'En venta y activo: se ofrece a clientes elegidos, sin publicar en la web ni en portales'], interna: ['Interna', 'Todavía no se ofrece'] };
 const visibDe = (c) => c.visibilidad || 'interna';
-const EtiquetaVisib = ({ c }) => <span className={`fbcrm-visib v-${visibDe(c)}`} title={VISIB[visibDe(c)][1]}>{visibDe(c) === 'reservada' ? '🔒 ' : ''}{VISIB[visibDe(c)][0]}</span>;
+const EtiquetaVisib = ({ c }) => <span className={`fbcrm-visib v-${visibDe(c)}`} title={VISIB[visibDe(c)][1]}>{visibDe(c) === 'reservada' ? '★ ' : ''}{VISIB[visibDe(c)][0]}</span>;
 const colorPerfil = (datos, id) => { const i = (datos.perfiles || []).findIndex((p) => p.id === id); return `pc-${(i < 0 ? 0 : i) % 7}`; };
 function EtiquetasPerfil({ datos, ids }) {
   if (!(ids || []).length) return null;
@@ -1512,7 +1512,7 @@ function DocBrochure({ items, usuario, datosUsuario, busca }) {
                 <div className="br-t-foto">
                   {it.fotos.length ? <Foto src={it.fotoPdf || it.fotos[it.foto || 0]} clase="br-t-img" /> : <SateliteTarjeta campo={it.campo} />}
                   <span className="br-t-num">{dosDig(i + 1)}</span>
-                  {d.tipo && forma !== 'nueve' && <span className="br-t-tipo">{d.tipo}</span>}
+                  {visibDe(it.campo) === 'reservada' ? <span className="br-t-tipo br-t-off">★ Off market</span> : d.tipo && forma !== 'nueve' && <span className="br-t-tipo">{d.tipo}</span>}
                 </div>
                 <div className="br-t-info">
                   <h2>{corto(d.titulo, forma === 'nueve' ? 38 : 60)}</h2>
@@ -1582,7 +1582,7 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
       if (!fotos.length) fotos = await fotosCRM(c, usuario);
       let url = '';
       // Sin link a la web: se busca su publicación en farmbrokers.cl (y queda enlazado)
-      if (!fotos.length && !tieneLink) {
+      if (!fotos.length && !tieneLink && visibDe(c) !== 'reservada') {
         setEstado(`Buscando la publicación de ${c.nombre} en farmbrokers.cl…`);
         try {
           const b = await api(`/campos/${id}/buscar-web`, { method: 'POST' });
@@ -2071,8 +2071,8 @@ function PublicarWeb({ ctx, campo, setCampo, sinGuardar }) {
   };
   if (visibDe(campo) === 'reservada' && !publicado) return (
     <div className="fbcrm-bloque fbcrm-publicar">
-      <h3>Venta reservada <span className="fbcrm-visib v-reservada">🔒 No se publica</span></h3>
-      <p className="fbcrm-nota-suave">El propietario pidió que este campo no esté en la web. Se ofrece solo a clientes elegidos con la ficha PDF y el plano con confidencialidad. Si eso cambió, pasa la visibilidad a <b>Pública</b> arriba, junto a la etapa, y aquí podrás preparar la publicación.</p>
+      <h3>Campo off market <span className="fbcrm-visib v-reservada">★ No se publica</span></h3>
+      <p className="fbcrm-nota-suave">Está en venta y activo, pero no se publica en farmbrokers.cl ni en portales: se ofrece solo a clientes elegidos con la ficha PDF, el brochure y el plano con confidencialidad. La ficha se arma con los datos y las fotos que subas al CRM (en “Archivos y plano”, tipo Foto). Si algún día se publica, cambia la visibilidad a <b>Pública</b> arriba, junto a la etapa.</p>
     </div>
   );
   if (publicado) return (
@@ -3740,6 +3740,7 @@ function resumenWeb(campo, fotosProp) {
   const w = campo.web, c = coordsDe(campo), g = campo.geo;
   const partes = [];
   if (w) partes.push(`Desde farmbrokers.cl: ${plural(w.fotos.length, 'foto')}${w.descripcion.length ? ', descripción' : ''}${w.detalle.precio ? ', precio' : ''}.`);
+  else if (visibDe(campo) === 'reservada') partes.push(fotosProp.length ? `Off market: se usan ${plural(fotosProp.length, 'foto')} subidas al CRM.` : 'Off market: sube fotos en “Archivos y plano” (tipo Foto) para que salgan en la ficha.');
   else partes.push(fotosProp.length ? `Sin publicación en farmbrokers.cl: se usan ${plural(fotosProp.length, 'foto')} subidas al CRM.` : 'Sin link de farmbrokers.cl: agrega el link o sube fotos en el campo.');
   if (campo.descripcionFicha) partes.push('Descripción escrita en el CRM.');
   else if (!(w && (w.descripcion || []).join('').replace(/[•\s]/g, '').length >= 40)) partes.push('Falta la descripción: presiona “Actualizar desde farmbrokers.cl” o, en la información del campo, usa “✨ Redactar con IA”.');
@@ -3956,7 +3957,7 @@ function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usua
   const add = (el, o = {}) => B.push({ el, ...o });
   add(<header className="doc-ficha-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="doc-ficha-logo" /><div><strong>Ficha de propiedad</strong>{idProp && <span>ID {idProp}</span>}</div></header>);
   if (fotos[0]) add(<Foto src={fotos[0]} clase="doc-ficha-hero" alt={titulo} />);
-  add(<div className="doc-ficha-titulo"><div><h1>{titulo}</h1>{ubic && <p>{ubic}</p>}</div>
+  add(<div className="doc-ficha-titulo"><div>{visibDe(c) === 'reservada' && <span className="doc-offmarket">Off market · Oportunidad exclusiva</span>}<h1>{titulo}</h1>{ubic && <p>{ubic}</p>}</div>
     {precio && <div className="doc-ficha-precio"><small>{c.operacion === 'arriendo' ? 'Precio de arriendo' : c.operacion === 'ambas' ? 'Precio de venta (también en arriendo)' : 'Precio de venta'}</small><strong>{precio}</strong>{comision && <small>Comisión {comision}</small>}</div>}</div>);
   if (datosClave.length) add(<dl className="doc-ficha-datos">{datosClave.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>);
   if (descripcion.length) {
@@ -5157,6 +5158,8 @@ const CSS = `
 .doc-ficha-hero{width:100%;height:82mm;object-fit:cover;border-radius:6px;display:block}
 .doc-ficha-titulo{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin:16px 0 14px}
 .doc-ficha-titulo h1{font-size:23pt;margin:0;line-height:1.1;letter-spacing:-.02em}
+.doc-offmarket{display:inline-block;margin:0 0 6px;padding:3px 9px;border-radius:4px;background:#1F4D31;color:#E9C46A;font-size:8.5pt;font-weight:700;letter-spacing:.12em;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.br-t-off{background:#1F4D31!important;color:#E9C46A!important}
 .doc-ficha-titulo p{margin:5px 0 0;color:#5E6E64;font-size:11pt}
 .doc-ficha-precio{text-align:right;flex:none;display:flex;flex-direction:column;align-items:flex-end}
 .doc-ficha-precio strong{font-size:19pt;color:#1F4D31;letter-spacing:-.02em;line-height:1.15;white-space:nowrap}
@@ -5769,13 +5772,13 @@ const CSS = `
 /* Visibilidad */
 .fbcrm-visib{display:inline-flex;align-items:center;border-radius:999px;padding:1px 8px;font-size:.74rem;font-weight:600;margin-left:6px;white-space:nowrap;border:1px solid transparent}
 .fbcrm-visib.v-publica{background:var(--cielo-cl);color:var(--cielo)}
-.fbcrm-visib.v-reservada{background:#F6E4DE;color:#8A3A22}
+.fbcrm-visib.v-reservada{background:#F7EDD3;color:#7A5A15;font-weight:600}
 .fbcrm-visib.v-interna{background:var(--hoja);color:var(--salvia)}
 .fbcrm .fbcrm-filtro-perfiles button.fbcrm-visib{cursor:pointer;padding:5px 12px;font-size:.84rem;margin-left:0;opacity:.65}
 .fbcrm .fbcrm-filtro-perfiles button.fbcrm-visib.on{opacity:1;border-color:currentColor;box-shadow:0 0 0 1px currentColor}
 .fbcrm .fbcrm-filtro-perfiles button.fbcrm-visib.on::before{content:'✓';margin-right:5px}
 .fbcrm-resumen-venta{margin:-2px 0 6px;font-size:.92rem;color:var(--tinta)}
-.fbcrm-visib-sel.v-reservada select{background:#F6E4DE;color:#8A3A22}
+.fbcrm-visib-sel.v-reservada select{background:#F7EDD3;color:#7A5A15}
 .fbcrm-visib-sel.v-publica select{background:var(--cielo-cl);color:var(--cielo)}
 .fbcrm-visib-sel.v-interna select{background:var(--hoja);color:var(--salvia)}
 .tc-etapa .fbcrm-visib{display:inline-flex;margin-top:2px}
