@@ -2835,6 +2835,7 @@ function Calendario({ ctx }) {
 // ════════════════════════════ PDF (vista de impresión) ════════════════════════════
 function Impresion({ ctx, imp, cerrar }) {
   const { datos, usuario } = ctx;
+  const [periodo, setPeriodo] = useState('semana');
   const [variante, setVariante] = useState('cliente');
   const [mostrarRol, setMostrarRol] = useState(false);
   const [conKmz, setConKmz] = useState(true);
@@ -2879,7 +2880,7 @@ function Impresion({ ctx, imp, cerrar }) {
       return () => { document.title = previo; };
     }
     const previo = document.title;
-    document.title = campo ? `Ficha ${campo.nombre}${variante === 'interna' ? ' (interna)' : ''} - Farm Brokers` : `Informe de seguimiento ${hoyISO()} - Farm Brokers`;
+    document.title = campo ? `Ficha ${campo.nombre}${variante === 'interna' ? ' (interna)' : ''} - Farm Brokers` : `Informe de gestión ${hoyISO()} - Farm Brokers`;
     window.scrollTo(0, 0);
     return () => { document.title = previo; };
   }, [variante]);
@@ -2924,6 +2925,7 @@ function Impresion({ ctx, imp, cerrar }) {
             }}>Copiar link</button>
           </>
         )}
+        {imp.tipo === 'informe' && <label className="fbcrm-imp-opcion">Período:&nbsp;<select value={periodo} onChange={(e) => setPeriodo(e.target.value)}>{Object.entries(PERIODOS_INFORME).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}</select></label>}
         {campo && variante === 'cliente' && <label className="fbcrm-imp-opcion"><input type="checkbox" checked={mostrarRol} onChange={(e) => setMostrarRol(e.target.checked)} />Mostrar rol SII</label>}
         {campo && variante === 'cliente' && campo.geo && <label className="fbcrm-imp-opcion"><input type="checkbox" checked={conKmz} onChange={(e) => setConKmz(e.target.checked)} />Contorno del KMZ</label>}
         {campo && variante === 'cliente' && planos.length > 0 && <label className="fbcrm-imp-opcion"><input type="checkbox" checked={conPlano} onChange={(e) => setConPlano(e.target.checked)} />Plano</label>}
@@ -2934,11 +2936,11 @@ function Impresion({ ctx, imp, cerrar }) {
       </div>
       <style>{`@page{size:A4;margin:${campo && variante === 'cliente' && imp.tipo === 'campo' ? '0' : '14mm 0 16mm'}}`}</style>
       <article className={`fbcrm-doc ${imp.tipo === 'mandato' ? 'doc-mandato-hoja' : ''} ${campo && variante === 'cliente' ? 'doc-ficha-hoja' : ''}`}>
-        <Marco pie={imp.tipo === 'mandato' ? PIE_MANDATO : <><span>Farm Brokers Chile, farmbrokers.cl, +56 9 7193 9040</span><span>{campo ? `Ficha de propiedad${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo ? ` ${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo}` : ''}` : 'Informe de seguimiento'}</span></>}>
+        <Marco pie={imp.tipo === 'mandato' ? PIE_MANDATO : <><span>Farm Brokers Chile, farmbrokers.cl, +56 9 7193 9040</span><span>{campo ? `Ficha de propiedad${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo ? ` ${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo}` : ''}` : 'Informe de gestión'}</span></>}>
         {imp.tipo === 'mandato'
           ? (mandato ? <DocMandato m={mandato} /> : <p>{errorMandato || 'Preparando el mandato…'}</p>)
           : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} planos={conPlano ? planos : []} conKmz={conKmz} usuario={usuario} contacto={(datos.contactos || {})[usuario]} mostrarRol={mostrarRol} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
-            : imp.tipo === 'campo' ? <p>El campo ya no existe.</p> : <DocInforme datos={datos} usuario={usuario} />}
+            : imp.tipo === 'campo' ? <p>El campo ya no existe.</p> : <DocInforme datos={datos} usuario={usuario} periodo={periodo} />}
         </Marco>
       </article>
     </div>
@@ -3010,41 +3012,119 @@ function DocCampo({ datos, campo: c, variante, usuario }) {
   );
 }
 
-function DocInforme({ datos, usuario }) {
+// Informe de gestión: lo que hizo el equipo en el período + lo pendiente
+const PERIODOS_INFORME = {
+  semana: ['Últimos 7 días', () => { const h = new Date(); return [new Date(h.getTime() - 7 * 864e5), h]; }],
+  mes: ['Últimos 30 días', () => { const h = new Date(); return [new Date(h.getTime() - 30 * 864e5), h]; }],
+  mesActual: ['Este mes', () => { const h = new Date(); return [new Date(h.getFullYear(), h.getMonth(), 1), h]; }],
+  mesAnterior: ['Mes anterior', () => { const h = new Date(); return [new Date(h.getFullYear(), h.getMonth() - 1, 1), new Date(h.getFullYear(), h.getMonth(), 1)]; }],
+  anio: ['Este año', () => { const h = new Date(); return [new Date(h.getFullYear(), 0, 1), h]; }],
+};
+const NO_PERSONA = /^(Importación|Sistema|Sincronización web|CRM|Equipo)$|\(/;
+function datosInforme(datos, desde, hasta) {
+  const en = (f) => { const t = new Date(f || 0).getTime(); return t >= desde.getTime() && t < hasta.getTime(); };
+  const cliN = (id) => (datos.clientes.find((c) => c.id === id) || {}).nombre || 'Cliente';
+  const campoN = (id) => (datos.campos.find((c) => c.id === id) || {}).nombre || 'Campo';
+  const captados = [], mandatos = [], envios = [], planos = [], aceptados = [], cierres = [], etapas = [];
+  for (const c of datos.campos) {
+    const h0 = (c.historial || [])[0];
+    const creado = c.creado || (h0 && h0.fecha);
+    const quien = (h0 && /^Creado/.test(h0.texto || '') && h0.autor) || c.creadoPor || c.responsable || '';
+    if (en(creado) && !NO_PERSONA.test(quien || '')) captados.push({ c, quien, fecha: creado });
+    const f = c.captacion && c.captacion.firma;
+    if (f && en(f.fecha)) mandatos.push({ c, quien: c.captacion.creadoPor || c.responsable || '', fecha: f.fecha, firmante: f.nombre });
+    for (const e of c.envios || []) if (en(e.fecha)) envios.push({ c, cliente: cliN(e.clienteId), clienteId: e.clienteId, quien: e.autor || '', canal: e.canal, fecha: e.fecha });
+    for (const k of c.compartidos || []) {
+      if (en(k.creado)) planos.push({ c, para: k.destinatario, quien: k.creadoPor || '', fecha: k.creado, aceptado: !!k.aceptacion, descargas: (k.descargas || []).length });
+      if (k.aceptacion && en(k.aceptacion.fecha)) aceptados.push({ c, para: k.aceptacion.nombre, fecha: k.aceptacion.fecha });
+    }
+    for (const h of c.historial || []) {
+      const m = String(h.texto || '').match(/^Etapa: (.+?) → ([^(]+?)(?:\s*\(|$)/);
+      if (m && en(h.fecha)) { const ev = { c, de: m[1], a: m[2].trim(), quien: h.autor, fecha: h.fecha }; etapas.push(ev); if (/Vendido|Arrendado/.test(ev.a)) cierres.push(ev); }
+    }
+  }
+  const brochures = (datos.brochures || []).filter((b) => en(b.fecha)).map((b) => ({ ...b, cliente: cliN(b.clienteId) }));
+  const ordenes = (datos.ordenes || []).filter((o) => en(o.creado)).map((o) => ({ o, campo: campoN(o.campoId), cliente: cliN(o.clienteId), firmada: !!o.firma }));
+  const ordenesFirmadas = (datos.ordenes || []).filter((o) => o.firma && en(o.firma.fecha));
+  const clientesNuevos = datos.clientes.filter((c) => en(c.creado || (c.historial && c.historial[0] && c.historial[0].fecha)) && !NO_PERSONA.test(((c.historial || [])[0] || {}).autor || ''));
+  const ofertas = (datos.ofertas || []).filter((o) => en(o.fecha));
+  const tasaciones = datos.tasaciones.filter((t) => en(t.creado || (t.historial && t.historial[0] && t.historial[0].fecha)));
+  const tareasHechas = (datos.tareas || []).filter((t) => t.estado === 'hecha' && en(t.hechaEn));
+  // Por persona
+  const pp = {};
+  const suma = (n, k) => { if (!n || NO_PERSONA.test(n)) return; pp[n] = pp[n] || { captados: 0, envios: 0, planos: 0, brochures: 0, ordenes: 0, tareas: 0 }; pp[n][k]++; };
+  captados.forEach((x) => suma(x.quien, 'captados')); envios.forEach((x) => suma(x.quien, 'envios')); planos.forEach((x) => suma(x.quien, 'planos'));
+  brochures.forEach((x) => suma(x.autor, 'brochures')); ordenes.forEach((x) => suma(x.o.autor, 'ordenes')); tareasHechas.forEach((t) => suma(t.hechaPor || t.asignadoA, 'tareas'));
+  const porPersona = Object.entries(pp).sort((a, b) => Object.values(b[1]).reduce((x, y) => x + y, 0) - Object.values(a[1]).reduce((x, y) => x + y, 0));
+  return { captados, mandatos, envios, planos, aceptados, cierres, etapas, brochures, ordenes, ordenesFirmadas, clientesNuevos, ofertas, tasaciones, tareasHechas, porPersona,
+    clientesContactados: new Set(envios.map((e) => e.clienteId)).size };
+}
+function DocInforme({ datos, usuario, periodo = 'semana' }) {
   const hoy = hoyISO();
+  const [nombreP, rango] = PERIODOS_INFORME[periodo] || PERIODOS_INFORME.semana;
+  const [desde, hasta] = rango();
+  const r = datosInforme(datos, desde, hasta);
+  const fFecha = (d) => d.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' });
+  const hastaMostrar = periodo === 'mesAnterior' ? new Date(hasta.getTime() - 864e5) : hasta;
   const acciones = accionesConFecha(datos);
   const atrasadas = acciones.filter((i) => i.x.proximaFecha < hoy);
-  const proximas = acciones.filter((i) => i.x.proximaFecha >= hoy && (new Date(i.x.proximaFecha) - new Date(hoy)) / 864e5 <= 14);
+  const proximas = acciones.filter((i) => i.x.proximaFecha >= hoy && (new Date(i.x.proximaFecha) - new Date(hoy)) / 864e5 <= 7);
   const cuenta = (lista, etapas) => etapas.map((e) => [e, lista.filter((x) => x.etapa === e).length]).filter(([, n]) => n);
-  const porEnviar = datos.campos.filter((c) => datos.ofrecibles.includes(c.etapa)).map((c) => ({ c, n: pendientesEnvio(datos, c).length })).filter((p) => p.n).sort((a, b) => b.n - a.n);
-  const conFaltas = datos.campos.filter((c) => ['Documentación', 'Mandato firmado', 'En venta', 'En arriendo', 'En negociación'].includes(c.etapa)).map((c) => ({ c, f: faltantes(datos, c) })).filter((p) => p.f.length);
-  const hace7 = Date.now() - 7 * 864e5;
-  const actividad = datos.actividad.filter((a) => new Date(a.fecha).getTime() >= hace7);
-  const tablaAcciones = (lista) => (
-    <table><thead><tr><th>Fecha</th><th>Acción</th><th>Registro</th><th>Responsable</th></tr></thead>
-      <tbody>{lista.map((i) => <tr key={i.col + i.x.id}><td>{fmtFecha(i.x.proximaFecha)}</td><td>{i.x.proximaAccion || 'Sin definir'}</td><td>{NOMBRE_COL[i.col]}: {i.titulo}</td><td>{i.x.responsable || ''}</td></tr>)}</tbody></table>
-  );
+  const kpis = [
+    ['Campos captados', r.captados.length, r.mandatos.length ? `${plural(r.mandatos.length, 'mandato firmado', 'mandatos firmados')}` : ''],
+    ['Fichas enviadas', r.envios.length, r.clientesContactados ? `a ${plural(r.clientesContactados, 'cliente')}` : ''],
+    ['Planos y KMZ enviados', r.planos.length, r.aceptados.length ? `${plural(r.aceptados.length, 'acuerdo aceptado', 'acuerdos aceptados')}` : ''],
+    ['Brochures', r.brochures.length, ''],
+    ['Órdenes de visita', r.ordenes.length, r.ordenesFirmadas.length ? `${plural(r.ordenesFirmadas.length, 'firmada', 'firmadas')}` : ''],
+    ['Clientes nuevos', r.clientesNuevos.length, ''],
+    ['Formularios de la web', r.ofertas.length, r.ofertas.filter((o) => o.estado === 'convertida').length ? `${plural(r.ofertas.filter((o) => o.estado === 'convertida').length, 'convertido', 'convertidos')} en campo` : ''],
+    ['Negocios cerrados', r.cierres.length, r.tasaciones.length ? `${plural(r.tasaciones.length, 'tasación nueva', 'tasaciones nuevas')}` : ''],
+  ];
+  const tabla = (cab, filas) => <table><thead><tr>{cab.map((c) => <th key={c}>{c}</th>)}</tr></thead><tbody>{filas.map((f, i) => <tr key={i}>{f.map((v, k) => <td key={k}>{v}</td>)}</tr>)}</tbody></table>;
+  const fc = (iso) => fmtFecha(String(iso).slice(0, 10));
+  const lugar = (c) => [c.sector, c.hectareas ? `${fmtNum(c.hectareas)} ha` : ''].filter(Boolean).join(', ');
+  const enviosPorCampo = Object.values(r.envios.reduce((m, e) => { (m[e.c.id] = m[e.c.id] || { c: e.c, clientes: new Set(), n: 0 }).clientes.add(e.cliente); m[e.c.id].n++; return m; }, {})).sort((a, b) => b.n - a.n);
   return (
     <>
       <Encabezado derecha={`Generado por ${usuario}, ${fmtFechaHora(new Date().toISOString())}`} />
-      <h1>Informe de seguimiento</h1>
-      <p className="doc-sub">Estado de campos, clientes y tasaciones al {new Date().toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-      <h2>Resumen</h2>
+      <h1>Informe de gestión</h1>
+      <p className="doc-sub">{nombreP}: del {fFecha(desde)} al {fFecha(hastaMostrar)}</p>
+      <div className="doc-kpis">{kpis.map(([l, n, d]) => <div key={l}><strong>{n}</strong><span>{l}</span>{d && <small>{d}</small>}</div>)}</div>
+
+      {r.porPersona.length > 0 && <><h2>Por persona</h2>{tabla(['Persona', 'Captados', 'Fichas enviadas', 'Planos/KMZ', 'Brochures', 'Órdenes', 'Tareas hechas'], r.porPersona.map(([n, v]) => [n, v.captados, v.envios, v.planos, v.brochures, v.ordenes, v.tareas]))}</>}
+
+      <h2>Campos captados ({r.captados.length})</h2>
+      {r.captados.length ? tabla(['Fecha', 'Campo', 'Ubicación', 'Etapa', 'Quién'], r.captados.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).map((x) => [fc(x.fecha), x.c.nombre, lugar(x.c), x.c.etapa, x.quien])) : <p>Ninguno en el período.</p>}
+      {r.mandatos.length > 0 && <><h3>Mandatos firmados ({r.mandatos.length})</h3>{tabla(['Fecha', 'Campo', 'Firmó'], r.mandatos.map((x) => [fc(x.fecha), x.c.nombre, x.firmante]))}</>}
+
+      <h2>Fichas enviadas a clientes ({r.envios.length})</h2>
+      {enviosPorCampo.length ? tabla(['Campo', 'Envíos', 'Clientes'], enviosPorCampo.map((x) => [x.c.nombre, x.n, [...x.clientes].join(', ')])) : <p>Ninguna en el período.</p>}
+
+      <h2>Planos y KMZ enviados ({r.planos.length})</h2>
+      {r.planos.length ? tabla(['Fecha', 'Campo', 'Enviado a', 'Estado', 'Quién'], r.planos.map((x) => [fc(x.fecha), x.c.nombre, x.para, x.aceptado ? (x.descargas ? `Aceptó y descargó (${x.descargas})` : 'Aceptó') : 'Sin aceptar aún', x.quien])) : <p>Ninguno en el período.</p>}
+
+      {(r.brochures.length > 0 || r.ordenes.length > 0) && <h2>Brochures y órdenes de visita</h2>}
+      {r.brochures.length > 0 && tabla(['Fecha', 'Brochure para', 'Campos', 'Abierto', 'Quién'], r.brochures.map((b) => [fc(b.fecha), b.cliente, (b.campos || []).length, b.vistas ? `${plural(b.vistas, 'vez', 'veces')}` : 'No', b.autor]))}
+      {r.ordenes.length > 0 && tabla(['Fecha', 'Orden de visita', 'Cliente', 'Estado'], r.ordenes.map((x) => [fc(x.o.creado), x.campo, x.cliente, x.firmada ? 'Firmada' : 'Pendiente de firma']))}
+
+      {r.etapas.length > 0 && <><h2>Avances de etapa ({r.etapas.length})</h2>{tabla(['Fecha', 'Campo', 'Cambio', 'Quién'], r.etapas.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).map((x) => [fc(x.fecha), x.c.nombre, `${x.de} → ${x.a}`, x.quien]))}</>}
+
+      {(r.clientesNuevos.length > 0 || r.ofertas.length > 0) && <h2>Nuevos contactos</h2>}
+      {r.clientesNuevos.length > 0 && tabla(['Cliente nuevo', 'Busca'], r.clientesNuevos.map((c) => [c.nombre, c.requerimiento || '']))}
+      {r.ofertas.length > 0 && tabla(['Formulario web', 'Propiedad', 'Estado'], r.ofertas.map((o) => [`${o.nombre} (${fc(o.fecha)})`, [o.comuna, o.hectareas ? `${o.hectareas} ha` : '', o.operacion].filter(Boolean).join(', '), o.estado]))}
+
+      <h2>Pendientes</h2>
+      <h3>Acciones atrasadas ({atrasadas.length})</h3>
+      {atrasadas.length ? tabla(['Fecha', 'Acción', 'Registro', 'Responsable'], atrasadas.map((i) => [fmtFecha(i.x.proximaFecha), i.x.proximaAccion || 'Sin definir', `${NOMBRE_COL[i.col]}: ${i.titulo}`, i.x.responsable || ''])) : <p>Ninguna.</p>}
+      <h3>Próximos 7 días ({proximas.length})</h3>
+      {proximas.length ? tabla(['Fecha', 'Acción', 'Registro', 'Responsable'], proximas.map((i) => [fmtFecha(i.x.proximaFecha), i.x.proximaAccion || 'Sin definir', `${NOMBRE_COL[i.col]}: ${i.titulo}`, i.x.responsable || ''])) : <p>Sin acciones programadas.</p>}
+
+      <h2>Cartera actual</h2>
       <div className="doc-cols">
         <div><h3>Campos ({datos.campos.length})</h3><dl>{cuenta(datos.campos, datos.etapas.campos).map(([e, n]) => <Fila key={e} l={e} v={n} />)}</dl></div>
-        <div><h3>Clientes ({datos.clientes.length})</h3><dl>{cuenta(datos.clientes, datos.etapas.clientes).map(([e, n]) => <Fila key={e} l={e} v={n} />)}<Fila l="Por completar" v={datos.clientes.filter((c) => c.revisar).length || ''} /></dl></div>
-        <div><h3>Tasaciones ({datos.tasaciones.length})</h3>{datos.tasaciones.length ? <dl>{cuenta(datos.tasaciones, datos.etapas.tasaciones).map(([e, n]) => <Fila key={e} l={e} v={n} />)}</dl> : <p>Sin registros.</p>}</div>
+        <div><h3>Clientes ({datos.clientes.length})</h3><dl>{cuenta(datos.clientes, datos.etapas.clientes).map(([e, n]) => <Fila key={e} l={e} v={n} />)}</dl></div>
+        <div><h3>Tasaciones ({datos.tasaciones.length})</h3>{datos.tasaciones.length ? <dl>{cuenta(datos.tasaciones, datos.etapas.tasaciones).map(([e, n]) => <Fila key={e} l={e} v={n} />)}</dl> : <p>Sin tasaciones.</p>}</div>
       </div>
-      <h2>Acciones atrasadas ({atrasadas.length})</h2>
-      {atrasadas.length ? tablaAcciones(atrasadas) : <p>Ninguna.</p>}
-      <h2>Próximos 14 días ({proximas.length})</h2>
-      {proximas.length ? tablaAcciones(proximas) : <p>Sin acciones programadas.</p>}
-      <h2>Campos por enviar a clientes ({porEnviar.length})</h2>
-      {porEnviar.length ? <table><thead><tr><th>Campo</th><th>Etapa</th><th>Clientes que calzan sin envío</th></tr></thead><tbody>{porEnviar.map(({ c, n }) => <tr key={c.id}><td>{c.nombre}</td><td>{c.etapa}</td><td>{n}</td></tr>)}</tbody></table> : <p>Todos los calces fuertes fueron enviados.</p>}
-      <h2>Documentos pendientes ({conFaltas.length} campos)</h2>
-      {conFaltas.length ? <table><thead><tr><th>Campo</th><th>Falta</th></tr></thead><tbody>{conFaltas.map(({ c, f }) => <tr key={c.id}><td>{c.nombre}</td><td>{f.join(', ')}</td></tr>)}</tbody></table> : <p>Sin documentos pendientes.</p>}
-      <h2>Actividad de los últimos 7 días ({actividad.length})</h2>
-      {actividad.length ? <ul className="doc-hist">{actividad.map((a, i) => <li key={i}><span>{fmtFechaHora(a.fecha)}, {a.autor}:</span> {a.texto}</li>)}</ul> : <p>Sin actividad registrada.</p>}
     </>
   );
 }
@@ -4642,6 +4722,12 @@ const CSS = `
 .fbcrm *{box-sizing:border-box}
 .fbcrm h1,.fbcrm h2,.fbcrm h3{letter-spacing:-.01em}
 .fbcrm-sub{color:var(--salvia);margin:4px 0 0;font-size:.92rem}
+.doc-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0 6px}
+.doc-kpis div{border:1px solid #DCE3DC;border-radius:8px;padding:10px 12px;background:#F7FAF6;display:flex;flex-direction:column;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.doc-kpis strong{font-size:22px;color:#1F4D31;line-height:1.1}
+.doc-kpis span{font-size:11.5px;font-weight:600;color:#17261D;margin-top:2px}
+.doc-kpis small{font-size:10.5px;color:#5E6E64}
+@media (max-width:700px){.doc-kpis{grid-template-columns:repeat(2,1fr)}}
 .fbcrm-firmante{background:var(--trigo-cl);color:var(--trigo-osc);padding:0 4px;border-radius:4px}
 .fbcrm-ofertas.hay{border-color:var(--trigo);box-shadow:0 0 0 1px var(--trigo-cl)}
 .fbcrm-ofertas-cab{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
