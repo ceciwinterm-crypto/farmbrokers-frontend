@@ -2201,8 +2201,10 @@ function avisarNuevas(lista) {
   if (primeraVez || !nuevas.length) return;
   try { if (window.Notification && Notification.permission === 'granted') nuevas.slice(0, 3).forEach((n) => new Notification('Farm Brokers', { body: n.texto })); } catch (e) { /* sin avisos del navegador */ }
 }
+// Solo el equipo real: quienes entran al CRM, los agregados en Equipo › Personas y las administradoras
 function personasDelEquipo(datos, usuario) {
-  return [...new Set([usuario, ...(datos.equipo || []).map((p) => p.nombre), ...Object.keys(datos.contactos || {}), ...(datos.admins || [])].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  const base = Array.isArray(datos.miembros) ? datos.miembros : (datos.equipo || []).map((p) => p.nombre);
+  return [...new Set([usuario, ...base].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
 }
 function Campana({ ctx }) {
   const { datos, api, cargar, abrir } = ctx;
@@ -2241,7 +2243,6 @@ function FormTarea({ ctx, refInicial, tituloInicial, alListo }) {
   const crear = async () => {
     try {
       let para = f.asignadoA;
-      if (para === '__otra') { para = (window.prompt('Nombre de la persona (tal como entra al CRM):') || '').trim(); if (!para) return; }
       const t = await api('/tareas', { method: 'POST', body: { ...f, asignadoA: para } });
       await cargar();
       const c = (datos.contactos || {})[para];
@@ -2257,7 +2258,7 @@ function FormTarea({ ctx, refInicial, tituloInicial, alListo }) {
       <h3>Nueva tarea{f.ref ? ` para ${f.ref.nombre}` : ''}</h3>
       <div className="fbcrm-form">
         <Campo label="Qué hay que hacer" ancho><input value={f.titulo} onChange={(e) => setF({ ...f, titulo: e.target.value })} placeholder="Ej. Conseguir fotos del campo" autoFocus /></Campo>
-        <Campo label="Para"><select value={f.asignadoA} onChange={(e) => setF({ ...f, asignadoA: e.target.value })}>{personas.map((n) => <option key={n} value={n}>{n === usuario ? `${n} (yo)` : n}</option>)}<option value="__otra">Otra persona…</option></select></Campo>
+        <Campo label="Para"><select value={f.asignadoA} onChange={(e) => setF({ ...f, asignadoA: e.target.value })}>{personas.map((n) => <option key={n} value={n}>{n === usuario ? `${n} (yo)` : n}</option>)}</select></Campo>
         <Campo label="Para cuándo"><input type="date" value={f.vence} onChange={(e) => setF({ ...f, vence: e.target.value })} /></Campo>
         {!refInicial && <Campo label="Campo relacionado (opcional)" ancho><select value={f.ref ? f.ref.id : ''} onChange={(e) => { const c = datos.campos.find((x) => x.id === e.target.value); setF({ ...f, ref: c ? { col: 'campos', id: c.id, nombre: c.nombre } : null }); }}><option value="">Ninguno</option>{[...datos.campos].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></Campo>}
         <Campo label="Detalle (opcional)" ancho><textarea rows={2} value={f.detalle} onChange={(e) => setF({ ...f, detalle: e.target.value })} /></Campo>
@@ -2691,11 +2692,7 @@ function Seguimiento({ ctx, f, setF, ocupado, onGuardar }) {
   const otro = para && para !== usuario;
   const contacto = otro && (datos.contactos || {})[para];
   const tarea = f.accionTareaId && (datos.tareas || []).find((t) => t.id === f.accionTareaId);
-  const elegir = (e) => {
-    if (e.target.value !== '__otra') { setF({ ...f, responsable: e.target.value }); return; }
-    const n = (window.prompt('Nombre de la persona (tal como entra al CRM):') || '').trim();
-    if (n) setF({ ...f, responsable: n });
-  };
+  const elegir = (e) => setF({ ...f, responsable: e.target.value });
   const avisarWa = () => {
     const nombre = f.nombre || f.titulo || '';
     window.open(`https://wa.me/${fonoWa(contacto.telefono)}?text=${encodeURIComponent(`Hola ${para.split(' ')[0]}, te dejé una acción en el CRM de Farm Brokers${nombre ? ` (${nombre})` : ''}: ${f.proximaAccion}${f.proximaFecha ? `, para el ${fmtFecha(f.proximaFecha)}` : ''}.\n${window.location.origin}${window.location.pathname}#crm`)}`, '_blank', 'noopener');
@@ -2710,7 +2707,6 @@ function Seguimiento({ ctx, f, setF, ocupado, onGuardar }) {
           <select value={para} onChange={elegir}>
             <option value="">Sin asignar</option>
             {opciones.map((n) => <option key={n} value={n}>{n === usuario ? `${n} (yo)` : n}</option>)}
-            <option value="__otra">Otra persona…</option>
           </select>
         </Campo>
       </div>
