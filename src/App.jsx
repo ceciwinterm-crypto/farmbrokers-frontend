@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { haySesion, usuarioSesion, authApi } from "./sesion.js";
+import { fetchFuente, imagenFuente, imagenPorServidor, avisarFuente, fuenteOk, aplicarAviso, FUENTE_DE_RUTA } from "./fuentes.js";
 
 const G = "#33463B";
 
@@ -540,15 +541,30 @@ const guardarBackend=(v)=>{try{localStorage.setItem("fb_backend",v||"");}catch(e
 if(typeof window!=="undefined"&&!window.__fbFetchParcheado){
   window.__fbFetchParcheado=true;
   const fetchOriginal=window.fetch.bind(window);
+  // Si una ruta que consulta una fuente externa (SII, CIREN, DGA…) falla, se avisa en pantalla
+  const vigilarFuente=(u,p)=>{
+    let ruta="";try{ruta=new URL(u).pathname;}catch(e){return p;}
+    const fuente=FUENTE_DE_RUTA[ruta];
+    if(!fuente)return p;
+    return p.then(r=>{
+      r.clone().json().then(d=>{
+        const av=Array.isArray(d&&d.avisosFuentes)?d.avisosFuentes:[];
+        if(r.status>=500||r.status===429)avisarFuente(fuente,(d&&d.error)||("error "+r.status));
+        else if(av.length)av.forEach(a=>avisarFuente(a.fuente||fuente,a.detalle));
+        else if(r.ok)fuenteOk(fuente);
+      }).catch(()=>{if(r.status>=500)avisarFuente(fuente,"error "+r.status);});
+      return r;
+    },e=>{avisarFuente(fuente,"no se pudo conectar con el servidor");throw e;});
+  };
   window.fetch=(url,opts)=>{
     try{
       const u=typeof url==="string"?url:((url&&url.url)||"");
-      const back=(()=>{try{return localStorage.getItem("fb_backend")||"";}catch(e){return "";}})();
+      const back=(()=>{try{return localStorage.getItem("fb_backend")||"";}catch(e){return "";}})()||"https://farmbrokers-backend-production.up.railway.app";
       const clave=leerClave();
-      if(back&&clave&&u.startsWith(back.replace(/\/$/,""))){
+      if(u.startsWith(back.replace(/\/$/,""))){
         const o={...(opts||{})};
-        o.headers={...(o.headers||{}),"X-FB-Clave":clave};
-        return fetchOriginal(url,o);
+        if(clave)o.headers={...(o.headers||{}),"X-FB-Clave":clave};
+        return vigilarFuente(u,fetchOriginal(url,o));
       }
     }catch(e){}
     return fetchOriginal(url,opts);
@@ -791,7 +807,7 @@ const EMPTY = {
   roles:[{rol:"",comuna:"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}],
   solicitante:"",email:"",fechaTasacion:"",ufBase:"",ufFecha:"",
   predioNombre:"",localidad:"",provincia:"",region:"",tipografia:"inter",supPlantadaVerif:"",
-  numTasacion:"",climaTxt:"",guiaConclusion:"",instalacionesLista:"",firmaImg:null,escasezTxt:"",pendienteMedida:"",prediosGeo:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
+  numTasacion:"",fuentesFallidas:"",climaTxt:"",guiaConclusion:"",instalacionesLista:"",firmaImg:null,escasezTxt:"",pendienteMedida:"",prediosGeo:"",coordLat:"",coordLon:"",altitud:"",distSantiago:"",distComuna:"",acceso:"",bboxPredio:"",capaPredioId:"",
   googleMapsKey:"",imagenSatelital:null,imagenMapaSII:null,usosCIREN:"",plantacionesCIREN:"",imagenSuelosMap:null,
   backendUrl:"https://farmbrokers-backend-production.up.railway.app",
   superfTitulos:"",superfGoogleEarth:"",
@@ -808,8 +824,10 @@ const EMPTY = {
 };
 
 // API key de Google Maps recordada permanentemente en este navegador
-const leerGKey=()=>{try{return localStorage.getItem("fb_gmaps_key")||"";}catch(e){return "";}};
-const conGKey=(f)=>({...f,googleMapsKey:leerGKey()||f.googleMapsKey||""});
+// La clave de Google Maps ya no vive en el navegador: la imagen la genera el servidor (GOOGLE_MAPS_KEY en Railway).
+// Se borra cualquier clave que haya quedado guardada en este navegador o dentro de tasaciones antiguas.
+try{localStorage.removeItem("fb_gmaps_key");}catch(e){}
+const conGKey=(f)=>({...f,googleMapsKey:""});
 
 export default function App(){
   const [step,setStep]=useState(0);
@@ -832,6 +850,10 @@ export default function App(){
   const [showKmz,setShowKmz]=useState(false);
   const [idTasacionActual,setIdTasacionActual]=useState(null);
   useEffect(()=>{if(window.__cargarReportePrueba){setReport(window.__cargarReportePrueba);setStep(3);}},[]);
+  // Fuentes externas que fallaron en esta tasación (se muestran en pantalla y en el informe)
+  useEffect(()=>{const h=(ev)=>setForm(f=>({...f,fuentesFallidas:aplicarAviso(f.fuentesFallidas,ev.detail)}));window.addEventListener("fb-fuente",h);return()=>window.removeEventListener("fb-fuente",h);},[]);
+  const [avisoFuentesOculto,setAvisoFuentesOculto]=useState("");
+  const fuentesFallidas=(()=>{try{const l=JSON.parse(form.fuentesFallidas||"[]");return Array.isArray(l)?l:[];}catch(e){return [];}})();
   // La URL del backend se recuerda aparte para que el parche de fetch pueda
   // reconocerla y agregar la clave a todas las llamadas.
   useEffect(()=>{if(form.backendUrl)guardarBackend(form.backendUrl);},[form.backendUrl]);
@@ -1124,7 +1146,7 @@ export default function App(){
   const mapaSIIRef=useRef();
   const satelitalRef=useRef();
 
-  const upd=(k,v)=>{if(k==="googleMapsKey"){try{localStorage.setItem("fb_gmaps_key",v||"");}catch(e){}}setForm(f=>({...f,[k]:v}));};
+  const upd=(k,v)=>{setForm(f=>({...f,[k]:v}));};
   const updRef=(i,k,v)=>setForm(f=>{const refs=[...f.refs];refs[i]={...refs[i],[k]:v};return{...f,refs};});
   const addRol=()=>setForm(f=>({...f,roles:[...f.roles,{rol:"",comuna:(f.roles[0]&&f.roles[0].comuna)||"",datos:{avaluoFiscal:"",avaluoFecha:"",superfSII:"",destino:"",propietario:"",rut:"",areaHomogenea:"",reavaluo:""}}]}));
   const setCoordRol=(i,campo,v)=>{setForm(f=>{const roles=f.roles.map((rr,j)=>j===i?{...rr,datos:{...rr.datos,[campo]:v}}:rr);const pts=roles.map(rr=>{const la=parseFloat(rr.datos&&rr.datos.lat),lo=parseFloat(rr.datos&&rr.datos.lon);return (la&&lo)?{la,lo}:null;}).filter(Boolean);const nf={...f,roles};if(pts.length){nf.coordLat=(pts.reduce((s,p)=>s+p.la,0)/pts.length).toFixed(6);nf.coordLon=(pts.reduce((s,p)=>s+p.lo,0)/pts.length).toFixed(6);}return nf;});};
@@ -1146,7 +1168,7 @@ export default function App(){
   const fetchUF=async()=>{
     setUfStatus("loading");
     try{
-      const resp=await fetch("https://mindicador.cl/api/uf");
+      const resp=await fetchFuente("mindicador","https://mindicador.cl/api/uf",{},{timeoutMs:10000});
       const data=await resp.json();
       const valor=data.serie&&data.serie[0]&&data.serie[0].valor;
       const fecha=data.serie&&data.serie[0]&&data.serie[0].fecha;
@@ -1181,7 +1203,7 @@ export default function App(){
   const abrirSITRURAL=()=>window.open("https://www.sitrural.cl","_blank");
   const abrirDGA=()=>window.open("https://dga.mop.gob.cl","_blank");
 
-  const generarSatelital=(bboxOpt)=>{
+  const generarSatelital=async(bboxOpt)=>{
     // Vista amplia clasica centrada en el predio (como siempre fue)
     let lat,lon;
     let bb=bboxOpt;
@@ -1195,22 +1217,18 @@ export default function App(){
     bb=null; // vista amplia fija: sin encuadre al predio
     setSatelitalStatus("loading");
 
-    // Opcion 1: Google Maps si el usuario puso su API key
-    if(form.googleMapsKey){
-      const url=`https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lon}&zoom=15&size=800x500&maptype=satellite&markers=color:red%7C${lat},${lon}&key=${form.googleMapsKey}`;
-      const img=new Image();
-      img.crossOrigin="anonymous";
-      img.onload=()=>{
-        const canvas=document.createElement("canvas");
-        canvas.width=img.width; canvas.height=img.height;
-        canvas.getContext("2d").drawImage(img,0,0);
-        upd("imagenSatelital",canvas.toDataURL("image/jpeg",0.9));
+    // Opcion 1: Google Maps, generada por el servidor (la clave queda en Railway, no en el navegador)
+    try{
+      const base=String(form.backendUrl||"https://farmbrokers-backend-production.up.railway.app").replace(/\/$/,"");
+      const r=await fetch(`${base}/mapa-satelital?lat=${lat}&lon=${lon}`);
+      if(r.ok&&/^image\//.test(r.headers.get("content-type")||"")){
+        const dataUrl=await new Promise((ok,mal)=>{const fr=new FileReader();fr.onload=()=>ok(fr.result);fr.onerror=mal;r.blob().then(b=>fr.readAsDataURL(b),mal);});
+        upd("imagenSatelital",dataUrl);
         setSatelitalStatus("ok");
-      };
-      img.onerror=()=>setSatelitalStatus("error");
-      img.src=url;
-      return;
-    }
+        return;
+      }
+    }catch(e){}
+    // Si el servidor no tiene clave de Google o falla, sigue con la imagen gratuita de Esri
 
     // Opcion 2 (por defecto, GRATIS sin API key): Esri World Imagery armando mosaico de teselas
     // Zoom dinamico: se acerca lo mas posible manteniendo el predio completo en el encuadre
@@ -1788,7 +1806,7 @@ export default function App(){
         (async()=>{try{
           const gx=4,gy=4,lats=[],lons=[];
           for(let ix=0;ix<gx;ix++)for(let iy=0;iy<gy;iy++){lons.push(bb[0]+(bb[2]-bb[0])*(ix+0.5)/gx);lats.push(bb[1]+(bb[3]-bb[1])*(iy+0.5)/gy);}
-          const re=await fetch("https://api.open-meteo.com/v1/elevation?latitude="+lats.join(",")+"&longitude="+lons.join(","));
+          const re=await fetchFuente("Open-Meteo","https://api.open-meteo.com/v1/elevation?latitude="+lats.join(",")+"&longitude="+lons.join(","),{},{timeoutMs:15000});
           const je=await re.json();
           const el=je.elevation;
           if(el&&el.length===gx*gy){
@@ -1852,15 +1870,15 @@ export default function App(){
   const geoExtraAuto=async(latP,lonP)=>{
     // Altitud (Open-Meteo Elevation, gratis)
     try{
-      const re=await fetch("https://api.open-meteo.com/v1/elevation?latitude="+latP+"&longitude="+lonP);
+      const re=await fetchFuente("Open-Meteo","https://api.open-meteo.com/v1/elevation?latitude="+latP+"&longitude="+lonP,{},{timeoutMs:15000});
       const je=await re.json();
       if(je.elevation&&je.elevation.length&&!form.altitud)upd("altitud",String(Math.round(je.elevation[0])));
     }catch(e){}
     // Clima historico del punto (Open-Meteo Archive: ultimos 5 años)
     try{
       const hoy=new Date();const fin=hoy.getFullYear()-1;
-      const rc=await fetch("https://archive-api.open-meteo.com/v1/archive?latitude="+latP+"&longitude="+lonP+
-        "&start_date="+(fin-4)+"-01-01&end_date="+fin+"-12-31&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,shortwave_radiation_sum&timezone=America%2FSantiago");
+      const rc=await fetchFuente("Open-Meteo","https://archive-api.open-meteo.com/v1/archive?latitude="+latP+"&longitude="+lonP+
+        "&start_date="+(fin-4)+"-01-01&end_date="+fin+"-12-31&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,shortwave_radiation_sum&timezone=America%2FSantiago",{},{timeoutMs:25000});
       const jc=await rc.json();
       const d=jc.daily;
       if(d&&d.time&&d.time.length){
@@ -2007,7 +2025,7 @@ export default function App(){
 
       const bboxWms=extW+","+extS+","+extE+","+extN;
       const dibujarCapa=async(url,alpha)=>{
-        const im=await cargar(url);
+        const im=/esri\.ciren\.cl/.test(url)?await imagenFuente("CIREN",url):/img-sitrural/.test(url)?await imagenPorServidor("SITRURAL",url):await cargar(url);
         if(!im)return false;
         ctx.globalAlpha=alpha; ctx.drawImage(im,0,0,lienzo.width,lienzo.height); ctx.globalAlpha=1;
         return true;
@@ -2907,6 +2925,16 @@ export default function App(){
 
       <main style={{maxWidth:880,margin:"0 auto",padding:"28px 16px"}}>
 
+        {/* Fuentes externas que no respondieron: el informe se puede generar igual */}
+        {step<3&&fuentesFallidas.length>0&&avisoFuentesOculto!==form.fuentesFallidas&&<div className="no-print" role="status" style={{background:"#fff7ed",border:"1.5px solid #b45309",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:12.5,lineHeight:1.55,color:"#5b3a10"}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"flex-start"}}>
+            <b>⚠ Algunos datos no se pudieron obtener de sus fuentes</b>
+            <button onClick={()=>setAvisoFuentesOculto(form.fuentesFallidas)} title="Ocultar aviso" style={{border:"none",background:"transparent",cursor:"pointer",color:"#5b3a10",fontSize:14}}>✕</button>
+          </div>
+          <ul style={{margin:"4px 0 4px 18px",padding:0}}>{fuentesFallidas.map(x=><li key={x.fuente}><b>{x.dato}</b>: {x.detalle||"no respondió"}.</li>)}</ul>
+          <div>Puedes volver a intentar más tarde con el mismo botón, completar el dato a mano, o generar el informe igual: quedará indicado qué dato faltó.</div>
+        </div>}
+
         {/* ══ INICIO ══ */}
         {step===0&&(
           <div>
@@ -3139,9 +3167,8 @@ export default function App(){
                 </div>
                 <div>
                   <div style={{fontWeight:700,color:G,fontSize:13,marginBottom:8}}>Satelital Google Maps</div>
-                  <div style={{marginBottom:8}}>
-                    <Lbl c="Google Maps API Key"/>
-                    <input value={form.googleMapsKey} onChange={e=>upd("googleMapsKey",e.target.value)} placeholder="Opcional - dejar vacio para imagen gratis (Esri). Se recuerda en este navegador" style={{...iS,fontSize:12}}/>
+                  <div style={{marginBottom:8,fontSize:11.5,color:"#666",lineHeight:1.5}}>
+                    La imagen de Google la genera el servidor de forma segura. Si no está configurada, se usa la imagen satelital gratuita de Esri.
                   </div>
                   <div style={{display:"flex",gap:8,marginBottom:10}}>
                     <button onClick={generarSatelital} disabled={satelitalStatus==="loading"} style={{...bP,fontSize:12,padding:"8px 14px"}}>
@@ -4492,6 +4519,8 @@ export default function App(){
                   </>;
                 })()}
                 {report.plantacionDesc&&<><Sub>Plantaciones:</Sub><p style={TXT}>{report.plantacionDesc}</p></>}
+                {(()=>{let l=[];try{l=JSON.parse(report.fuentesFallidas||"[]");}catch(e){l=[];}if(!Array.isArray(l))return null;l=l.filter(x=>!(x.fuente==="mindicador"&&report.ufBase));if(!l.length)return null;
+                  return <p style={{...TXT,fontSize:11.5,border:"1px solid #d6c7a1",background:"#fbf8f0",borderRadius:6,padding:"8px 12px",marginTop:14}}><b>Datos no disponibles al elaborar este informe:</b> {l.map(x=>x.dato).join("; ")}. Las fuentes oficiales no respondieron al momento de la consulta; la información correspondiente se basa en los antecedentes disponibles.</p>;})()}
               </PgFB>
 
               <PgFB num="06" title="Tasación" sub="Metodología, criterios y referencias de mercado">
