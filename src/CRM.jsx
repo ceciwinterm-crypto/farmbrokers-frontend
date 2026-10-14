@@ -1111,6 +1111,8 @@ const OPER = { venta: 'Venta', arriendo: 'Arriendo', ambas: 'Venta o arriendo' }
 const operDe = (c) => c.operacion || 'venta';
 const VISIB = { publica: ['Pública', 'Se publica en farmbrokers.cl'], reservada: ['Off market', 'En venta y activo: se ofrece a clientes elegidos, sin publicar en la web ni en portales'], interna: ['Interna', 'Todavía no se ofrece'] };
 const visibDe = (c) => c.visibilidad || 'interna';
+// Nombre que se muestra al cliente: en off market siempre el del CRM (el de la página web suele ser otro)
+const tituloCampo = (c) => (visibDe(c) === 'reservada' ? c.nombre : (c.web && c.web.titulo) || c.nombre);
 const EtiquetaVisib = ({ c }) => <span className={`fbcrm-visib v-${visibDe(c)}`} title={VISIB[visibDe(c)][1]}>{visibDe(c) === 'reservada' ? '★ ' : ''}{VISIB[visibDe(c)][0]}</span>;
 const colorPerfil = (datos, id) => { const i = (datos.perfiles || []).findIndex((p) => p.id === id); return `pc-${(i < 0 ? 0 : i) % 7}`; };
 function EtiquetasPerfil({ datos, ids }) {
@@ -1681,7 +1683,7 @@ function datosBrochure(c) {
   const plant = haPlantadas({ plantaciones: d.plantaciones || c.plantaciones });
   const coord = coordsDe(c) || (c.geo ? { ...c.geo.centro, aprox: false } : null);
   return {
-    titulo: sinProtegido((w && w.titulo) || c.nombre),
+    titulo: sinProtegido(tituloCampo(c)),
     comuna: (w && w.comuna) || c.sector || '', region: (w && w.region) || REG_NOMBRE[c.region] || '',
     ha: c.hectareas ? `${fmtHa(c.hectareas)} ha` : d.superficie || (c.geo ? `${fmtHa(c.geo.areaHa)} ha` : ''),
     precio: d.precio || fmtPrecio(c), agua: d.agua || c.agua || '', tipo: d.tipo || TIPOS[c.tipo] || '',
@@ -3142,7 +3144,7 @@ function Impresion({ ctx, imp, cerrar }) {
         {campo && <button onClick={traerWeb} disabled={!!estadoWeb && estadoWeb.startsWith('Trayendo')}>Actualizar desde farmbrokers.cl</button>}
         {campo && variante === 'cliente' && imp.tipo === 'campo'
           ? <button className="fbcrm-primario" disabled={!!generando} onClick={async () => {
-              try { await descargarFichaPDF(`Ficha ${((campo.web && campo.web.titulo) || campo.nombre).replace(/[\\/:*?"<>|]/g, '')} - Farm Brokers.pdf`, setGenerando); } catch (e) { alert(e.message); }
+              try { await descargarFichaPDF(`Ficha ${tituloCampo(campo).replace(/[\\/:*?"<>|]/g, '')} - Farm Brokers.pdf`, setGenerando); } catch (e) { alert(e.message); }
               setGenerando('');
             }}>{generando || 'Descargar PDF'}</button>
           : <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>}
@@ -3927,7 +3929,7 @@ async function descargarFichaPDF(nombre, avance) {
   const pdf = await pdfDeFicha(document.querySelector('.fbcrm-doc') || document.body, avance);
   pdf.save(nombre);
 }
-const nombreFicha = (c) => `Ficha ${sinProtegido((c.web && c.web.titulo) || c.nombre).replace(/[\\/:*?"<>|]/g, '')} - Farm Brokers.pdf`;
+const nombreFicha = (c) => `Ficha ${sinProtegido(tituloCampo(c)).replace(/[\\/:*?"<>|]/g, '')} - Farm Brokers.pdf`;
 const blobABase64 = (b) => new Promise((ok, mal) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => mal(new Error('No se pudo leer la ficha.')); fr.readAsDataURL(b); });
 // Usa la dirección propia (fichas.farmbrokers.cl) cuando está configurada en Railway
 const linkPublicoFicha = (token, base) => (base ? `${base}/f/${token}` : `${API_BASE}/api/crm/publico-ficha/${token}`);
@@ -4181,7 +4183,7 @@ function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usua
   const w = c.web || null, d = (w && w.detalle) || {}, g = conKmz ? c.geo || null : null;
   const fotos = !esOffMarket(c) && w && w.fotos.length ? w.fotos : fotosProp;
   const coord = coordsDe(c) || (c.geo ? { ...c.geo.centro, aprox: !g } : null);
-  const titulo = sinProtegido((w && w.titulo) || c.nombre);
+  const titulo = sinProtegido(tituloCampo(c));
   const ubic = limpiarUbic([(w && w.direccion) || '', (w && w.comuna) || c.sector, (w && w.region) || REG_NOMBRE[c.region]].join(', '));
   const precio = d.precio || fmtPrecio(c);
   const haNum = c.hectareas || numeroDe(d.superficie) || (g && g.areaHa) || null;
@@ -4657,7 +4659,7 @@ async function descargarConstancia(campo, c, datos) {
   const intro = pdf.splitTextToSize(`Farm Brokers Chile SpA deja constancia de que la persona individualizada abajo aceptó electrónicamente el acuerdo de confidencialidad que se transcribe íntegramente en este documento, como condición previa para acceder a información reservada de la propiedad (plano, ubicación exacta y archivos).`, ancho);
   pdf.text(intro, M, y); y += intro.length * 4.6 + 2;
   titulo('Propiedad');
-  fila('Propiedad', (campo.web && campo.web.titulo) || campo.nombre);
+  fila('Propiedad', tituloCampo(campo));
   fila('Código', campo.codigo || (campo.web && campo.web.detalle && campo.web.detalle.id));
   fila('Ubicación', [campo.sector, REG_NOMBRE[campo.region]].filter(Boolean).join(', '));
   const cli = c.clienteId && (datos.clientes || []).find((x) => x.id === c.clienteId);
@@ -4709,7 +4711,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   const calzan = (datos.matches[campo.id] || []).map((m) => m.clienteId);
   const opciones = [...datos.clientes].filter((c) => c.etapa === 'Activo').sort((a, b) => (calzan.includes(b.id) - calzan.includes(a.id)) || a.nombre.localeCompare(b.nombre, 'es'));
   const cli = datos.clientes.find((c) => c.id === clienteId);
-  const titulo = (campo.web && campo.web.titulo) || campo.nombre;
+  const titulo = tituloCampo(campo);
   const saludoDe = (c) => { const k = c.clienteId && datos.clientes.find((x) => x.id === c.clienteId); const n = k ? k.contactoNombre : c.destinatario; return n ? ` ${String(n).trim().split(' ')[0]}` : ''; };
   const mensaje = (c) => `Hola${saludoDe(c)}, te comparto ${c.kmz === false ? 'los planos' : (c.planos || []).length ? 'el plano y el KMZ' : 'el plano'} de ${titulo}. Es información confidencial: para verlo${c.descarga ? ' y descargarlo' : ''} primero debes aceptar un breve acuerdo de confidencialidad en este link:\n\n${linkPlano(c.token)}\n\nEl link vence el ${fmtFecha(c.vence.slice(0, 10))}.\n\n${firmaDe(datos, usuario)}`;
   const enviarWa = (c) => window.open(`https://wa.me/${fonoWa(c.telefono)}?text=${encodeURIComponent(mensaje(c))}`, '_blank', 'noopener');
