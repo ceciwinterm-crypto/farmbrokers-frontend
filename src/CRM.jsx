@@ -852,7 +852,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
   };
   const salir = () => { if (sinGuardar && !window.confirm('Tienes cambios sin guardar en la información del campo. ¿Salir igual?')) return; cerrar(); };
   const cap = f.captacion;
-  const foto = f.web && f.web.fotos && f.web.fotos[0];
+  const foto = !esOffMarket(f) && f.web && f.web.fotos && f.web.fotos[0];
   const linkWeb = f.linkWeb || f.linkPortal;
 
   return (
@@ -1711,8 +1711,12 @@ async function fotoComoDataUrl(url, max = 1400) {
   cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
   return cv.toDataURL('image/jpeg', 0.85);
 }
+// Fotos subidas al CRM, con la elegida como portada primero
+const fotosDelCampo = (c, max) => (c.archivos || []).filter((a) => a.tipo === 'foto').sort((a, b) => (b.portada ? 1 : 0) - (a.portada ? 1 : 0)).slice(0, max);
+// Off market: las fotos de la página web suelen ser referenciales, así que solo se usan las del CRM
+const esOffMarket = (c) => visibDe(c) === 'reservada';
 async function fotosCRM(c, usuario) {
-  const fotos = (c.archivos || []).filter((a) => a.tipo === 'foto').slice(0, 6);
+  const fotos = fotosDelCampo(c, 6);
   const urls = await Promise.all(fotos.map((a) => fetch(`${API_BASE}/api/crm/campos/${c.id}/archivos/${a.id}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(usuario) } })
     .then((r) => (r.ok ? r.blob() : null)).then((b) => (b ? URL.createObjectURL(b) : null)).catch(() => null)));
   return urls.filter(Boolean);
@@ -1809,12 +1813,14 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
       if (!texto) { try { texto = await api(`/campos/${id}/brochure`, { method: 'POST', body: { busca } }); } catch (e) { aviso = e.message; texto = { titular: '', campo: corto((c.descripcionFicha || ((c.web && c.web.descripcion) || []).join(' ')), 420), zona: '' }; } }
       let cw = c;
       const tieneLink = [c.linkWeb, c.linkPortal, c.web && c.web.url].some((u) => /^https?:\/\/(www\.)?farmbrokers\.cl\/propiedad\//i.test(String(u || '').trim()));
-      if (!(nuevos[id] && nuevos[id].fotos.length) && !(c.web && c.web.fotos && c.web.fotos.length) && tieneLink) { try { cw = await api(`/campos/${id}/web`, { method: 'POST' }); } catch (e) { /* se usan las fotos del CRM */ } }
-      let fotos = (nuevos[id] && nuevos[id].fotos.length) ? nuevos[id].fotos : (cw.web && cw.web.fotos && cw.web.fotos.length ? cw.web.fotos.slice(0, 6) : []);
+      const off = esOffMarket(c);
+      if (!off && !(nuevos[id] && nuevos[id].fotos.length) && !(c.web && c.web.fotos && c.web.fotos.length) && tieneLink) { try { cw = await api(`/campos/${id}/web`, { method: 'POST' }); } catch (e) { /* se usan las fotos del CRM */ } }
+      let fotos = (nuevos[id] && nuevos[id].fotos.length) ? nuevos[id].fotos : (!off && cw.web && cw.web.fotos && cw.web.fotos.length ? cw.web.fotos.slice(0, 6) : []);
       if (!fotos.length) fotos = await fotosCRM(c, usuario);
       let url = '';
       // Sin link a la web: se busca su publicación en farmbrokers.cl (y queda enlazado)
-      if (!fotos.length && !tieneLink && visibDe(c) !== 'reservada') {
+      if (!fotos.length && off) aviso = [aviso, 'Off market sin fotos propias: sube aquí la foto que quieras mostrar (o en “Archivos y plano” del campo).'].filter(Boolean).join(' ');
+      if (!fotos.length && !tieneLink && !off) {
         setEstado(`Buscando la publicación de ${c.nombre} en farmbrokers.cl…`);
         try {
           const b = await api(`/campos/${id}/buscar-web`, { method: 'POST' });
@@ -3100,7 +3106,7 @@ function Impresion({ ctx, imp, cerrar }) {
     const tieneLink = [campoBase.linkWeb, campoBase.linkPortal].some((u) => /^https:\/\/(www\.)?farmbrokers\.cl\/propiedad\//.test(String(u || '').trim()));
     const viejo = !campoBase.web || Date.now() - new Date(campoBase.web.fecha).getTime() > 3 * 864e5 || (campoBase.web.descripcion || []).some((l) => /<|class=/.test(l)) || (campoBase.web.descripcion || []).join('').replace(/[•\s]/g, '').length < 40;
     if (tieneLink && viejo) traerWeb();
-    const fotos = (campoBase.archivos || []).filter((a) => a.tipo === 'foto').slice(0, 8);
+    const fotos = fotosDelCampo(campoBase, 8);
     Promise.all(fotos.map((a) => fetch(`${API_BASE}/api/crm/campos/${campoBase.id}/archivos/${a.id}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(usuario) } })
       .then((r) => (r.ok ? r.blob() : null)).then((b) => (b ? URL.createObjectURL(b) : null)).catch(() => null)))
       .then((u) => setFotosProp(u.filter(Boolean)));
@@ -3926,7 +3932,7 @@ const blobABase64 = (b) => new Promise((ok, mal) => { const fr = new FileReader(
 // Usa la dirección propia (fichas.farmbrokers.cl) cuando está configurada en Railway
 const linkPublicoFicha = (token, base) => (base ? `${base}/f/${token}` : `${API_BASE}/api/crm/publico-ficha/${token}`);
 const OPC_FICHA = { kmz: true, plano: true };
-const FICHAS_DESDE = '2026-10-08T21:20:00Z';
+const FICHAS_DESDE = '2026-10-14T15:00:00Z'; // off market: solo fotos del CRM
 const claveOpciones = (o) => `k${o && o.kmz === false ? 0 : 1}p${o && o.plano === false ? 0 : 1}`;
 async function subirFicha(api, campo, blob, opciones = 'k1p1') {
   const r = await api(`/campos/${campo.id}/ficha-pdf`, { method: 'POST', body: { base64: await blobABase64(blob), opciones } });
@@ -3946,8 +3952,8 @@ function GeneradorFicha({ ctx, trabajo, alTerminar }) {
         const tieneLink = [c.linkWeb, c.linkPortal].some((u) => /^https:\/\/(www\.)?farmbrokers\.cl\/propiedad\//.test(String(u || '').trim()));
         const viejo = !c.web || Date.now() - new Date(c.web.fecha).getTime() > 3 * 864e5 || (c.web.descripcion || []).join('').replace(/[•\s]/g, '').length < 40;
         if (tieneLink && viejo) { trabajo.avance('Leyendo la publicación…'); try { c = await ctx.api(`/campos/${c.id}/web`, { method: 'POST' }); if (vivo) setCampo(c); } catch (e) { /* se usa lo que hay */ } }
-        if (!(c.web && c.web.fotos && c.web.fotos.length)) {
-          const fotos = (c.archivos || []).filter((a) => a.tipo === 'foto').slice(0, 7);
+        if (esOffMarket(c) || !(c.web && c.web.fotos && c.web.fotos.length)) {
+          const fotos = fotosDelCampo(c, 7);
           const urls = await Promise.all(fotos.map((a) => fetch(`${API_BASE}/api/crm/campos/${c.id}/archivos/${a.id}`, { headers: { 'x-crm-key': leerLocal('fbcrm_clave'), 'x-crm-user': encodeURIComponent(ctx.usuario) } })
             .then((r) => (r.ok ? r.blob() : null)).then((b) => (b ? URL.createObjectURL(b) : null)).catch(() => null)));
           if (vivo) setFotosProp(urls.filter(Boolean));
@@ -3977,8 +3983,8 @@ function coordsDe(campo) {
 function resumenWeb(campo, fotosProp) {
   const w = campo.web, c = coordsDe(campo), g = campo.geo;
   const partes = [];
-  if (w) partes.push(`Desde farmbrokers.cl: ${plural(w.fotos.length, 'foto')}${w.descripcion.length ? ', descripción' : ''}${w.detalle.precio ? ', precio' : ''}.`);
-  else if (visibDe(campo) === 'reservada') partes.push(fotosProp.length ? `Off market: se usan ${plural(fotosProp.length, 'foto')} subidas al CRM.` : 'Off market: sube fotos en “Archivos y plano” (tipo Foto) para que salgan en la ficha.');
+  if (esOffMarket(campo)) partes.push(fotosProp.length ? `Off market: se usan solo tus fotos subidas al CRM (${plural(fotosProp.length, 'foto')}), nunca las de la página. Marca con ★ la que quieras de portada en “Archivos y plano”.` : 'Off market: sube tus fotos en “Archivos y plano” (tipo Foto) y marca con ★ la de portada. No se usan las fotos de la página.');
+  else if (w) partes.push(`Desde farmbrokers.cl: ${plural(w.fotos.length, 'foto')}${w.descripcion.length ? ', descripción' : ''}${w.detalle.precio ? ', precio' : ''}.`);
   else partes.push(fotosProp.length ? `Sin publicación en farmbrokers.cl: se usan ${plural(fotosProp.length, 'foto')} subidas al CRM.` : 'Sin link de farmbrokers.cl: agrega el link o sube fotos en el campo.');
   if (campo.descripcionFicha) partes.push('Descripción escrita en el CRM.');
   else if (!(w && (w.descripcion || []).join('').replace(/[•\s]/g, '').length >= 40)) partes.push('Falta la descripción: presiona “Actualizar desde farmbrokers.cl” o, en la información del campo, usa “✨ Redactar con IA”.');
@@ -4173,7 +4179,7 @@ const PIE_MANDATO = <><span>www.farmbrokers.cl</span><span>Phone +569 7193 90 40
 function Marco({ children }) { return <>{children}</>; }
 function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usuario, contacto, mostrarRol }) {
   const w = c.web || null, d = (w && w.detalle) || {}, g = conKmz ? c.geo || null : null;
-  const fotos = w && w.fotos.length ? w.fotos : fotosProp;
+  const fotos = !esOffMarket(c) && w && w.fotos.length ? w.fotos : fotosProp;
   const coord = coordsDe(c) || (c.geo ? { ...c.geo.centro, aprox: !g } : null);
   const titulo = sinProtegido((w && w.titulo) || c.nombre);
   const ubic = limpiarUbic([(w && w.direccion) || '', (w && w.comuna) || c.sector, (w && w.region) || REG_NOMBRE[c.region]].join(', '));
@@ -4343,6 +4349,9 @@ function ArchivosCampo({ ctx, campo, setCampo }) {
     } catch (e) { setMsg(e.message); }
     setSubiendo('');
   };
+  const elegirPortada = async (a) => {
+    try { setCampo(await api(`/campos/${campo.id}/archivos/${a.id}`, { method: 'PUT', body: { portada: true } })); cargar(); setMsg(`${a.nombre} quedó como foto de portada de la ficha y del brochure.`); } catch (e) { setMsg(e.message); }
+  };
   const cambiarEnFicha = async (a) => {
     try { setCampo(await api(`/campos/${campo.id}/archivos/${a.id}`, { method: 'PUT', body: { enFicha: a.enFicha === false } })); cargar(); } catch (e) { setMsg(e.message); }
   };
@@ -4386,6 +4395,8 @@ function ArchivosCampo({ ctx, campo, setCampo }) {
               {esArchivoPlano(a) && ((a.vistas || []).length
                 ? <label className="fbcrm-check-mini"><input type="checkbox" checked={a.enFicha !== false} onChange={() => cambiarEnFicha(a)} />En la ficha</label>
                 : <button className="fbcrm-mini fbcrm-primario" disabled={!!subiendo} onClick={() => ponerEnFicha(a)}>Poner en la ficha</button>)}
+              {a.tipo === 'foto' && (a.portada ? <span className="fbcrm-badge est-firmado" title="Es la foto principal de la ficha y del brochure">★ Portada</span>
+                : <button className="fbcrm-mini" onClick={() => elegirPortada(a)} title="Usar como foto principal de la ficha y del brochure">☆ Portada</button>)}
               <button className="fbcrm-mini" onClick={() => descargar(a)}>Descargar</button>
               <button className="fbcrm-mini fbcrm-peligro" onClick={() => borrar(a)} aria-label={`Eliminar ${a.nombre}`}>Eliminar</button>
             </li>
