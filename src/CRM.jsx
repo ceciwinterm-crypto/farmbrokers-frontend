@@ -2054,6 +2054,8 @@ function VerOrden({ ctx, orden, cerrar }) {
   const firmaTxt = firmaDe(datos, usuario);
   const mensaje = `Hola ${primerNombre(o.datos.clienteNombre)},\n\nTe envío la orden de visita de ${o.datos.propiedad} para que la revises y la firmes en línea:\n${link}\n\n${firmaTxt}`.replace('Hola ,', 'Hola,');
   const guardarEdit = async () => { try { const r = await api(`/ordenes/${o.id}`, { method: 'PUT', body: { datos: edit, fecha: edit.fecha } }); setO(r); setEdit(null); cargar(); setMsg('Orden actualizada.'); } catch (e) { setMsg(e.message); } };
+  const vencida = o.estado === 'pendiente' && o.vence && new Date(o.vence).getTime() < Date.now();
+  const renovar = async () => { try { setO(await api(`/ordenes/${o.id}/renovar`, { method: 'POST' })); cargar(); setMsg('Link renovado. El anterior ya no funciona: copia y envía el nuevo.'); } catch (e) { setMsg(e.message); } };
   const anular = async () => { if (!window.confirm('¿Anular esta orden de visita? El link dejará de funcionar.')) return; try { setO(await api(`/ordenes/${o.id}/anular`, { method: 'POST' })); cargar(); } catch (e) { setMsg(e.message); } };
   const pdf = async () => {
     setOcupado('Armando el PDF…');
@@ -2065,9 +2067,11 @@ function VerOrden({ ctx, orden, cerrar }) {
     <div className="fbcrm-orden-ver" role="dialog" aria-label="Orden de visita">
       <div className="fbcrm-orden-barra">
         <strong>Orden de visita · {o.datos.propiedad}</strong>
-        <span className={`fbcrm-badge est-orden-${o.estado}`}>{o.estado === 'firmada' ? 'Firmada' : o.estado === 'anulada' ? 'Anulada' : 'Pendiente de firma'}</span>
+        <span className={`fbcrm-badge est-orden-${vencida ? 'anulada' : o.estado}`}>{o.estado === 'firmada' ? 'Firmada' : o.estado === 'anulada' ? 'Anulada' : vencida ? 'Link vencido' : 'Pendiente de firma'}</span>
+        {o.estado === 'pendiente' && o.vence && !vencida && <small className="fbcrm-nota-suave">Link vence el {fmtFecha(o.vence)}</small>}
         <span className="fbcrm-orden-acc">
-          {o.estado === 'pendiente' && <>
+          {vencida && <button className="fbcrm-mini fbcrm-primario" onClick={renovar}>Renovar link</button>}
+          {o.estado === 'pendiente' && !vencida && <>
             <button className="fbcrm-mini" onClick={async () => { await navigator.clipboard.writeText(link); setMsg('Link para firmar copiado.'); }}>Copiar link para firmar</button>
             {fono && <a className="fbcrm-mini fbcrm-wa" href={`https://wa.me/${fono}?text=${encodeURIComponent(mensaje)}`} target="_blank" rel="noreferrer">WhatsApp</a>}
             {o.datos.email && <a className="fbcrm-mini" href={`mailto:${encodeURIComponent(o.datos.email)}?subject=${encodeURIComponent(`Orden de visita ${o.datos.propiedad}`)}&body=${encodeURIComponent(mensaje)}`}>Correo</a>}
@@ -2104,7 +2108,7 @@ function OrdenesDe({ ctx, filtro, titulo }) {
         {lista.map((o) => (
           <li key={o.id}>
             <span className="fbcrm-cuerpo"><strong>{o.datos.propiedad}</strong><small>{[o.datos.clienteNombre, o.datos.empresa, fechaLargaO(o.fecha), o.autor].filter(Boolean).join(' · ')}</small></span>
-            <span className={`fbcrm-badge est-orden-${o.estado}`}>{o.estado === 'firmada' ? `Firmada ${fmtFecha(o.firma.fecha)}` : o.estado === 'anulada' ? 'Anulada' : 'Pendiente'}</span>
+            <span className={`fbcrm-badge est-orden-${o.estado}`}>{o.estado === 'firmada' ? `Firmada ${fmtFecha(o.firma.fecha)}` : o.estado === 'anulada' ? 'Anulada' : o.vence && new Date(o.vence).getTime() < Date.now() ? 'Link vencido' : 'Pendiente'}</span>
             <button className="fbcrm-mini" onClick={() => setVer(o)}>Ver</button>
           </li>
         ))}
@@ -2133,7 +2137,7 @@ export function FormularioOrden({ token }) {
       const r = await fetch(url('/firmar'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...f, hash: o.hash }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
-      setO(j); window.scrollTo && window.scrollTo(0, 0);
+      setO(j); if (j.yaFirmada) setAviso('Esta orden ya estaba firmada: se mantiene la firma original.'); window.scrollTo && window.scrollTo(0, 0);
     } catch (e) { setAviso(e.message); }
     setEnviando(false);
   };
@@ -2144,11 +2148,13 @@ export function FormularioOrden({ token }) {
   return caja([
     <div key="t"><h1>Orden de visita</h1><p className="fbcrm-sub">{o.datos.propiedad}{o.datos.ubicacion ? `, ${o.datos.ubicacion}` : ''}</p></div>,
     <>
+      {o.firma && aviso && <p className="fbcrm-msg" role="status">{aviso}</p>}
       {o.firma && <p className="fbcrm-geo-ok">Orden firmada por {o.firma.nombre}, RUT {o.firma.rut}, el {fmtFechaHora(o.firma.fecha)}. Código de verificación {o.firma.codigo}. <button className="fbcrm-mini" disabled={!!pdfEstado} onClick={pdf}>{pdfEstado || 'Descargar PDF'}</button></p>}
       <div className="fbcrm-orden-publica"><OrdenPrevia o={o} refPdf={ref} /></div>
       {!o.firma && (
         <section className="fbcrm-bloque">
           <h2>Firmar la orden de visita</h2>
+          {o.vence && <p className="fbcrm-nota-suave">Este link es personal y vence el {fmtFecha(o.vence)}.</p>}
           {aviso && <p className="fbcrm-error" role="alert">{aviso}</p>}
           <div className="fbcrm-form">
             <Campo label="Nombre completo" ancho><input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} autoComplete="name" /></Campo>
