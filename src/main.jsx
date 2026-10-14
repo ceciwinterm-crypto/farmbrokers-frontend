@@ -1,18 +1,19 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
-import CRM, { FormularioPropietario, FormularioPlano, FormularioOrden, FormularioVende } from './CRM.jsx'
+import './sesion.js' // agrega el token de la sesión a cada petición al backend
+import CRM, { FormularioPropietario, FormularioPlano, FormularioOrden, FormularioVende, Puerta } from './CRM.jsx'
 
 // Los links nuevos son /orden/CODIGO, /plano/CODIGO y /propietario/CODIGO (los antiguos con # siguen funcionando)
 const ruta = window.location.pathname.match(/^\/(orden|plano|propietario)\/([^/?#]+)/)
 const hash = ruta ? `#${ruta[1]}/${ruta[2]}` : window.location.hash
-let pantalla = <App />
+let pantalla = <Puerta><App /></Puerta>
 if (/^\/vende\/?$/.test(window.location.pathname) || /^vende\./i.test(window.location.hostname)) pantalla = <FormularioVende />
 else if (hash.startsWith('#propietario/')) pantalla = <FormularioPropietario token={hash.split('/')[1]} />
 else if (hash.startsWith('#plano/')) pantalla = <FormularioPlano token={hash.split('/')[1]} />
 else if (hash.startsWith('#orden/')) pantalla = <FormularioOrden token={hash.split('/')[1]} />
 // Instalada en el celular (o abierta como app), siempre entra al CRM
-else if (hash === '#crm' || new URLSearchParams(window.location.search).get('app') === 'crm' || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone) pantalla = <CRM />
+else if (hash === '#crm' || new URLSearchParams(window.location.search).get('app') === 'crm' || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone) pantalla = <Puerta><CRM /></Puerta>
 
 // Permite instalar el CRM en el celular como app
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}))

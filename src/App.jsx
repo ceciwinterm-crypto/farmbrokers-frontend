@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { haySesion, usuarioSesion, authApi } from "./sesion.js";
 
 const G = "#33463B";
 
@@ -553,12 +554,14 @@ if(typeof window!=="undefined"&&!window.__fbFetchParcheado){
     return fetchOriginal(url,opts);
   };
 }
+// Con cuenta personal (correo y contraseña) no hace falta la clave de respaldo: el token de la sesion basta
+const tengoAccesoNube=()=>!!leerClave()||haySesion();
 async function nube(backendUrl,ruta,cuerpo){
   if(!backendUrl)throw new Error("Falta configurar la URL del servidor.");
   const clave=leerClave();
-  if(!clave)throw new Error("Falta la clave de respaldo. Configurala en Inicio → Respaldo en la nube.");
+  if(!clave&&!haySesion())throw new Error("Falta la clave de respaldo. Configurala en Inicio → Respaldo en la nube.");
   const r=await fetch(backendUrl.replace(/\/$/,"")+ruta,{
-    method:"POST",headers:{"Content-Type":"application/json","X-FB-Clave":clave},
+    method:"POST",headers:{"Content-Type":"application/json",...(clave?{"X-FB-Clave":clave}:{})},
     body:JSON.stringify(cuerpo||{})});
   const d=await r.json().catch(()=>({error:"Respuesta no valida del servidor"}));
   if(!r.ok)throw new Error(d.error||("Error HTTP "+r.status));
@@ -889,12 +892,14 @@ export default function App(){
   // ── Crear (o completar) este campo en el CRM del equipo ──
   const crearEnCRM=async()=>{
     let claveCRM=""; try{claveCRM=localStorage.getItem("fbcrm_clave")||"";}catch(e){}
-    if(!claveCRM){
+    const ses=usuarioSesion();
+    if(!claveCRM&&!ses){
       claveCRM=(prompt("Clave del equipo del CRM (la misma con que entras a #crm):")||"").trim();
       if(!claveCRM)return;
       try{localStorage.setItem("fbcrm_clave",claveCRM);}catch(e){}
     }
     let usuarioCRM=""; try{usuarioCRM=localStorage.getItem("fbcrm_usuario")||"";}catch(e){}
+    if(ses)usuarioCRM=ses.nombre;
     if(!usuarioCRM)usuarioCRM=form.tasador||"Plataforma de tasaciones";
     // Solo se envían los datos del predio: las imágenes quedan en la plataforma
     const campos=["predioNombre","localidad","provincia","region","numTasacion","fechaTasacion","solicitante","email","superfTitulos","superfGoogleEarth",
@@ -909,10 +914,10 @@ export default function App(){
     try{
       const base=String(form.backendUrl||"https://farmbrokers-backend-production.up.railway.app").replace(/\/$/,"");
       const r=await fetch(base+"/api/crm/plataforma/campo",{method:"POST",
-        headers:{"Content-Type":"application/json","x-crm-key":claveCRM,"x-crm-user":encodeURIComponent(usuarioCRM)},
+        headers:{"Content-Type":"application/json",...(claveCRM?{"x-crm-key":claveCRM}:{}),"x-crm-user":encodeURIComponent(usuarioCRM)},
         body:JSON.stringify({tasacionId:idTasacionActual||"",campoId:form.crmCampoId||"",nombre:form.predioNombre||"",datos})});
       const j=await r.json().catch(()=>({}));
-      if(r.status===401){try{localStorage.removeItem("fbcrm_clave");}catch(e){}throw new Error("la clave del CRM no es correcta. Presiona el botón de nuevo e ingrésala.");}
+      if(r.status===401){if(j.sesion)throw new Error(j.error||"tu sesión venció, vuelve a entrar.");try{localStorage.removeItem("fbcrm_clave");}catch(e){}throw new Error("la clave del CRM no es correcta. Presiona el botón de nuevo e ingrésala.");}
       if(!r.ok)throw new Error(j.error||("error "+r.status));
       const nombre=(j.campo&&j.campo.nombre)||"el campo";
       if(j.campo&&j.campo.id)upd("crmCampoId",j.campo.id); // así no se duplica si lo presionas de nuevo
@@ -930,7 +935,7 @@ export default function App(){
     cargarNube();
   };
   const cargarNube=async()=>{
-    if(!leerClave()){setNubeMsg("Configura la clave de respaldo en Inicio para ver tus tasaciones en la nube.");return;}
+    if(!tengoAccesoNube()){setNubeMsg("Configura la clave de respaldo en Inicio para ver tus tasaciones en la nube.");return;}
     setNubeMsg("Consultando la nube…");
     try{
       const est=await nube(form.backendUrl,"/almacen-estado");
@@ -2656,6 +2661,7 @@ export default function App(){
         </div>
         {/* UF en tiempo real en el header */}
         <div className="fb-hdr-der" style={{textAlign:"right",display:"flex",gap:14,alignItems:"center"}}>
+          {usuarioSesion()?<span className="fb-hdr-usuario" style={{fontSize:12,opacity:0.9,whiteSpace:"nowrap"}}>{usuarioSesion().nombre} · <a href="#" onClick={async e=>{e.preventDefault();await authApi.salir();window.location.reload();}} style={{color:"#fff"}}>Salir</a></span>:null}
           <button onClick={()=>{window.location.hash="#crm";window.location.reload();}} title="Abrir el CRM del equipo" style={{background:"rgba(255,255,255,0.14)",color:"#fff",border:"1px solid rgba(255,255,255,0.45)",borderRadius:8,padding:"7px 14px",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:FONT,whiteSpace:"nowrap"}}>CRM</button>
 
                 {/* El aviso flota sobre la barra de pasos: sin pointerEvents:"none" se comia los
@@ -2785,7 +2791,7 @@ export default function App(){
                         <button onClick={cargarNube} style={{...bS,fontSize:11,padding:"5px 10px"}}>↻ Actualizar</button>
                       </div>
                       {nubeMsg?<div style={{fontSize:11.5,color:nubeMsg.startsWith("⚠")||nubeMsg.startsWith("No se")||nubeMsg.startsWith("Configura")?"#9B4B43":"#666",marginBottom:8,lineHeight:1.5}}>{nubeMsg}</div>:null}
-                      {!leerClave()?<div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:10,padding:"9px 11px",background:"#fff",border:"1px solid "+ORO,borderRadius:6}}>
+                      {!tengoAccesoNube()?<div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:10,padding:"9px 11px",background:"#fff",border:"1px solid "+ORO,borderRadius:6}}>
                         <input type="password" value={claveInput} onChange={e=>setClaveInput(e.target.value)} placeholder="Clave de respaldo" style={{...iS,flex:1,minWidth:170,margin:0,padding:"7px 10px",fontSize:12.5}}/>
                         <button onClick={async()=>{
                           if(!claveInput.trim()){alert("Escribe la clave que configuraste en Railway (variable FB_CLAVE).");return;}
@@ -2947,6 +2953,10 @@ export default function App(){
               {form.backendUrl&&<div style={{fontSize:11,color:G,marginTop:6}}>Servidor configurado. Los informes se generaran usando este backend.</div>}
             </div>
 
+            {haySesion()?<div style={{background:"#fff",borderRadius:10,padding:20,border:"2px solid "+G,marginBottom:14}}>
+              <div style={{fontWeight:700,color:G,fontSize:14,marginBottom:8}}>✓ Respaldo en la nube</div>
+              <div style={{fontSize:12,color:"#666",lineHeight:1.6}}>Entraste con tu cuenta personal ({(usuarioSesion()||{}).email}), así que tus tasaciones se respaldan solas en el servidor. No necesitas clave de respaldo.</div>
+            </div>:
             <div style={{background:"#fff",borderRadius:10,padding:20,border:"2px solid "+(leerClave()?G:ORO),marginBottom:14}}>
               <div style={{fontWeight:700,color:leerClave()?G:ORO,fontSize:14,marginBottom:8}}>
                 {leerClave()?"✓ ":"☁️ "}Respaldo en la nube
@@ -2968,7 +2978,7 @@ export default function App(){
                   setTimeout(()=>setAvisoGuardado(""),9000);
                 }} style={{...bP,fontSize:13,padding:"10px 18px"}}>Guardar y probar</button>
               </div>
-            </div>
+            </div>}
 
             <div style={{background:"#fff",borderRadius:10,padding:20,border:"1px solid #e8e8e8"}}>
               <div style={{fontWeight:700,color:G,marginBottom:12,fontSize:13}}>Accesos Directos</div>

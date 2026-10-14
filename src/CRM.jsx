@@ -1,5 +1,6 @@
 // CRM.jsx — Farm Brokers v2: campos, clientes, match automático, tasaciones y seguimiento del equipo
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { leerSesion, guardarSesion, actualizarUsuarioSesion, authApi, modoClave, elegirModoClave } from './sesion.js';
 
 // ⚠️ Cambia esta dirección por la URL de tu backend en Railway (la misma que usa la plataforma)
 const API_BASE = 'https://farmbrokers-backend-production.up.railway.app';
@@ -103,7 +104,7 @@ function useApi(clave, usuario) {
   return async (ruta, opciones = {}) => {
     const r = await fetch(`${API_BASE}/api/crm${ruta}`, {
       ...opciones,
-      headers: { 'Content-Type': 'application/json', 'x-crm-key': clave, 'x-crm-user': encodeURIComponent(usuario), ...(leerLocal('fbcrm_admin') ? { 'x-crm-admin': leerLocal('fbcrm_admin') } : {}) },
+      headers: { 'Content-Type': 'application/json', ...(clave && clave !== 'sesion' ? { 'x-crm-key': clave } : {}), 'x-crm-user': encodeURIComponent(usuario), ...(leerLocal('fbcrm_admin') ? { 'x-crm-admin': leerLocal('fbcrm_admin') } : {}) },
       body: opciones.body ? JSON.stringify(opciones.body) : undefined,
     });
     const data = await r.json().catch(() => ({}));
@@ -122,8 +123,10 @@ function useMovil() {
 }
 export default function CRM() {
   const movil = useMovil();
-  const [clave, setClave] = useState(leerLocal('fbcrm_clave'));
-  const [usuario, setUsuario] = useState(leerLocal('fbcrm_usuario'));
+  // Con cuenta personal, el nombre viene de la sesión y no se pide la clave del equipo
+  const sesion = leerSesion();
+  const [clave, setClave] = useState(sesion ? 'sesion' : leerLocal('fbcrm_clave'));
+  const [usuario, setUsuario] = useState(sesion ? sesion.usuario.nombre : leerLocal('fbcrm_usuario'));
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState('');
   const [vista, setVista] = useState('agenda');
@@ -137,11 +140,12 @@ export default function CRM() {
   const cargar = async () => {
     try {
       setError(''); const d = await api('/'); if (d.tipos) Object.assign(TIPOS, d.tipos);
-      if (d.alias && d.alias[usuario] && d.alias[usuario] !== usuario) { guardarLocal('fbcrm_usuario', d.alias[usuario]); setUsuario(d.alias[usuario]); }
+      if (d.sesion && d.sesion.nombre !== usuario) setUsuario(d.sesion.nombre);
+      else if (!d.sesion && d.alias && d.alias[usuario] && d.alias[usuario] !== usuario) { guardarLocal('fbcrm_usuario', d.alias[usuario]); setUsuario(d.alias[usuario]); }
       avisarNuevas(d.notificaciones || []);
       setDatos(d);
     }
-    catch (e) { setError(e.message); if (/clave/i.test(e.message)) { setClave(''); guardarLocal('fbcrm_clave', ''); } }
+    catch (e) { setError(e.message); if (!leerSesion() && /clave del equipo/i.test(e.message)) { setClave(''); guardarLocal('fbcrm_clave', ''); } }
   };
   useEffect(() => { if (clave && usuario) cargar(); }, [clave, usuario]);
   useEffect(() => {
@@ -196,7 +200,7 @@ export default function CRM() {
           </nav>
           <div className="fbcrm-yo">
             <span className="fbcrm-avatar">{iniciales(usuario)}</span>
-            <span className="fbcrm-yo-txt"><strong>{usuario}{datos && datos.esAdmin ? ' ★' : ''}</strong>{!EN_APP && <a href="#" onClick={volver}>Volver a la plataforma</a>}</span>
+            <span className="fbcrm-yo-txt"><strong>{usuario}{datos && datos.esAdmin ? ' ★' : ''}</strong>{!EN_APP && <a href="#" onClick={volver}>Volver a la plataforma</a>}{datos && datos.sesion && <a href="#" onClick={async (e) => { e.preventDefault(); await authApi.salir(); window.location.reload(); }}>Cerrar sesión</a>}</span>
           </div>
         </aside>
 
@@ -244,6 +248,226 @@ function Acceso({ onEntrar, error }) {
         <label>Clave del equipo<input type="password" value={c} onChange={(e) => setC(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && c && u.trim() && onEntrar(c, u.trim())} /></label>
         <button className="fbcrm-primario fbcrm-grande" disabled={!c || !u.trim()} onClick={() => onEntrar(c, u.trim())}>Entrar</button>
       </div>
+    </div>
+  );
+}
+
+// ════════════════════════════ Ingreso con correo y contraseña ════════════════════════════
+// Envuelve la plataforma y el CRM. Mientras no haya cuentas creadas, todo sigue igual que antes.
+export function Puerta({ children }) {
+  const [ses, setSes] = useState(() => leerSesion());
+  const [estado, setEstado] = useState(null); // respuesta de /auth/estado
+  const [listo, setListo] = useState(() => !!leerSesion());
+  const [aviso, setAviso] = useState('');
+  const [claveRecien, setClaveRecien] = useState('');
+  useEffect(() => {
+    let vivo = true;
+    authApi.estado().then((e) => {
+      if (!vivo) return;
+      setEstado(e);
+      if (e.usuario) { actualizarUsuarioSesion(e.usuario); setSes(leerSesion()); }
+      else if (leerSesion()) { guardarSesion(null); setSes(null); setAviso('Tu sesión venció. Vuelve a entrar.'); }
+      setListo(true);
+    }).catch(() => { if (vivo) setListo(true); }); // sin conexión: se comporta como antes
+    const espera = setTimeout(() => vivo && setListo(true), 5000); // si el servidor tarda, no deja la pantalla en blanco
+    const vencida = (ev) => {
+      elegirModoClave(false); setSes(null); setAviso(ev.detail || 'Tu sesión venció. Vuelve a entrar.');
+      setEstado((e) => ({ ...(e || {}), hayUsuarios: true }));
+      authApi.estado().then((e) => vivo && setEstado({ ...e, hayUsuarios: true })).catch(() => {});
+    };
+    window.addEventListener('fb-sesion-vencida', vencida);
+    return () => { vivo = false; clearTimeout(espera); window.removeEventListener('fb-sesion-vencida', vencida); };
+  }, []);
+  if (!listo) return null;
+  if (ses && ses.usuario && ses.usuario.debeCambiarClave) return <PantallaIngreso key="cambiar" modo="cambiar" claveActual={claveRecien} alListo={() => setSes(leerSesion())} />;
+  if (ses) return children;
+  // Sin cuentas creadas todavía, o el equipo eligió seguir un tiempo con la clave antigua
+  if (!estado || !estado.hayUsuarios) return children;
+  if (estado.claveAntigua && modoClave()) return children;
+  return <PantallaIngreso key="entrar" modo="entrar" aviso={aviso} claveAntigua={estado.claveAntigua} alEntrar={(clave) => { setClaveRecien(clave); setAviso(''); setSes(leerSesion()); }} alSeguirConClave={() => { elegirModoClave(true); setEstado({ ...estado }); }} />;
+}
+
+function PantallaIngreso({ modo, aviso, claveAntigua, alEntrar, alSeguirConClave, claveActual, alListo }) {
+  const [email, setEmail] = useState('');
+  const [clave, setClave] = useState('');
+  const [actual, setActual] = useState(claveActual || '');
+  const [nueva, setNueva] = useState('');
+  const [nueva2, setNueva2] = useState('');
+  const [error, setError] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+  const entrar = async () => {
+    setError(''); setOcupado(true);
+    try { await authApi.entrar(email.trim(), clave); alEntrar(clave); } catch (e) { setError(e.message); } finally { setOcupado(false); }
+  };
+  const cambiar = async () => {
+    setError('');
+    if (nueva !== nueva2) { setError('Las dos contraseñas nuevas no coinciden.'); return; }
+    setOcupado(true);
+    try { const r = await authApi.cambiarClave(actual, nueva); actualizarUsuarioSesion(r.usuario); alListo(); } catch (e) { setError(e.message); } finally { setOcupado(false); }
+  };
+  return (
+    <div className="fbcrm fbcrm-acceso">
+      <style>{CSS}</style>
+      <img src={LOGO_FB_BLANCO} alt="Farm Brokers Chile" className="fbcrm-acceso-logo" />
+      {modo === 'cambiar' ? (
+        <div className="fbcrm-acceso-card">
+          <h1>Crea tu contraseña</h1>
+          <p className="fbcrm-sub">Entraste con una contraseña temporal. Elige una nueva que solo tú conozcas: al menos 8 caracteres, con letras y números.</p>
+          {error && <p className="fbcrm-error" role="alert">{error}</p>}
+          {!claveActual && <label>Contraseña temporal<input type="password" value={actual} onChange={(e) => setActual(e.target.value)} autoComplete="current-password" /></label>}
+          <label>Contraseña nueva<input type="password" value={nueva} onChange={(e) => setNueva(e.target.value)} autoComplete="new-password" /></label>
+          <label>Repite la contraseña nueva<input type="password" value={nueva2} onChange={(e) => setNueva2(e.target.value)} autoComplete="new-password" onKeyDown={(e) => e.key === 'Enter' && nueva && actual && cambiar()} /></label>
+          <button className="fbcrm-primario fbcrm-grande" disabled={!nueva || !nueva2 || !actual || ocupado} onClick={cambiar}>{ocupado ? 'Guardando…' : 'Guardar y entrar'}</button>
+          <button className="fbcrm-texto" onClick={async () => { await authApi.salir(); window.location.reload(); }}>Salir</button>
+        </div>
+      ) : (
+        <div className="fbcrm-acceso-card">
+          <h1>Entrar</h1>
+          <p className="fbcrm-sub">Entra con tu correo y tu contraseña personal. Tu sesión queda abierta en este navegador por unos días.</p>
+          {aviso && <p className="fbcrm-msg" role="status">{aviso}</p>}
+          {error && <p className="fbcrm-error" role="alert">{error}</p>}
+          <label>Correo<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" /></label>
+          <label>Contraseña<input type="password" value={clave} onChange={(e) => setClave(e.target.value)} autoComplete="current-password" onKeyDown={(e) => e.key === 'Enter' && email && clave && entrar()} /></label>
+          <button className="fbcrm-primario fbcrm-grande" disabled={!email.trim() || !clave || ocupado} onClick={entrar}>{ocupado ? 'Entrando…' : 'Entrar'}</button>
+          <p className="fbcrm-nota-suave">¿Olvidaste tu contraseña o no tienes cuenta? Pídele a la administradora que te la cree o restablezca.</p>
+          {claveAntigua && <button className="fbcrm-texto" onClick={alSeguirConClave}>Todavía no tengo cuenta: seguir con la clave del equipo</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Mi cuenta: cambiar contraseña y salir (o, sin cuenta, pasar a entrar con correo)
+function MiCuenta({ ctx }) {
+  const { datos } = ctx;
+  const ses = datos.sesion;
+  const [abierto, setAbierto] = useState(false);
+  const [actual, setActual] = useState(''); const [nueva, setNueva] = useState(''); const [nueva2, setNueva2] = useState('');
+  const [msg, setMsg] = useState('');
+  if (!ses) {
+    if (!datos.cuentas) return null;
+    return (
+      <div className="fbcrm-bloque">
+        <h3>Mi cuenta</h3>
+        <p className="fbcrm-nota-suave">Estás entrando con la clave del equipo. Si ya te crearon tu cuenta, entra con tu correo y contraseña.</p>
+        <div className="fbcrm-acciones"><button className="fbcrm-primario" onClick={() => { elegirModoClave(false); window.location.reload(); }}>Entrar con mi correo</button></div>
+      </div>
+    );
+  }
+  const cambiar = async () => {
+    setMsg('');
+    if (nueva !== nueva2) { setMsg('Las dos contraseñas nuevas no coinciden.'); return; }
+    try { await authApi.cambiarClave(actual, nueva); setActual(''); setNueva(''); setNueva2(''); setAbierto(false); setMsg('Contraseña cambiada. Se cerró tu sesión en los otros equipos.'); }
+    catch (e) { setMsg(e.message); }
+  };
+  return (
+    <div className="fbcrm-bloque">
+      <h3>Mi cuenta <span>{ses.email}{ses.rol === 'admin' ? ' · administradora' : ' · corredor'}</span></h3>
+      <div className="fbcrm-acciones">
+        <button onClick={() => setAbierto(!abierto)}>{abierto ? 'Cancelar' : 'Cambiar mi contraseña'}</button>
+        <button onClick={async () => { await authApi.salir(); window.location.reload(); }}>Cerrar sesión</button>
+      </div>
+      {abierto && (
+        <div className="fbcrm-form">
+          <Campo label="Contraseña actual"><input type="password" value={actual} onChange={(e) => setActual(e.target.value)} autoComplete="current-password" /></Campo>
+          <Campo label="Contraseña nueva (8 o más, letras y números)"><input type="password" value={nueva} onChange={(e) => setNueva(e.target.value)} autoComplete="new-password" /></Campo>
+          <Campo label="Repite la nueva"><input type="password" value={nueva2} onChange={(e) => setNueva2(e.target.value)} autoComplete="new-password" /></Campo>
+          <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={!actual || !nueva || !nueva2} onClick={cambiar}>Guardar contraseña</button></div>
+        </div>
+      )}
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+    </div>
+  );
+}
+
+// Cuentas de usuario: la administradora crea, restablece y desactiva cuentas. Si no hay ninguna, aquí se crea la primera.
+function CuentasUsuarios({ ctx }) {
+  const { datos, usuario } = ctx;
+  const [lista, setLista] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [temporal, setTemporal] = useState(null); // { nombre, email, clave } — se muestra una sola vez
+  const [nueva, setNueva] = useState(null);
+  const soyAdminCuenta = datos.sesion && datos.sesion.rol === 'admin';
+  const cargarLista = () => authApi.usuarios().then((d) => setLista(d.usuarios)).catch((e) => setMsg(e.message));
+  useEffect(() => { if (soyAdminCuenta) cargarLista(); }, [soyAdminCuenta]);
+  const nombres = (datos.miembros || datos.equipo || []).map((p) => (typeof p === 'string' ? p : p.nombre)).filter(Boolean);
+
+  // Primera cuenta: solo mientras no exista ninguna. Pide la clave actual del equipo.
+  if (!datos.sesion && !datos.cuentas) {
+    const p = nueva || { nombre: usuario, email: '', clave: '', clave2: '', claveEquipo: '' };
+    const crear = async () => {
+      setMsg('');
+      if (p.clave !== p.clave2) { setMsg('Las dos contraseñas no coinciden.'); return; }
+      try { await authApi.primerAdmin({ claveEquipo: p.claveEquipo, email: p.email.trim(), nombre: p.nombre.trim(), clave: p.clave }); window.location.reload(); }
+      catch (e) { setMsg(e.message); }
+    };
+    return (
+      <div className="fbcrm-bloque">
+        <h3>Cuentas personales</h3>
+        <p className="fbcrm-nota-suave">Hoy todos entran con la misma clave del equipo. Con cuentas personales cada persona entra con su correo y su contraseña, y queda registrado quién creó o cambió cada cosa. Empieza creando tu cuenta de administradora; después creas la del resto aquí mismo.</p>
+        {!nueva ? <div className="fbcrm-acciones"><button className="fbcrm-primario" onClick={() => setNueva(p)}>Crear mi cuenta de administradora</button></div> : (
+          <div className="fbcrm-form">
+            <Campo label="Tu nombre (el mismo que usas en el CRM)"><input value={p.nombre} onChange={(e) => setNueva({ ...p, nombre: e.target.value })} list="fbcrm-nombres-equipo" /></Campo>
+            <Campo label="Tu correo"><input type="email" value={p.email} onChange={(e) => setNueva({ ...p, email: e.target.value })} autoComplete="username" /></Campo>
+            <Campo label="Contraseña (8 o más, letras y números)"><input type="password" value={p.clave} onChange={(e) => setNueva({ ...p, clave: e.target.value })} autoComplete="new-password" /></Campo>
+            <Campo label="Repite la contraseña"><input type="password" value={p.clave2} onChange={(e) => setNueva({ ...p, clave2: e.target.value })} autoComplete="new-password" /></Campo>
+            <Campo label="Clave actual del equipo (para confirmar que eres tú)"><input type="password" value={p.claveEquipo} onChange={(e) => setNueva({ ...p, claveEquipo: e.target.value })} autoComplete="off" /></Campo>
+            <datalist id="fbcrm-nombres-equipo">{nombres.map((n) => <option key={n} value={n} />)}</datalist>
+            <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={!p.nombre.trim() || !p.email.trim() || !p.clave || !p.claveEquipo} onClick={crear}>Crear cuenta</button><button onClick={() => setNueva(null)}>Cancelar</button></div>
+          </div>
+        )}
+        {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+      </div>
+    );
+  }
+  if (!soyAdminCuenta) return null;
+
+  const crear = async () => {
+    setMsg('');
+    try { const r = await authApi.crearUsuario({ nombre: nueva.nombre.trim(), email: nueva.email.trim(), rol: nueva.rol }); setTemporal({ nombre: r.usuario.nombre, email: r.usuario.email, clave: r.claveTemporal }); setNueva(null); cargarLista(); }
+    catch (e) { setMsg(e.message); }
+  };
+  const editar = async (u, cambios, texto) => {
+    setMsg('');
+    try { const r = await authApi.editarUsuario(u.id, cambios); if (r.claveTemporal) setTemporal({ nombre: u.nombre, email: u.email, clave: r.claveTemporal }); else setMsg(texto); cargarLista(); }
+    catch (e) { setMsg(e.message); }
+  };
+  return (
+    <div className="fbcrm-bloque fbcrm-equipo">
+      <h3>Cuentas personales <span>{lista ? plural(lista.filter((u) => u.activo !== false).length, 'activa') : ''}</span>{!nueva && <button className="fbcrm-mini fbcrm-primario fbcrm-h3-accion" onClick={() => { setNueva({ nombre: '', email: '', rol: 'corredor' }); setTemporal(null); }}>Crear cuenta</button>}</h3>
+      <p className="fbcrm-nota-suave">Cada persona entra con su correo y contraseña. <b>Administradora</b>: aprueba eliminaciones y maneja las cuentas. <b>Corredor</b>: trabaja normal, puede pedir eliminaciones.</p>
+      {nueva && (
+        <div className="fbcrm-form">
+          <Campo label="Nombre (usa el mismo que ya aparece en el CRM para no perder su historial)"><input value={nueva.nombre} onChange={(e) => setNueva({ ...nueva, nombre: e.target.value })} list="fbcrm-nombres-equipo" /></Campo>
+          <Campo label="Correo"><input type="email" value={nueva.email} onChange={(e) => setNueva({ ...nueva, email: e.target.value })} /></Campo>
+          <Campo label="Rol"><select value={nueva.rol} onChange={(e) => setNueva({ ...nueva, rol: e.target.value })}><option value="corredor">Corredor</option><option value="admin">Administradora</option></select></Campo>
+          <datalist id="fbcrm-nombres-equipo">{nombres.map((n) => <option key={n} value={n} />)}</datalist>
+          <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={!nueva.nombre.trim() || !nueva.email.trim()} onClick={crear}>Crear cuenta</button><button onClick={() => setNueva(null)}>Cancelar</button></div>
+        </div>
+      )}
+      {temporal && (
+        <div className="fbcrm-aviso" role="status" style={{ padding: '12px 14px', margin: '10px 0' }}>
+          <p style={{ marginTop: 0 }}><strong>Contraseña temporal de {temporal.nombre}:</strong> <code style={{ fontSize: '1.05rem', userSelect: 'all' }}>{temporal.clave}</code></p>
+          <p className="fbcrm-nota-suave">Cópiala ahora: no se vuelve a mostrar. Envíasela a {temporal.email} por un canal privado. Al entrar por primera vez deberá crear su propia contraseña.</p>
+          <div className="fbcrm-acciones"><button className="fbcrm-mini" onClick={() => { navigator.clipboard && navigator.clipboard.writeText(`Entra en https://farmbrokers-frontend.vercel.app/#crm con tu correo ${temporal.email} y esta contraseña temporal: ${temporal.clave}`).then(() => setMsg('Mensaje copiado.')).catch(() => {}); }}>Copiar mensaje para enviar</button><button className="fbcrm-mini" onClick={() => setTemporal(null)}>Listo</button></div>
+        </div>
+      )}
+      {lista && (
+        <ul>
+          {lista.map((u) => (
+            <li key={u.id}>
+              <span className="fbcrm-avatar">{iniciales(u.nombre)}</span>
+              <span className="fbcrm-cuerpo"><strong>{u.nombre}{u.nombre === usuario ? ' (tú)' : ''}{u.rol === 'admin' ? ' ★' : ''}{u.activo === false ? ' · desactivada' : ''}</strong><small>{u.email} · {u.rol === 'admin' ? 'Administradora' : 'Corredor'}{u.ultimoIngreso ? `, último ingreso ${fmtFechaHora(u.ultimoIngreso)}` : ', aún no entra'}{u.debeCambiarClave ? ', con contraseña temporal' : ''}</small></span>
+              {u.activo !== false && u.nombre !== usuario && <button className="fbcrm-mini" onClick={() => editar(u, { rol: u.rol === 'admin' ? 'corredor' : 'admin' }, `${u.nombre} ahora es ${u.rol === 'admin' ? 'corredor' : 'administradora'}.`)}>{u.rol === 'admin' ? 'Pasar a corredor' : 'Hacer administradora'}</button>}
+              {u.activo !== false && <button className="fbcrm-mini" onClick={() => window.confirm(`¿Restablecer la contraseña de ${u.nombre}? Se cerrará su sesión y tendrá que entrar con una contraseña temporal nueva.`) && editar(u, { restablecer: true })}>Restablecer contraseña</button>}
+              {u.nombre !== usuario && (u.activo !== false
+                ? <button className="fbcrm-mini fbcrm-peligro" onClick={() => window.confirm(`¿Desactivar la cuenta de ${u.nombre}? No podrá entrar; su historial se mantiene.`) && editar(u, { activo: false }, `Cuenta de ${u.nombre} desactivada.`)}>Desactivar</button>
+                : <button className="fbcrm-mini" onClick={() => editar(u, { activo: true }, `Cuenta de ${u.nombre} activada de nuevo.`)}>Activar</button>)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
     </div>
   );
 }
@@ -2346,7 +2570,7 @@ function VistaEquipo({ ctx }) {
       {sec === 'tareas' && <Tareas ctx={ctx} />}
       {sec === 'reporte' && <Reporte ctx={ctx} />}
       {sec === 'actividad' && <Actividad ctx={ctx} />}
-      {sec === 'personas' && <><Solicitudes ctx={ctx} /><ModoAdmin ctx={ctx} /><AvisosCorreo ctx={ctx} /><Equipo ctx={ctx} /></>}
+      {sec === 'personas' && <><MiCuenta ctx={ctx} /><Solicitudes ctx={ctx} /><CuentasUsuarios ctx={ctx} />{!datos.sesion && <ModoAdmin ctx={ctx} />}<AvisosCorreo ctx={ctx} /><Equipo ctx={ctx} /></>}
     </section>
   );
 }
@@ -2569,7 +2793,7 @@ function Equipo({ ctx }) {
   return (
     <div className="fbcrm-bloque fbcrm-equipo">
       <h3>Equipo <span>{plural(personas.length, 'persona')}</span><button className="fbcrm-mini fbcrm-primario fbcrm-h3-accion" onClick={agregar}>Agregar persona</button></h3>
-      <p className="fbcrm-nota-suave">Cada persona entra al CRM con su nombre y la clave del equipo. Agrégala aquí para asignarle tareas aunque todavía no haya entrado. Si un nombre está incompleto, cámbialo: se corrige en todo el historial.</p>
+      <p className="fbcrm-nota-suave">{datos.cuentas ? 'Cada persona entra con su cuenta personal (más arriba).' : 'Cada persona entra al CRM con su nombre y la clave del equipo.'} Agrégala aquí para asignarle tareas aunque todavía no haya entrado. Si un nombre está incompleto, cámbialo: se corrige en todo el historial.</p>
       <ul>
         {personas.map((p) => (
           <li key={p.nombre}>
