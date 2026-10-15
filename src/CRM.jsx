@@ -3184,7 +3184,7 @@ function Impresion({ ctx, imp, cerrar }) {
       <article className={`fbcrm-doc ${imp.tipo === 'mandato' ? 'doc-mandato-hoja' : ''} ${campo && variante === 'cliente' ? 'doc-ficha-hoja' : ''}`}>
         <Marco pie={imp.tipo === 'mandato' ? PIE_MANDATO : <><span>Farm Brokers Chile, farmbrokers.cl, +56 9 7193 9040</span><span>{campo ? `Ficha de propiedad${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo ? ` ${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo}` : ''}` : 'Informe de gestión'}</span></>}>
         {imp.tipo === 'mandato'
-          ? (mandato ? <DocMandato m={mandato} /> : <p>{errorMandato || 'Preparando el mandato…'}</p>)
+          ? (mandato ? <DocMandato m={mandato} papel={imp.papel} /> : <p>{errorMandato || 'Preparando el mandato…'}</p>)
           : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} planos={conPlano ? planos : []} conKmz={conKmz} usuario={usuario} contacto={(datos.contactos || {})[usuario]} mostrarRol={mostrarRol} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
             : imp.tipo === 'campo' ? <p>El campo ya no existe.</p> : <DocInforme datos={datos} usuario={usuario} periodo={periodo} />}
         </Marco>
@@ -3392,7 +3392,9 @@ function Captacion({ ctx, campo, setCampo }) {
   const { api, usuario, cargar, imprimir } = ctx;
   const cap = campo.captacion;
   const [cfg, setCfg] = useState({ comision: cap ? cap.config.comision : 2, vigencia: cap ? cap.config.vigencia : 180, ciudad: cap ? cap.config.ciudad : 'Santiago', titulo: cap ? cap.config.titulo : campo.nombre });
-  const [editar, setEditar] = useState(!cap);
+  const [editar, setEditar] = useState(false);
+  const [preparar, setPreparar] = useState(false); // formulario del mandato preparado por el equipo
+  const equipo = cap && cap.modo === 'equipo';
   const [msg, setMsg] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const set = (k) => (e) => setCfg({ ...cfg, [k]: e.target.value });
@@ -3419,14 +3421,26 @@ function Captacion({ ctx, campo, setCampo }) {
 
   const link = cap ? linkPropietario(cap.token) : '';
   const primerNombre = (campo.propietario || '').split(' ')[0];
-  const texto = `Hola${primerNombre ? ` ${primerNombre}` : ''}, le envío el link para completar los datos de su campo y firmar el mandato de venta con Farm Brokers:\n\n${link}\n\nPuede hacerlo desde el celular y avanzar por partes; lo que escriba queda guardado. Cualquier duda me escribe.\n\n${usuario}\nFarm Brokers Chile`;
+  const texto = equipo
+    ? `Hola${primerNombre ? ` ${primerNombre}` : ''}, le envío el mandato de venta de ${cap.config.titulo || campo.nombre} para que lo revise y lo firme en línea:\n\n${link}\n\nSe firma desde el celular en un par de minutos, solo con su nombre y RUT. Cualquier duda me escribe.\n\n${usuario}\nFarm Brokers Chile`
+    : `Hola${primerNombre ? ` ${primerNombre}` : ''}, le envío el link para completar los datos de su campo y firmar el mandato de venta con Farm Brokers:\n\n${link}\n\nPuede hacerlo desde el celular y avanzar por partes; lo que escriba queda guardado. Cualquier duda me escribe.\n\n${usuario}\nFarm Brokers Chile`;
+  if (preparar) return <MandatoEquipo ctx={ctx} campo={campo} setCampo={setCampo} cerrar={(m) => { setPreparar(false); if (m) setMsg(m); }} />;
   const archivos = campo.archivos || [];
 
   return (
     <div className="fbcrm-bloque fbcrm-cap">
       <h3>Propietario y mandato {cap && <span className={`fbcrm-badge est-${cap.estado}`}>{ETIQUETA_CAP[cap.estado]}</span>}</h3>
-      {!cap && <p className="fbcrm-nota-suave">Crea un link para que el propietario complete sus datos, suba documentos y fotos, y firme el mandato desde su celular.</p>}
-      {cap && <p className="fbcrm-cap-estado">{ESTADO_CAP[cap.estado]}{cap.firma ? ` ${cap.firma.nombre}, RUT ${cap.firma.rut}, el ${fmtFechaHora(cap.firma.fecha)}.` : ''}</p>}
+      {!cap && !editar && (
+        <>
+          <p className="fbcrm-nota-suave">Elige cómo hacer el mandato:</p>
+          <div className="fbcrm-acciones">
+            <button className="fbcrm-primario" onClick={() => setPreparar(true)}>Preparar el mandato aquí</button>
+            <button onClick={() => setEditar(true)}>Que el propietario complete sus datos</button>
+          </div>
+          <p className="fbcrm-nota-suave"><b>Preparar aquí:</b> escribes los datos del cliente y el sistema completa los del campo; el cliente solo lo revisa y firma con su RUT desde el celular, y la firma de Farm Brokers se agrega sola. <b>Que el propietario complete:</b> le envías un link para que llene sus datos, suba documentos y firme.</p>
+        </>
+      )}
+      {cap && <p className="fbcrm-cap-estado">{equipo && cap.estado === 'completado' ? 'Mandato listo. Envíale el link al cliente para que lo firme.' : equipo && cap.estado === 'en_progreso' ? 'Faltan datos para terminar el mandato.' : ESTADO_CAP[cap.estado]}{cap.firma ? ` ${cap.firma.nombre}, RUT ${cap.firma.rut}, el ${fmtFechaHora(cap.firma.fecha)}.` : ''}</p>}
 
       {editar && (
         <>
@@ -3439,22 +3453,25 @@ function Captacion({ ctx, campo, setCampo }) {
           <p className="fbcrm-nota-suave fbcrm-sep">El texto sigue el modelo de mandato de Farm Brokers: sin exclusividad, con cláusulas de responsabilidad y confidencialidad.</p>
           <div className="fbcrm-acciones">
             <button className="fbcrm-primario" disabled={ocupado} onClick={crear}>{cap ? 'Guardar condiciones' : 'Crear link para el propietario'}</button>
-            {cap && <button className="fbcrm-texto" onClick={() => setEditar(false)}>Cancelar</button>}
+            <button className="fbcrm-texto" onClick={() => setEditar(false)}>Cancelar</button>
           </div>
         </>
       )}
 
       {cap && !editar && (
         <>
+          {equipo && <p className="fbcrm-nota-suave">Link para que el cliente revise y firme el mandato:</p>}
           <div className="fbcrm-cap-link"><span>{link}</span></div>
           <div className="fbcrm-acciones">
             <button className="fbcrm-primario" onClick={() => window.open(`https://wa.me/${fonoWa(campo.telefono)}?text=${encodeURIComponent(texto)}`, '_blank', 'noopener')}>Enviar por WhatsApp</button>
             <button onClick={() => { window.location.href = `mailto:${emailsDe(campo.email).join(',')}?subject=${encodeURIComponent(`Mandato de venta ${cfg.titulo}`)}&body=${encodeURIComponent(texto)}`; }}>Por correo</button>
             <button onClick={() => navigator.clipboard && navigator.clipboard.writeText(link).then(() => setMsg('Link copiado.'))}>Copiar link</button>
           </div>
-          <p className="fbcrm-nota-suave fbcrm-sep">Comisión {fmtNum(cap.config.comision)}%, vigencia {cap.config.vigencia} días, firma en {cap.config.ciudad}.{!cap.firma && <> <button className="fbcrm-texto" onClick={() => setEditar(true)}>Cambiar condiciones</button></>}</p>
+          <p className="fbcrm-nota-suave fbcrm-sep">Comisión {fmtNum(cap.config.comision)}%{cap.config.iva ? ' + IVA' : ''}{cap.config.comisionMenor ? ` (${fmtNum(cap.config.comisionMenor)}% si el precio es menor)` : ''}, vigencia {cap.config.vigencia} días, firma en {cap.config.ciudad}.{!cap.firma && <> <button className="fbcrm-texto" onClick={() => (equipo ? setPreparar(true) : setEditar(true))}>{equipo ? 'Editar el mandato' : 'Cambiar condiciones'}</button></>}</p>
           <div className="fbcrm-acciones">
             {(cap.firma || cap.estado === 'completado') && <button onClick={() => imprimir({ tipo: 'mandato', id: campo.id })}>{cap.firma ? 'Ver mandato firmado' : 'Vista previa del mandato'}</button>}
+            {!cap.firma && cap.estado === 'completado' && <button onClick={() => imprimir({ tipo: 'mandato', id: campo.id, papel: true })} title="Para imprimir y firmar a mano">Descargar para firmar en papel</button>}
+            {!cap.firma && !equipo && <button className="fbcrm-texto" onClick={() => setPreparar(true)}>Preparar yo el mandato</button>}
             {cap.firma && !cap.firmaCorredor && <button className="fbcrm-primario" onClick={firmarCorredor}>Firmar como corredor</button>}
             {cap.firmaCorredor && <span className="fbcrm-ok-linea">Firmado por Farm Brokers: {cap.firmaCorredor.nombre}, {fmtFecha(cap.firmaCorredor.fecha)}</span>}
           </div>
@@ -3465,12 +3482,133 @@ function Captacion({ ctx, campo, setCampo }) {
   );
 }
 
+// Mandato preparado por el equipo: datos del cliente + datos del campo → link para que el cliente firme
+function MandatoEquipo({ ctx, campo, setCampo, cerrar }) {
+  const { api, cargar } = ctx;
+  const [d, setD] = useState(null);
+  const [cfg, setCfg] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [faltan, setFaltan] = useState([]);
+  const [ocupado, setOcupado] = useState(false);
+  useEffect(() => {
+    api(`/campos/${campo.id}/mandato-equipo/base`).then((r) => {
+      const datos = { ...r.datos };
+      if (!(datos.precios || []).length) datos.precios = datos.predios.filter((p) => p.precio).map((p) => ({ concepto: datos.predios.length > 1 ? `Predio Rol ${p.rol}` : 'Precio de venta', moneda: p.moneda, precio: p.precio }));
+      if (!datos.precios.length) datos.precios = [{ concepto: 'Precio de venta', moneda: campo.precioUF ? 'UF' : 'CLP', precio: null }];
+      setD(datos); setCfg({ ...r.config, iva: r.config.iva !== false }); setFaltan(r.faltan || []);
+    }).catch((e) => setMsg(e.message));
+  }, []);
+  if (!d || !cfg) return <div className="fbcrm-bloque fbcrm-cap"><h3>Preparar mandato</h3><p className="fbcrm-vacio">{msg || 'Cargando los datos del campo…'}</p></div>;
+  const v = d.vendedor;
+  const setV = (k, val) => setD({ ...d, vendedor: { ...v, [k]: val } });
+  const setPer = (i, k, val) => setV('personas', v.personas.map((p, j) => (j === i ? { ...p, [k]: val } : p)));
+  const setEmp = (k, val) => setV('empresa', { ...v.empresa, [k]: val });
+  const setPr = (i, k, val) => setD({ ...d, predios: d.predios.map((p, j) => (j === i ? { ...p, [k]: val } : p)) });
+  const setPrecio = (i, k, val) => setD({ ...d, precios: d.precios.map((p, j) => (j === i ? { ...p, [k]: val } : p)) });
+  const numero = (x) => (x === '' || x == null ? null : Number(String(x).replace(/\./g, '').replace(',', '.')) || null);
+  const total = d.precios.length > 1 && d.precios.every((x) => x.moneda === d.precios[0].moneda && numero(x.precio)) ? d.precios.reduce((a, x) => a + numero(x.precio), 0) : null;
+  const guardar = async (verDespues) => {
+    setOcupado(true); setMsg('');
+    try {
+      const datos = { ...d, precios: d.precios.map((x) => ({ ...x, precio: numero(x.precio) })), predios: d.predios.map((p) => ({ ...p, hectareas: p.hectareas === '' || p.hectareas == null ? null : Number(String(p.hectareas).replace(',', '.')) || null, lotes: numero(p.lotes) })) };
+      const r = await api(`/campos/${campo.id}/mandato-equipo`, { method: 'POST', body: { datos, config: cfg } });
+      setCampo(r.campo); await cargar(); setFaltan(r.faltan);
+      if (r.faltan.length) setMsg('Quedó guardado, pero faltan datos (abajo) para que el cliente pueda firmar.');
+      else { cerrar('Mandato listo. Envíale el link al cliente para que lo firme.'); if (verDespues) ctx.imprimir({ tipo: 'mandato', id: campo.id }); }
+    } catch (e) { setMsg(e.message); }
+    setOcupado(false);
+  };
+  const regiones = REGIONES_FORM;
+  return (
+    <div className="fbcrm-bloque fbcrm-cap">
+      <h3>Preparar mandato de venta</h3>
+      <p className="fbcrm-nota-suave">Los datos del campo vienen del CRM: revísalos. Tú completas los del cliente. La firma de Farm Brokers se agrega sola cuando el cliente firma.</p>
+      <div className="fbcrm-form">
+        <Campo label="Título del mandato" ancho><input value={cfg.titulo} onChange={(e) => setCfg({ ...cfg, titulo: e.target.value })} placeholder="Ej. Predio El Maitén, Chancón, Rancagua" /></Campo>
+      </div>
+
+      <h4 className="fbcrm-sep">Vendedor (cliente)</h4>
+      <div className="fbcrm-chips" role="group" aria-label="Tipo de vendedor">
+        <button className={v.tipo === 'natural' ? 'on' : ''} onClick={() => setV('tipo', 'natural')}>Persona</button>
+        <button className={v.tipo === 'empresa' ? 'on' : ''} onClick={() => setV('tipo', 'empresa')}>Sociedad</button>
+      </div>
+      {v.tipo === 'natural' ? v.personas.map((p, i) => (
+        <div className="fbcrm-form" key={i}>
+          <Campo label="Trato"><select value={p.trat} onChange={(e) => setPer(i, 'trat', e.target.value)}><option value="">Elegir</option><option value="don">don</option><option value="doña">doña</option></select></Campo>
+          <Campo label={`Nombre completo${v.personas.length > 1 ? ` (${i + 1})` : ''}`}><input value={p.nombre} onChange={(e) => setPer(i, 'nombre', e.target.value)} /></Campo>
+          <RutInput label="RUT" value={p.rut} onChange={(x) => setPer(i, 'rut', x)} />
+          {i > 0 && <button className="fbcrm-texto" onClick={() => setV('personas', v.personas.filter((_, j) => j !== i))}>Quitar</button>}
+        </div>
+      )) : (
+        <div className="fbcrm-form">
+          <Campo label="Razón social" ancho><input value={v.empresa.razon} onChange={(e) => setEmp('razon', e.target.value)} placeholder="Ej. Inmobiliaria David Tornel Pascual E.I.R.L." /></Campo>
+          <RutInput label="RUT de la sociedad" value={v.empresa.rut} onChange={(x) => setEmp('rut', x)} />
+          <Campo label="Trato del representante"><select value={v.empresa.repTrat} onChange={(e) => setEmp('repTrat', e.target.value)}><option value="">Elegir</option><option value="don">don</option><option value="doña">doña</option></select></Campo>
+          <Campo label="Representante legal"><input value={v.empresa.repNombre} onChange={(e) => setEmp('repNombre', e.target.value)} /></Campo>
+          <RutInput label="RUT del representante (es quien firma)" value={v.empresa.repRut} onChange={(x) => setEmp('repRut', x)} />
+        </div>
+      )}
+      {v.tipo === 'natural' && <button className="fbcrm-texto" onClick={() => setV('personas', [...v.personas, { trat: '', nombre: '', rut: '' }])}>Agregar otro propietario</button>}
+      <div className="fbcrm-form">
+        <Campo label="Domicilio" ancho><input value={v.domicilio || ''} onChange={(e) => setV('domicilio', e.target.value)} placeholder="Ej. Fundo Santa Amelia S/N, Comuna de Rancagua" /></Campo>
+        <Campo label="Teléfono"><input value={v.telefono} onChange={(e) => setV('telefono', e.target.value)} /></Campo>
+        <Campo label="Correo"><input type="email" value={v.email} onChange={(e) => setV('email', e.target.value)} /></Campo>
+      </div>
+
+      <h4 className="fbcrm-sep">Inmueble</h4>
+      {d.predios.map((p, i) => (
+        <div className="fbcrm-form" key={i}>
+          <Campo label="Nombre del predio" ancho><input value={p.nombre || ''} onChange={(e) => setPr(i, 'nombre', e.target.value)} placeholder="Ej. Predio El Maitén, Chancón" /></Campo>
+          <Campo label="Rol SII"><input value={p.rol} onChange={(e) => setPr(i, 'rol', e.target.value)} /></Campo>
+          <Campo label="Comuna"><input value={p.comuna} onChange={(e) => setPr(i, 'comuna', e.target.value)} /></Campo>
+          <Campo label="Región"><select value={p.region} onChange={(e) => setPr(i, 'region', e.target.value)}><option value="">Elegir</option>{regiones.map(([k, l]) => <option key={k} value={k}>{l}</option>)}<option value="PE">Perú</option></select></Campo>
+          <Campo label="Superficie (ha)"><input inputMode="decimal" value={p.hectareas ?? ''} onChange={(e) => setPr(i, 'hectareas', e.target.value)} /></Campo>
+          <Campo label="Tipo"><select value={p.tipo} onChange={(e) => setPr(i, 'tipo', e.target.value)}>{TIPOS_PREDIO_FORM.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Campo>
+          {p.tipo === 'loteo' && <Campo label="N° de lotes"><input inputMode="numeric" value={p.lotes ?? ''} onChange={(e) => setPr(i, 'lotes', e.target.value)} /></Campo>}
+          <Campo label="Derechos de agua (vacío si no tiene)" ancho><input value={p.tieneAgua ? p.aguaDetalle : ''} onChange={(e) => setD({ ...d, predios: d.predios.map((x, j) => (j === i ? { ...x, aguaDetalle: e.target.value, tieneAgua: !!e.target.value.trim() } : x)) })} placeholder="Ej. 49 acciones canal Chancón" /></Campo>
+          <Campo label="Algo más del predio (opcional)" ancho><input value={p.descripcion} onChange={(e) => setPr(i, 'descripcion', e.target.value)} /></Campo>
+        </div>
+      ))}
+      <div className="fbcrm-form"><Campo label="Infraestructura (opcional)" ancho><input value={d.infraestructura} onChange={(e) => setD({ ...d, infraestructura: e.target.value })} placeholder="Vacío = No tiene" /></Campo></div>
+
+      <h4 className="fbcrm-sep">1. Precio</h4>
+      {d.precios.map((x, i) => (
+        <div className="fbcrm-form" key={i}>
+          <Campo label="Concepto" ancho><input value={x.concepto} onChange={(e) => setPrecio(i, 'concepto', e.target.value)} placeholder="Ej. Precio Lote 3 Sector Casa Patronal" /></Campo>
+          <Campo label="Moneda"><select value={x.moneda} onChange={(e) => setPrecio(i, 'moneda', e.target.value)}><option value="UF">UF</option><option value="CLP">$</option></select></Campo>
+          <Campo label="Monto"><input inputMode="decimal" value={x.precio ?? ''} onChange={(e) => setPrecio(i, 'precio', e.target.value)} /></Campo>
+          {d.precios.length > 1 && <button className="fbcrm-texto" onClick={() => setD({ ...d, precios: d.precios.filter((_, j) => j !== i) })}>Quitar</button>}
+        </div>
+      ))}
+      <button className="fbcrm-texto" onClick={() => setD({ ...d, precios: [...d.precios, { concepto: '', moneda: d.precios[0] ? d.precios[0].moneda : 'UF', precio: null }] })}>Agregar otra línea de precio</button>
+      {total != null && <p className="fbcrm-nota-suave">Total: {d.precios[0].moneda === 'UF' ? `UF ${fmtNum(total)}` : `$${Math.round(total).toLocaleString('es-CL')}`}</p>}
+
+      <h4 className="fbcrm-sep">Condiciones</h4>
+      <div className="fbcrm-form">
+        <Campo label="Comisión (%)"><input inputMode="decimal" value={cfg.comision} onChange={(e) => setCfg({ ...cfg, comision: e.target.value })} /></Campo>
+        <Campo label="Si el precio final es menor, comisión de (%) — opcional"><input inputMode="decimal" value={cfg.comisionMenor ?? ''} onChange={(e) => setCfg({ ...cfg, comisionMenor: e.target.value })} placeholder="Ej. 1" /></Campo>
+        <Campo label="Vigencia (días)"><input inputMode="numeric" value={cfg.vigencia} onChange={(e) => setCfg({ ...cfg, vigencia: e.target.value })} /></Campo>
+        <Campo label="Ciudad de firma"><input value={cfg.ciudad} onChange={(e) => setCfg({ ...cfg, ciudad: e.target.value })} /></Campo>
+      </div>
+      <label className="fbcrm-check-linea"><input type="checkbox" checked={cfg.iva !== false} onChange={(e) => setCfg({ ...cfg, iva: e.target.checked })} />Comisión + IVA</label>
+
+      {faltan.length > 0 && <div className="fbcrm-aviso" style={{ padding: '10px 14px', margin: '12px 0' }}><strong>Falta para que el cliente pueda firmar:</strong><ul className="fbcrm-faltan">{faltan.map((f) => <li key={f}>{f}</li>)}</ul></div>}
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+      <div className="fbcrm-acciones">
+        <button className="fbcrm-primario" disabled={ocupado} onClick={() => guardar(true)}>{ocupado ? 'Guardando…' : 'Guardar y ver el mandato'}</button>
+        <button disabled={ocupado} onClick={() => guardar(false)}>Guardar</button>
+        <button className="fbcrm-texto" onClick={() => cerrar()}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
 // Documento del mandato (equipo y propietario)
-function DocMandato({ m }) {
+function DocMandato({ m, papel }) {
   const r = (runs) => runs.map((x, i) => (x.b ? <strong key={i}>{x.t}</strong> : <span key={i}>{x.t}</span>));
   return (
     <div className="doc-mandato">
-      {!m.firma && <p className="doc-borrador">Borrador para revisión. Aún no está firmado.</p>}
+      {!m.firma && !papel && <p className="doc-borrador">Borrador para revisión. Aún no está firmado.</p>}
       <img src={LOGO_FB} alt="Farm Brokers Chile" className="doc-mandato-logo" />
       {m.bloques.map((b, i) => {
         if (b.k === 'titulo') return <h1 key={i}>{r(b.runs)}</h1>;
@@ -3493,7 +3631,7 @@ function DocMandato({ m }) {
       {m.firma && (
         <div className="doc-certificado">
           <p><strong>Constancia de firma electrónica.</strong> Aceptado por {m.firma.nombre}, RUT {m.firma.rut}, el {fmtFechaHora(m.firma.fecha)}{m.firma.ip ? ` desde la dirección IP ${m.firma.ip}` : ''}. Código de verificación {m.firma.codigo}.</p>
-          {m.firmaCorredor && <p>Aceptado por Farm Brokers Chile SpA, a través de {m.firmaCorredor.nombre}, el {fmtFechaHora(m.firmaCorredor.fecha)}.</p>}
+          {m.firmaCorredor && <p>{/por Farm Brokers/.test(m.firmaCorredor.nombre) ? `Firmado por ${m.firmaCorredor.nombre}, el ${fmtFechaHora(m.firmaCorredor.fecha)}.` : `Aceptado por Farm Brokers Chile SpA, a través de ${m.firmaCorredor.nombre}, el ${fmtFechaHora(m.firmaCorredor.fecha)}.`}</p>}
         </div>
       )}
       <footer className="doc-mandato-pie"><span>www.farmbrokers.cl</span><span>Phone +569 7193 90 40</span><span>Email: contacto@farmbrokers.cl</span></footer>
@@ -3592,7 +3730,7 @@ export function FormularioPropietario({ token }) {
     return j;
   };
   useEffect(() => {
-    llamar('').then((r) => { setEstado(r); setD(r.datos); setPaso(r.firma ? 4 : r.estado === 'tasacion' ? 4 : Math.min(r.datos.pasoActual || 0, 4)); })
+    llamar('').then((r) => { setEstado(r); setD(r.datos); setPaso(r.firma || r.modo === 'equipo' ? 4 : r.estado === 'tasacion' ? 4 : Math.min(r.datos.pasoActual || 0, 4)); })
       .catch((e) => setError(e.message));
   }, []);
   useEffect(() => { window.scrollTo && window.scrollTo(0, 0); }, [paso]);
@@ -3651,6 +3789,7 @@ export function FormularioPropietario({ token }) {
   );
 
   const bloqueado = !!estado.firma;
+  const equipo = estado.modo === 'equipo'; // mandato preparado por Farm Brokers: el cliente solo revisa y firma
   const v = d.vendedor;
   const setV = (k, val) => setD({ ...d, vendedor: { ...v, [k]: val } });
   const setPersona = (i, k, val) => setV('personas', v.personas.map((p, j) => (j === i ? { ...p, [k]: val } : p)));
@@ -3675,16 +3814,16 @@ export function FormularioPropietario({ token }) {
       <style>{CSS}</style>
       <header className="fbcrm-prop-top">
         <img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />
-        <h1>Venta de {estado.titulo}</h1>
-        <p className="fbcrm-sub">Complete estos datos para preparar su mandato de venta. Puede avanzar por partes: lo que escriba queda guardado en este mismo link.</p>
+        <h1>{equipo ? `Mandato de venta ${estado.titulo}` : `Venta de ${estado.titulo}`}</h1>
+        <p className="fbcrm-sub">{equipo ? 'Revise el mandato que preparamos con los datos de su propiedad y fírmelo en línea. Puede hacerlo desde el celular.' : 'Complete estos datos para preparar su mandato de venta. Puede avanzar por partes: lo que escriba queda guardado en este mismo link.'}</p>
       </header>
-      <ol className="fbcrm-pasos" aria-label="Pasos">
+      {!equipo && <ol className="fbcrm-pasos" aria-label="Pasos">
         {PASOS.map((t, i) => (
           <li key={t} className={i === paso ? 'on' : i < paso ? 'hecho' : ''} aria-current={i === paso ? 'step' : undefined}>
             <button disabled={bloqueado || guardando} onClick={() => i !== paso && guardar(i)}><span className="fbcrm-paso-n">{i + 1}</span><span className="fbcrm-paso-t">{t}</span></button>
           </li>
         ))}
-      </ol>
+      </ol>}
       <main className="fbcrm-prop-main">
         {aviso && <p className="fbcrm-error" role="alert">{aviso}</p>}
 
@@ -3821,16 +3960,17 @@ export function FormularioPropietario({ token }) {
             {estado.estado !== 'tasacion' && !estado.firma && estado.faltan.length > 0 && (
               <div>
                 <h2>Faltan algunos datos</h2>
+                {equipo ? <p className="fbcrm-nota-suave">Farm Brokers está terminando de preparar su mandato. Le avisaremos cuando esté listo para firmar en este mismo link.</p> : <>
                 <p className="fbcrm-nota-suave">Para preparar el mandato necesitamos:</p>
                 <ul className="fbcrm-faltan">{estado.faltan.map((f) => <li key={f}>{f}</li>)}</ul>
-                <div className="fbcrm-prop-pie"><button className="fbcrm-primario" onClick={() => guardar(0)}>Completar</button></div>
+                <div className="fbcrm-prop-pie"><button className="fbcrm-primario" onClick={() => guardar(0)}>Completar</button></div></>}
               </div>
             )}
             {!estado.firma && estado.estado !== 'tasacion' && !estado.faltan.length && (
               mandato ? (
                 <>
                   <h2>Revise su mandato</h2>
-                  <p className="fbcrm-nota-suave">Este es el texto que firmará. Si algo no está correcto, vuelva a los pasos anteriores y corríjalo.</p>
+                  <p className="fbcrm-nota-suave">{equipo ? 'Este es el texto que firmará. Si algo no está correcto, avísenos y se lo enviamos corregido (contacto@farmbrokers.cl o +569 7193 90 40).' : 'Este es el texto que firmará. Si algo no está correcto, vuelva a los pasos anteriores y corríjalo.'}</p>
                   <div className="fbcrm-mandato-prev"><DocMandato m={mandato} /></div>
                   <div className="fbcrm-firma">
                     <h2>Firmar</h2>
@@ -3840,7 +3980,7 @@ export function FormularioPropietario({ token }) {
                     </div>
                     <label className="fbcrm-check-linea fbcrm-acepto"><input type="checkbox" checked={firma.acepto} onChange={(e) => setFirma({ ...firma, acepto: e.target.checked })} />Leí el mandato y acepto sus términos. Entiendo que esta aceptación electrónica equivale a mi firma.</label>
                     <div className="fbcrm-prop-pie">
-                      <button onClick={() => guardar(3)} disabled={guardando}>Atrás</button>
+                      {!equipo && <button onClick={() => guardar(3)} disabled={guardando}>Atrás</button>}
                       <button className="fbcrm-primario" disabled={guardando || !firma.acepto || !firma.nombre.trim() || !rutOk(firma.rut)} onClick={firmar}>{guardando ? 'Firmando…' : 'Firmar mandato'}</button>
                     </div>
                   </div>
