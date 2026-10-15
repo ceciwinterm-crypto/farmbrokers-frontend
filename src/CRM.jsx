@@ -3147,7 +3147,9 @@ function Impresion({ ctx, imp, cerrar }) {
               try { await descargarFichaPDF(`Ficha ${tituloCampo(campo).replace(/[\\/:*?"<>|]/g, '')} - Farm Brokers.pdf`, setGenerando); } catch (e) { alert(e.message); }
               setGenerando('');
             }}>{generando || 'Descargar PDF'}</button>
-          : <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>}
+          : imp.tipo === 'mandato'
+            ? <button className="fbcrm-primario" disabled={!mandato || !!generando} onClick={async () => { try { setGenerando('Armando el PDF…'); await guardarPdf(await pdfMandato(mandato, { papel: imp.papel }), nombreMandato(mandato)); } catch (e) { alert(e.message); } setGenerando(''); }}>{generando || 'Descargar PDF'}</button>
+            : <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>}
         {campo && variante === 'cliente' && imp.tipo === 'campo' && (
           <>
             <button disabled={!!generando} onClick={async () => {
@@ -3178,6 +3180,7 @@ function Impresion({ ctx, imp, cerrar }) {
         {campo && variante === 'cliente' && <p className="fbcrm-imp-estado">{estadoWeb || resumenWeb(campo, fotosProp)}</p>}
         {campo && variante === 'cliente' && imp.tipo === 'campo'
           ? <p>“Descargar PDF” arma el archivo con las mismas páginas que ves abajo. “Compartir” lo adjunta directo en WhatsApp u otra app (desde el celular). “Copiar link” sube la ficha y copia un link que puedes pegar en cualquier chat.</p>
+          : imp.tipo === 'mandato' ? <p>“Descargar PDF” guarda el mandato como archivo. En el celular se abre “Compartir”: elige <strong>Guardar en Archivos</strong>, WhatsApp o correo.</p>
           : <p>Al presionar “Guardar PDF” se abre la ventana de impresión: elige <strong>Guardar como PDF</strong>. Si arriba o abajo de la hoja aparecen la fecha o la dirección de la página, abre <strong>Más opciones</strong> y desmarca <strong>Encabezados y pies de página</strong>. En iPhone, toca Compartir en esa ventana y luego Guardar en Archivos.</p>}
       </div>
       <style>{`@page{size:A4;margin:${campo && variante === 'cliente' && imp.tipo === 'campo' ? '0' : '14mm 0 16mm'}}`}</style>
@@ -3603,6 +3606,102 @@ function MandatoEquipo({ ctx, campo, setCampo, cerrar }) {
   );
 }
 
+// Mandato en PDF real (texto, no captura de pantalla): se descarga bien también desde el celular
+async function pdfMandato(m, { papel } = {}) {
+  await cargarScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'jspdf');
+  const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+  const W = 210, M = 22, ancho = W - 2 * M, TOPE = 270;
+  const negro = () => pdf.setTextColor(23, 30, 26);
+  let y = 0;
+  const pagina = (primera) => {
+    if (!primera) pdf.addPage();
+    y = 16;
+    if (primera) { try { pdf.addImage(LOGO_FB, 'PNG', M, 10, 27, 19); } catch (e) { /* sin logo */ } y = 36; }
+    if (!m.firma && !papel) { pdf.setFillColor(247, 237, 211); pdf.rect(M, y - 4.5, ancho, 7, 'F'); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); pdf.setTextColor(122, 90, 21); pdf.text('Borrador para revisión. Aún no está firmado.', W / 2, y, { align: 'center' }); y += 8; }
+  };
+  const asegurar = (alto) => { if (y + alto > TOPE) pagina(false); };
+  // Párrafo con partes en negrita, justificado
+  const parrafo = (runs, { size = 10, sangria = 0, vineta = '', despues = 3.4, centrado = false, subrayado = false } = {}) => {
+    const lh = size * 0.3528 * 1.5, x0 = M + sangria, disp = ancho - sangria;
+    // Cada palabra puede tener partes en negrita y normal pegadas (ej. "E.I.R.L." en negrita seguido de ",")
+    const palabras = []; let pegar = false;
+    runs.forEach((r) => {
+      const t = String(r.t), b = !!r.b || centrado;
+      t.split(/(\s+)/).forEach((tok, k) => {
+        if (!tok) return;
+        if (/^\s+$/.test(tok)) { pegar = false; return; }
+        if (pegar && k === 0 && palabras.length) palabras[palabras.length - 1].partes.push({ w: tok, b });
+        else palabras.push({ partes: [{ w: tok, b }] });
+        pegar = true;
+      });
+      if (/\s$/.test(t)) pegar = false;
+    });
+    const anchoParte = (q) => { pdf.setFont('helvetica', q.b ? 'bold' : 'normal'); pdf.setFontSize(size); return pdf.getTextWidth(q.w); };
+    const medir = (p) => p.partes.reduce((a, q) => a + anchoParte(q), 0);
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(size); const esp = pdf.getTextWidth(' ');
+    const lineas = []; let actual = [], largo = 0;
+    palabras.forEach((p) => { p.ancho = medir(p); const extra = actual.length ? esp + p.ancho : p.ancho; if (largo + extra > disp && actual.length) { lineas.push(actual); actual = [p]; largo = p.ancho; } else { actual.push(p); largo += extra; } });
+    if (actual.length) lineas.push(actual);
+    lineas.forEach((l, i) => {
+      asegurar(lh);
+      const suma = l.reduce((a, p) => a + p.ancho, 0), huecos = l.length - 1;
+      const ultima = i === lineas.length - 1;
+      const gap = !centrado && !ultima && huecos ? (disp - suma) / huecos : esp;
+      let x = centrado ? M + (ancho - (suma + huecos * esp)) / 2 : x0;
+      if (vineta && i === 0) { pdf.setFont('helvetica', 'normal'); negro(); pdf.text(vineta, x0 - 5, y); }
+      const xi = x;
+      l.forEach((p) => { let xx = x; p.partes.forEach((q) => { pdf.setFont('helvetica', q.b ? 'bold' : 'normal'); pdf.setFontSize(size); negro(); pdf.text(q.w, xx, y); xx += anchoParte(q); }); x += p.ancho + gap; });
+      if (subrayado) { pdf.setDrawColor(23, 30, 26); pdf.setLineWidth(0.3); pdf.line(xi, y + 0.9, x - gap, y + 0.9); }
+      y += lh;
+    });
+    y += despues;
+  };
+  pagina(true);
+  for (const b of m.bloques) {
+    if (b.k === 'titulo') { y += 2; parrafo(b.runs, { size: 11.5, centrado: true, subrayado: true, despues: 5 }); }
+    else if (b.k === 'sub') { asegurar(14); y += 1; parrafo(b.runs, { size: 10, despues: 1.6 }); }
+    else if (b.k === 'lista') b.items.forEach((t) => parrafo([{ t }], { sangria: 8, vineta: '-', despues: 1.8 }));
+    else if (b.k === 'firmas') {
+      y += 2; asegurar(52); y += 26;
+      const col = (x, nombres, rol, firmado) => {
+        if (firmado) { pdf.setFont('helvetica', 'italic'); pdf.setFontSize(8.5); pdf.setTextColor(45, 106, 69); pdf.text('Firmado electrónicamente', x + 35, y - 3, { align: 'center' }); }
+        pdf.setDrawColor(60, 60, 60); pdf.setLineWidth(0.3); pdf.line(x, y, x + 70, y);
+        pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); negro();
+        let yy = y + 5;
+        nombres.forEach((n) => { pdf.splitTextToSize(n, 74).forEach((l) => { pdf.text(l, x + 35, yy, { align: 'center' }); yy += 4.4; }); });
+        pdf.setFont('helvetica', 'bold'); pdf.text(rol, x + 35, yy, { align: 'center' });
+        return yy;
+      };
+      const a = col(M, b.vendedor, 'Vendedor', !!m.firma), c = col(W - M - 70, [b.corredor], 'Corredor', !!m.firmaCorredor);
+      y = Math.max(a, c) + 8;
+    } else parrafo(b.runs, {});
+  }
+  if (m.firma) {
+    const lineas = [`Constancia de firma electrónica. Aceptado por ${m.firma.nombre}, RUT ${m.firma.rut}, el ${fmtFechaHora(m.firma.fecha)}${m.firma.ip ? ` desde la dirección IP ${m.firma.ip}` : ''}. Código de verificación ${m.firma.codigo}.`];
+    if (m.firmaCorredor) lineas.push(/por Farm Brokers/.test(m.firmaCorredor.nombre) ? `Firmado por ${m.firmaCorredor.nombre}, el ${fmtFechaHora(m.firmaCorredor.fecha)}.` : `Aceptado por Farm Brokers Chile SpA, a través de ${m.firmaCorredor.nombre}, el ${fmtFechaHora(m.firmaCorredor.fecha)}.`);
+    lineas.forEach((t) => parrafo([{ t }], { size: 8.5, despues: 1.5 }));
+  }
+  const total = pdf.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    pdf.setPage(i); pdf.setDrawColor(150, 150, 150); pdf.setLineWidth(0.2); pdf.setLineDashPattern([1, 1], 0); pdf.line(M, 279, W - M, 279); pdf.setLineDashPattern([], 0);
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(90, 90, 90);
+    pdf.text('www.farmbrokers.cl', M, 284); pdf.text('Phone +569 7193 90 40', W / 2, 284, { align: 'center' }); pdf.text('Email: contacto@farmbrokers.cl', W - M, 284, { align: 'right' });
+    if (total > 1) pdf.text(`${i} / ${total}`, W / 2, 290, { align: 'center' });
+  }
+  return pdf;
+}
+// En el celular abre "Compartir" (Guardar en Archivos, WhatsApp, correo…); en el computador lo descarga
+async function guardarPdf(pdf, nombre) {
+  const blob = pdf.output('blob');
+  const ua = navigator.userAgent || '';
+  const movil = /iphone|ipad|ipod|android/i.test(ua) || (navigator.maxTouchPoints > 1 && /macintosh/i.test(ua));
+  if (movil && navigator.canShare) {
+    const f = new File([blob], nombre, { type: 'application/pdf' });
+    if (navigator.canShare({ files: [f] })) { try { await navigator.share({ files: [f], title: nombre }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+  }
+  pdf.save(nombre);
+}
+const nombreMandato = (m) => `Mandato de venta ${((m.bloques.find((b) => b.k === 'titulo') || { runs: [{ t: '' }] }).runs.map((r) => r.t).join('')).replace(/^MANDATO DE VENTA\s*/i, '').replace(/[\\/:*?"<>|]/g, '').trim()} - Farm Brokers.pdf`;
 // Documento del mandato (equipo y propietario)
 function DocMandato({ m, papel }) {
   const r = (runs) => runs.map((x, i) => (x.b ? <strong key={i}>{x.t}</strong> : <span key={i}>{x.t}</span>));
@@ -3780,8 +3879,8 @@ export function FormularioPropietario({ token }) {
       <style>{CSS}</style>
       <div className="fbcrm-imp-barra no-print">
         <button onClick={() => setVerCopia(false)}>‹ Volver</button>
-        <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>
-        <p>En la ventana de impresión elija <strong>Guardar como PDF</strong>. En iPhone, toque Compartir y luego Guardar en Archivos.</p>
+        <button className="fbcrm-primario" disabled={!!guardando} onClick={async () => { setGuardando(true); try { await guardarPdf(await pdfMandato(mandato), nombreMandato(mandato)); } catch (e) { setAviso(e.message); } setGuardando(false); }}>{guardando ? 'Armando el PDF…' : 'Descargar PDF'}</button>
+        <p>En el celular se abre “Compartir”: elija <strong>Guardar en Archivos</strong> (o envíelo por WhatsApp o correo).</p>
       </div>
       <style>{'@page{size:A4;margin:14mm 0 16mm}'}</style>
       <article className="fbcrm-doc doc-mandato-hoja"><DocMandato m={mandato} /></article>
