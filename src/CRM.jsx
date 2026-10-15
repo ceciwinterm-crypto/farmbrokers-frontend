@@ -3443,7 +3443,7 @@ function Captacion({ ctx, campo, setCampo }) {
           <p className="fbcrm-nota-suave"><b>Preparar aquí:</b> escribes los datos del cliente y el sistema completa los del campo; el cliente solo lo revisa y firma con su RUT desde el celular, y la firma de Farm Brokers se agrega sola. <b>Que el propietario complete:</b> le envías un link para que llene sus datos, suba documentos y firme.</p>
         </>
       )}
-      {cap && <p className="fbcrm-cap-estado">{equipo && cap.estado === 'completado' ? 'Mandato listo. Envíale el link al cliente para que lo firme.' : equipo && cap.estado === 'en_progreso' ? 'Faltan datos para terminar el mandato.' : ESTADO_CAP[cap.estado]}{cap.firma ? ` ${cap.firma.nombre}, RUT ${cap.firma.rut}, el ${fmtFechaHora(cap.firma.fecha)}.` : ''}</p>}
+      {cap && <p className="fbcrm-cap-estado">{equipo && !cap.firma ? 'Mandato listo. Envíale el link al cliente para que lo firme, o descárgalo para firmar en papel.' : ESTADO_CAP[cap.estado]}{cap.firma ? ` ${cap.firma.nombre}, RUT ${cap.firma.rut}, el ${fmtFechaHora(cap.firma.fecha)}.` : ''}</p>}
 
       {editar && (
         <>
@@ -3463,7 +3463,6 @@ function Captacion({ ctx, campo, setCampo }) {
 
       {cap && !editar && (
         <>
-          {equipo && cap.estado === 'en_progreso' && <div className="fbcrm-acciones"><button className="fbcrm-primario" onClick={() => setPreparar(true)}>Completar los datos que faltan</button></div>}
           {equipo && <p className="fbcrm-nota-suave">Link para que el cliente revise y firme el mandato:</p>}
           <div className="fbcrm-cap-link"><span>{link}</span></div>
           <div className="fbcrm-acciones">
@@ -3473,8 +3472,8 @@ function Captacion({ ctx, campo, setCampo }) {
           </div>
           <p className="fbcrm-nota-suave fbcrm-sep">Comisión {fmtNum(cap.config.comision)}%{cap.config.iva ? ' + IVA' : ''}{cap.config.comisionMenor ? ` (${fmtNum(cap.config.comisionMenor)}% si el precio es menor)` : ''}, vigencia {cap.config.vigencia} días, firma en {cap.config.ciudad}.{!cap.firma && <> <button className="fbcrm-texto" onClick={() => (equipo ? setPreparar(true) : setEditar(true))}>{equipo ? 'Editar el mandato' : 'Cambiar condiciones'}</button></>}</p>
           <div className="fbcrm-acciones">
-            {(cap.firma || cap.estado === 'completado') && <button onClick={() => imprimir({ tipo: 'mandato', id: campo.id })}>{cap.firma ? 'Ver mandato firmado' : 'Vista previa del mandato'}</button>}
-            {(cap.firma || cap.estado === 'completado') && <BotonPdf className="fbcrm-primario" etiqueta={cap.firma ? 'Descargar mandato firmado (PDF)' : 'Descargar PDF para firmar en papel'} alError={setMsg} crear={async () => { const m = await api(`/campos/${campo.id}/mandato`); return { pdf: await pdfMandato(m, { papel: true }), nombre: nombreMandato(m) }; }} />}
+            {(cap.firma || equipo || cap.estado === 'completado') && <button onClick={() => imprimir({ tipo: 'mandato', id: campo.id })}>{cap.firma ? 'Ver mandato firmado' : 'Vista previa del mandato'}</button>}
+            {(cap.firma || equipo || cap.estado === 'completado') && <BotonPdf className="fbcrm-primario" etiqueta={cap.firma ? 'Descargar mandato firmado (PDF)' : 'Descargar PDF para firmar en papel'} alError={setMsg} crear={async () => { const m = await api(`/campos/${campo.id}/mandato`); return { pdf: await pdfMandato(m, { papel: true }), nombre: nombreMandato(m) }; }} />}
             {!cap.firma && !equipo && <button className="fbcrm-texto" onClick={() => setPreparar(true)}>Preparar yo el mandato</button>}
             {cap.firma && !cap.firmaCorredor && <button className="fbcrm-primario" onClick={firmarCorredor}>Firmar como corredor</button>}
             {cap.firmaCorredor && <span className="fbcrm-ok-linea">Firmado por Farm Brokers: {cap.firmaCorredor.nombre}, {fmtFecha(cap.firmaCorredor.fecha)}</span>}
@@ -3499,7 +3498,7 @@ function MandatoEquipo({ ctx, campo, setCampo, cerrar }) {
       const datos = { ...r.datos };
       if (!(datos.precios || []).length) datos.precios = datos.predios.filter((p) => p.precio).map((p) => ({ concepto: datos.predios.length > 1 ? `Predio Rol ${p.rol}` : 'Precio de venta', moneda: p.moneda, precio: p.precio }));
       if (!datos.precios.length) datos.precios = [{ concepto: 'Precio de venta', moneda: campo.precioUF ? 'UF' : 'CLP', precio: null }];
-      setD(datos); setCfg({ ...r.config, iva: r.config.iva !== false }); setFaltan(r.faltan || []);
+      setD(datos); setCfg({ ...r.config, iva: r.config.iva !== false }); setFaltan(r.pendientes || []);
     }).catch((e) => setMsg(e.message));
   }, []);
   if (!d || !cfg) return <div className="fbcrm-bloque fbcrm-cap"><h3>Preparar mandato</h3><p className="fbcrm-vacio">{msg || 'Cargando los datos del campo…'}</p></div>;
@@ -3516,9 +3515,10 @@ function MandatoEquipo({ ctx, campo, setCampo, cerrar }) {
     try {
       const datos = { ...d, precios: d.precios.map((x) => ({ ...x, precio: numero(x.precio) })), predios: d.predios.map((p) => ({ ...p, hectareas: p.hectareas === '' || p.hectareas == null ? null : Number(String(p.hectareas).replace(',', '.')) || null, lotes: numero(p.lotes) })) };
       const r = await api(`/campos/${campo.id}/mandato-equipo`, { method: 'POST', body: { datos, config: cfg } });
-      setCampo(r.campo); await cargar(); setFaltan(r.faltan);
-      if (r.faltan.length) setMsg('Quedó guardado, pero faltan datos (abajo) para que el cliente pueda firmar.');
-      else { cerrar('Mandato listo. Envíale el link al cliente para que lo firme.'); if (verDespues) ctx.imprimir({ tipo: 'mandato', id: campo.id }); }
+      setCampo(r.campo); await cargar();
+      const p = r.pendientes || [];
+      cerrar(p.length ? `Mandato listo. Quedaron en blanco para completar después: ${p.join(', ')}. El cliente también puede completarlos al firmar.` : 'Mandato listo. Envíale el link al cliente para que lo firme.');
+      if (verDespues) ctx.imprimir({ tipo: 'mandato', id: campo.id });
     } catch (e) { setMsg(e.message); }
     setOcupado(false);
   };
@@ -3596,7 +3596,7 @@ function MandatoEquipo({ ctx, campo, setCampo, cerrar }) {
       </div>
       <label className="fbcrm-check-linea"><input type="checkbox" checked={cfg.iva !== false} onChange={(e) => setCfg({ ...cfg, iva: e.target.checked })} />Comisión + IVA</label>
 
-      {faltan.length > 0 && <div className="fbcrm-aviso" style={{ padding: '10px 14px', margin: '12px 0' }}><strong>Falta para que el cliente pueda firmar:</strong><ul className="fbcrm-faltan">{faltan.map((f) => <li key={f}>{f}</li>)}</ul></div>}
+      {faltan.length > 0 && <p className="fbcrm-nota-suave" style={{ margin: '12px 0' }}>Nada es obligatorio: lo que falte sale como línea en blanco para completar después ({faltan.join(', ').toLowerCase()}).</p>}
       {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
       <div className="fbcrm-acciones">
         <button className="fbcrm-primario" disabled={ocupado} onClick={() => guardar(true)}>{ocupado ? 'Guardando…' : 'Guardar y ver el mandato'}</button>
