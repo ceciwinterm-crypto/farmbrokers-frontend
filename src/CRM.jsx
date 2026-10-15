@@ -3842,7 +3842,7 @@ export function FormularioPropietario({ token }) {
     return j;
   };
   useEffect(() => {
-    llamar('').then((r) => { setEstado(r); setD(r.datos); setPaso(r.firma || r.modo === 'equipo' ? 4 : r.estado === 'tasacion' ? 4 : Math.min(r.datos.pasoActual || 0, 4)); })
+    llamar('').then((r) => { setEstado(r); setD(r.datos); setPaso(r.firma ? 4 : r.modo === 'equipo' ? (r.faltan.length ? 0 : 4) : r.estado === 'tasacion' ? 4 : Math.min(r.datos.pasoActual || 0, 4)); })
       .catch((e) => setError(e.message));
   }, []);
   useEffect(() => { window.scrollTo && window.scrollTo(0, 0); }, [paso]);
@@ -3913,7 +3913,13 @@ export function FormularioPropietario({ token }) {
     ['dominio', 'Certificado de dominio vigente', 'Lo emite el Conservador de Bienes Raíces.'], ['hipotecas', 'Certificado de hipotecas y gravámenes', 'También del Conservador.'],
     ['avaluo', 'Certificado de avalúo fiscal', 'Se descarga desde sii.cl.'], ...(tieneAgua ? [['aguas', 'Inscripción de derechos de agua', 'Del Conservador o de la DGA.']] : [])];
 
-  const pie = (
+  const pie = equipo ? (
+    <div className="fbcrm-prop-pie">
+      {paso === 1 && <button onClick={() => guardar(0)} disabled={guardando}>Atrás</button>}
+      {paso === 0 && <button className="fbcrm-primario" onClick={() => guardar(1)} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar y seguir'}</button>}
+      {paso === 1 && <button className="fbcrm-primario" onClick={() => guardar(4, true)} disabled={guardando}>{guardando ? 'Guardando…' : 'Revisar el mandato'}</button>}
+    </div>
+  ) : (
     <div className="fbcrm-prop-pie">
       {paso > 0 && !bloqueado && <button onClick={() => guardar(paso - 1)} disabled={guardando}>Atrás</button>}
       {paso < 3 && <button className="fbcrm-primario" onClick={() => guardar(paso + 1)} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar y seguir'}</button>}
@@ -3927,8 +3933,15 @@ export function FormularioPropietario({ token }) {
       <header className="fbcrm-prop-top">
         <img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />
         <h1>{equipo ? `Mandato de venta ${estado.titulo}` : `Venta de ${estado.titulo}`}</h1>
-        <p className="fbcrm-sub">{equipo ? 'Revise el mandato que preparamos con los datos de su propiedad y fírmelo en línea. Puede hacerlo desde el celular.' : 'Complete estos datos para preparar su mandato de venta. Puede avanzar por partes: lo que escriba queda guardado en este mismo link.'}</p>
+        <p className="fbcrm-sub">{equipo ? (estado.faltan.length && !estado.firma ? 'Preparamos su mandato con los datos de su propiedad. Complete o corrija los datos que faltan y luego fírmelo en línea, desde el celular.' : 'Revise el mandato que preparamos con los datos de su propiedad y fírmelo en línea. Puede hacerlo desde el celular.') : 'Complete estos datos para preparar su mandato de venta. Puede avanzar por partes: lo que escriba queda guardado en este mismo link.'}</p>
       </header>
+      {equipo && !bloqueado && <ol className="fbcrm-pasos" aria-label="Pasos">
+        {[[0, 'Sus datos'], [1, 'El campo'], [4, 'Revisar y firmar']].map(([i, t], k) => (
+          <li key={t} className={i === paso ? 'on' : i < paso ? 'hecho' : ''} aria-current={i === paso ? 'step' : undefined}>
+            <button disabled={guardando} onClick={() => i !== paso && guardar(i, i === 4)}><span className="fbcrm-paso-n">{k + 1}</span><span className="fbcrm-paso-t">{t}</span></button>
+          </li>
+        ))}
+      </ol>}
       {!equipo && <ol className="fbcrm-pasos" aria-label="Pasos">
         {PASOS.map((t, i) => (
           <li key={t} className={i === paso ? 'on' : i < paso ? 'hecho' : ''} aria-current={i === paso ? 'step' : undefined}>
@@ -3969,6 +3982,7 @@ export function FormularioPropietario({ token }) {
             <div className="fbcrm-form">
               <Campo label="Teléfono"><input type="tel" value={v.telefono} onChange={(e) => setV('telefono', e.target.value)} autoComplete="tel" /></Campo>
               <Campo label="Email"><input type="email" value={v.email} onChange={(e) => setV('email', e.target.value)} autoComplete="email" /></Campo>
+              <Campo label="Domicilio (opcional)" ancho><input value={v.domicilio || ''} onChange={(e) => setV('domicilio', e.target.value)} autoComplete="street-address" placeholder="Ej. Fundo Santa Amelia S/N, Comuna de Rancagua" /></Campo>
             </div>
             {pie}
           </section>
@@ -4072,17 +4086,16 @@ export function FormularioPropietario({ token }) {
             {estado.estado !== 'tasacion' && !estado.firma && estado.faltan.length > 0 && (
               <div>
                 <h2>Faltan algunos datos</h2>
-                {equipo ? <p className="fbcrm-nota-suave">Farm Brokers está terminando de preparar su mandato. Le avisaremos cuando esté listo para firmar en este mismo link.</p> : <>
                 <p className="fbcrm-nota-suave">Para preparar el mandato necesitamos:</p>
                 <ul className="fbcrm-faltan">{estado.faltan.map((f) => <li key={f}>{f}</li>)}</ul>
-                <div className="fbcrm-prop-pie"><button className="fbcrm-primario" onClick={() => guardar(0)}>Completar</button></div></>}
+                <div className="fbcrm-prop-pie"><button className="fbcrm-primario" onClick={() => guardar(0)}>Completar</button></div>
               </div>
             )}
             {!estado.firma && estado.estado !== 'tasacion' && !estado.faltan.length && (
               mandato ? (
                 <>
                   <h2>Revise su mandato</h2>
-                  <p className="fbcrm-nota-suave">{equipo ? 'Este es el texto que firmará. Si algo no está correcto, avísenos y se lo enviamos corregido (contacto@farmbrokers.cl o +569 7193 90 40).' : 'Este es el texto que firmará. Si algo no está correcto, vuelva a los pasos anteriores y corríjalo.'}</p>
+                  <p className="fbcrm-nota-suave">{equipo ? 'Este es el texto que firmará. Si algún dato suyo o del campo no está correcto, toque “Corregir datos”. Para cambiar el precio o la comisión, avísenos (contacto@farmbrokers.cl o +569 7193 90 40).' : 'Este es el texto que firmará. Si algo no está correcto, vuelva a los pasos anteriores y corríjalo.'}</p>
                   <div className="fbcrm-mandato-prev"><DocMandato m={mandato} /></div>
                   <div className="fbcrm-firma">
                     <h2>Firmar</h2>
@@ -4092,7 +4105,7 @@ export function FormularioPropietario({ token }) {
                     </div>
                     <label className="fbcrm-check-linea fbcrm-acepto"><input type="checkbox" checked={firma.acepto} onChange={(e) => setFirma({ ...firma, acepto: e.target.checked })} />Leí el mandato y acepto sus términos. Entiendo que esta aceptación electrónica equivale a mi firma.</label>
                     <div className="fbcrm-prop-pie">
-                      {!equipo && <button onClick={() => guardar(3)} disabled={guardando}>Atrás</button>}
+                      <button onClick={() => guardar(equipo ? 0 : 3)} disabled={guardando}>{equipo ? 'Corregir datos' : 'Atrás'}</button>
                       <button className="fbcrm-primario" disabled={guardando || !firma.acepto || !firma.nombre.trim() || !rutOk(firma.rut)} onClick={firmar}>{guardando ? 'Firmando…' : 'Firmar mandato'}</button>
                     </div>
                   </div>
