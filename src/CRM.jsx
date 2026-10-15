@@ -873,8 +873,8 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           <button className={tareaForm ? 'on' : ''} onClick={() => setTareaForm(tareaForm ? null : { titulo: '' })}>Tarea</button>
           <button className={verOrdenNueva ? 'on' : ''} onClick={() => setVerOrdenNueva(!verOrdenNueva)}>Orden de visita</button>
           <button className={`solo-pc ${verPublicar ? 'on' : ''}`} onClick={() => setVerPublicar(!verPublicar)}>{linkPublicadoDe(f) ? 'Publicado en web ✓' : visibDe(f) === 'reservada' ? 'Off market ★' : f.wp ? 'Borrador web ✓' : 'Publicar en web'}</button>
-          <button className={`solo-pc ${verMandato ? 'on' : ''}`} aria-expanded={verMandato} onClick={() => setVerMandato(!verMandato)}>
-            Mandato {cap ? <span className={`fbcrm-badge est-${cap.estado}`}>{ETIQUETA_CAP[cap.estado]}</span> : <span className="fbcrm-badge gris">Sin link</span>}
+          <button className={verMandato ? 'on' : ''} aria-expanded={verMandato} onClick={() => { setVerMandato(!verMandato); if (!verMandato) setTimeout(() => { const el = document.getElementById('fbcrm-mandato'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 120); }}>
+            Mandato {cap ? <span className={`fbcrm-badge est-${cap.estado}`}>{ETIQUETA_CAP[cap.estado]}</span> : <span className="fbcrm-badge gris">Por hacer</span>}
           </button>
           {linkWeb && <a className="fbcrm-btn-link" href={linkWeb} target="_blank" rel="noreferrer">Ver en la web</a>}
         </div>
@@ -884,7 +884,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
       {!esNuevo && verOrdenNueva && <NuevaOrden ctx={ctx} campoId={f.id} cerrar={() => setVerOrdenNueva(false)} />}
       {!esNuevo && <OrdenesDe ctx={ctx} filtro={(o) => o.campoId === f.id} titulo="Órdenes de visita de este campo" />}
       {!esNuevo && <TareasDe ctx={ctx} refId={f.id} />}
-      {!esNuevo && verMandato && <Captacion ctx={ctx} campo={f} setCampo={setCampo} />}
+      {!esNuevo && verMandato && <div id="fbcrm-mandato"><Captacion ctx={ctx} campo={f} setCampo={setCampo} /></div>}
 
       {foto && <img src={foto} alt="" className="fbcrm-ficha-foto" />}
 
