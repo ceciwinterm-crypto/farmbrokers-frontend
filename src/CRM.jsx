@@ -3148,7 +3148,7 @@ function Impresion({ ctx, imp, cerrar }) {
               setGenerando('');
             }}>{generando || 'Descargar PDF'}</button>
           : imp.tipo === 'mandato'
-            ? <button className="fbcrm-primario" disabled={!mandato || !!generando} onClick={async () => { try { setGenerando('Armando el PDF…'); await guardarPdf(await pdfMandato(mandato, { papel: imp.papel }), nombreMandato(mandato)); } catch (e) { alert(e.message); } setGenerando(''); }}>{generando || 'Descargar PDF'}</button>
+            ? (mandato ? <BotonPdf crear={async () => ({ pdf: await pdfMandato(mandato, { papel: imp.papel }), nombre: nombreMandato(mandato) })} /> : <button className="fbcrm-primario" disabled>Preparando…</button>)
             : <button className="fbcrm-primario" onClick={imprimirConImagenes}>Guardar PDF</button>}
         {campo && variante === 'cliente' && imp.tipo === 'campo' && (
           <>
@@ -3180,7 +3180,7 @@ function Impresion({ ctx, imp, cerrar }) {
         {campo && variante === 'cliente' && <p className="fbcrm-imp-estado">{estadoWeb || resumenWeb(campo, fotosProp)}</p>}
         {campo && variante === 'cliente' && imp.tipo === 'campo'
           ? <p>“Descargar PDF” arma el archivo con las mismas páginas que ves abajo. “Compartir” lo adjunta directo en WhatsApp u otra app (desde el celular). “Copiar link” sube la ficha y copia un link que puedes pegar en cualquier chat.</p>
-          : imp.tipo === 'mandato' ? <p>“Descargar PDF” guarda el mandato como archivo. En el celular se abre “Compartir”: elige <strong>Guardar en Archivos</strong>, WhatsApp o correo.</p>
+          : imp.tipo === 'mandato' ? <p>“Descargar PDF” guarda el mandato como archivo. En el celular, cuando esté listo toca <strong>Guardar o compartir el PDF</strong> y elige <strong>Guardar en Archivos</strong>, WhatsApp o correo.</p>
           : <p>Al presionar “Guardar PDF” se abre la ventana de impresión: elige <strong>Guardar como PDF</strong>. Si arriba o abajo de la hoja aparecen la fecha o la dirección de la página, abre <strong>Más opciones</strong> y desmarca <strong>Encabezados y pies de página</strong>. En iPhone, toca Compartir en esa ventana y luego Guardar en Archivos.</p>}
       </div>
       <style>{`@page{size:A4;margin:${campo && variante === 'cliente' && imp.tipo === 'campo' ? '0' : '14mm 0 16mm'}}`}</style>
@@ -3463,6 +3463,7 @@ function Captacion({ ctx, campo, setCampo }) {
 
       {cap && !editar && (
         <>
+          {equipo && cap.estado === 'en_progreso' && <div className="fbcrm-acciones"><button className="fbcrm-primario" onClick={() => setPreparar(true)}>Completar los datos que faltan</button></div>}
           {equipo && <p className="fbcrm-nota-suave">Link para que el cliente revise y firme el mandato:</p>}
           <div className="fbcrm-cap-link"><span>{link}</span></div>
           <div className="fbcrm-acciones">
@@ -3473,7 +3474,7 @@ function Captacion({ ctx, campo, setCampo }) {
           <p className="fbcrm-nota-suave fbcrm-sep">Comisión {fmtNum(cap.config.comision)}%{cap.config.iva ? ' + IVA' : ''}{cap.config.comisionMenor ? ` (${fmtNum(cap.config.comisionMenor)}% si el precio es menor)` : ''}, vigencia {cap.config.vigencia} días, firma en {cap.config.ciudad}.{!cap.firma && <> <button className="fbcrm-texto" onClick={() => (equipo ? setPreparar(true) : setEditar(true))}>{equipo ? 'Editar el mandato' : 'Cambiar condiciones'}</button></>}</p>
           <div className="fbcrm-acciones">
             {(cap.firma || cap.estado === 'completado') && <button onClick={() => imprimir({ tipo: 'mandato', id: campo.id })}>{cap.firma ? 'Ver mandato firmado' : 'Vista previa del mandato'}</button>}
-            {!cap.firma && cap.estado === 'completado' && <button onClick={() => imprimir({ tipo: 'mandato', id: campo.id, papel: true })} title="Para imprimir y firmar a mano">Descargar para firmar en papel</button>}
+            {(cap.firma || cap.estado === 'completado') && <BotonPdf className="fbcrm-primario" etiqueta={cap.firma ? 'Descargar mandato firmado (PDF)' : 'Descargar PDF para firmar en papel'} alError={setMsg} crear={async () => { const m = await api(`/campos/${campo.id}/mandato`); return { pdf: await pdfMandato(m, { papel: true }), nombre: nombreMandato(m) }; }} />}
             {!cap.firma && !equipo && <button className="fbcrm-texto" onClick={() => setPreparar(true)}>Preparar yo el mandato</button>}
             {cap.firma && !cap.firmaCorredor && <button className="fbcrm-primario" onClick={firmarCorredor}>Firmar como corredor</button>}
             {cap.firmaCorredor && <span className="fbcrm-ok-linea">Firmado por Farm Brokers: {cap.firmaCorredor.nombre}, {fmtFecha(cap.firmaCorredor.fecha)}</span>}
@@ -3690,16 +3691,28 @@ async function pdfMandato(m, { papel } = {}) {
   }
   return pdf;
 }
-// En el celular abre "Compartir" (Guardar en Archivos, WhatsApp, correo…); en el computador lo descarga
-async function guardarPdf(pdf, nombre) {
-  const blob = pdf.output('blob');
-  const ua = navigator.userAgent || '';
-  const movil = /iphone|ipad|ipod|android/i.test(ua) || (navigator.maxTouchPoints > 1 && /macintosh/i.test(ua));
-  if (movil && navigator.canShare) {
-    const f = new File([blob], nombre, { type: 'application/pdf' });
-    if (navigator.canShare({ files: [f] })) { try { await navigator.share({ files: [f], title: nombre }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
-  }
-  pdf.save(nombre);
+// Botón de descarga que funciona en el celular: primero arma el PDF y luego, con un segundo toque, lo guarda o comparte
+// (el iPhone solo permite abrir "Compartir" justo después de un toque, no después de esperar a que se arme el archivo)
+const esMovil = () => { const ua = navigator.userAgent || ''; return /iphone|ipad|ipod|android/i.test(ua) || (navigator.maxTouchPoints > 1 && /macintosh/i.test(ua)); };
+function BotonPdf({ crear, etiqueta = 'Descargar PDF', className = 'fbcrm-primario', alError }) {
+  const [estado, setEstado] = useState('');
+  const [archivo, setArchivo] = useState(null);
+  const armar = async () => {
+    setEstado('Armando el PDF…');
+    try {
+      const { pdf, nombre } = await crear();
+      if (!esMovil()) { pdf.save(nombre); setEstado(''); return; }
+      setArchivo(new File([pdf.output('blob')], nombre, { type: 'application/pdf' })); setEstado('listo');
+    } catch (e) { setEstado(''); if (alError) alError(e.message); else alert(e.message); }
+  };
+  const guardar = () => {
+    if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
+      navigator.share({ files: [archivo], title: archivo.name }).catch((e) => { if (!e || e.name !== 'AbortError') abrir(); });
+    } else abrir();
+  };
+  const abrir = () => { const url = URL.createObjectURL(archivo); const w = window.open(url, '_blank'); if (!w) window.location.href = url; };
+  if (estado === 'listo') return <><button className="fbcrm-primario" onClick={guardar}>📄 Guardar o compartir el PDF</button><button className="fbcrm-texto" onClick={abrir}>Ver el PDF</button></>;
+  return <button className={className} disabled={!!estado} onClick={armar}>{estado || etiqueta}</button>;
 }
 const nombreMandato = (m) => `Mandato de venta ${((m.bloques.find((b) => b.k === 'titulo') || { runs: [{ t: '' }] }).runs.map((r) => r.t).join('')).replace(/^MANDATO DE VENTA\s*/i, '').replace(/[\\/:*?"<>|]/g, '').trim()} - Farm Brokers.pdf`;
 // Documento del mandato (equipo y propietario)
@@ -3879,8 +3892,8 @@ export function FormularioPropietario({ token }) {
       <style>{CSS}</style>
       <div className="fbcrm-imp-barra no-print">
         <button onClick={() => setVerCopia(false)}>‹ Volver</button>
-        <button className="fbcrm-primario" disabled={!!guardando} onClick={async () => { setGuardando(true); try { await guardarPdf(await pdfMandato(mandato), nombreMandato(mandato)); } catch (e) { setAviso(e.message); } setGuardando(false); }}>{guardando ? 'Armando el PDF…' : 'Descargar PDF'}</button>
-        <p>En el celular se abre “Compartir”: elija <strong>Guardar en Archivos</strong> (o envíelo por WhatsApp o correo).</p>
+        <BotonPdf crear={async () => ({ pdf: await pdfMandato(mandato), nombre: nombreMandato(mandato) })} />
+        <p>En el celular, cuando esté listo toque <strong>Guardar o compartir el PDF</strong> y elija <strong>Guardar en Archivos</strong> (o envíelo por WhatsApp o correo).</p>
       </div>
       <style>{'@page{size:A4;margin:14mm 0 16mm}'}</style>
       <article className="fbcrm-doc doc-mandato-hoja"><DocMandato m={mandato} /></article>
