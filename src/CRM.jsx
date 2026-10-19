@@ -825,10 +825,22 @@ function FichaCampo({ ctx, inicial, cerrar }) {
     if (viejo) traerDeWeb().catch(() => {});
   }, []);
 
+  // Respaldo de la descripción en este equipo: si algo falla al guardar, el texto no se pierde
+  const claveBorrador = f.id ? `fbcrm_borrador_desc_${f.id}` : '';
+  const [borrador, setBorrador] = useState(() => { const b = claveBorrador ? leerLocal(claveBorrador) : ''; return b && b !== (inicial.descripcionFicha || '') ? b : ''; });
+  useEffect(() => { if (claveBorrador && sinGuardar && (f.descripcionFicha || '') !== (inicial.descripcionFicha || '')) guardarLocal(claveBorrador, f.descripcionFicha || ''); }, [f.descripcionFicha]);
+  const [okBarra, setOkBarra] = useState(false);
   const grabar = async (extra = {}) => {
     setOcupado(true); setMsg('');
-    try { const r = await guardar('campos', { ...f, ...extra }); setCampo(r); setMsg(esNuevo ? 'Campo creado. Ya puedes ver a qué clientes les calza.' : 'Guardado.'); }
-    catch (e) { setMsg(e.message); }
+    try {
+      const r = await guardar('campos', { ...f, ...extra }); setCampo(r);
+      setMsg(esNuevo ? 'Campo creado. Ya puedes ver a qué clientes les calza.' : 'Guardado.');
+      if (claveBorrador) { try { localStorage.removeItem(claveBorrador); } catch (e) { /* nada */ } setBorrador(''); }
+      setOkBarra(true); setTimeout(() => setOkBarra(false), 3500);
+    } catch (e) {
+      setMsg(`No se pudo guardar: ${e.message}`);
+      window.alert(`No se pudo guardar: ${e.message}\n\nTu texto sigue en pantalla. Revisa la conexión y vuelve a tocar Guardar.`);
+    }
     setOcupado(false);
   };
   const eliminar = async () => {
@@ -952,6 +964,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           setMsgDesc('Se pegó con la tabla. En la ficha PDF se verá como tabla (cada fila es una línea con | entre columnas).');
         }} placeholder={'Escribe aquí el texto para el cliente, o usa “Redactar con IA” para armarlo con los datos del campo, de la web y de la tasación.\nPuedes pegar tablas desde Word, Excel o Google Docs: salen como tabla en la ficha.\nUn párrafo por línea. Para destacar un título escribe, por ejemplo, "Suelos: …"'} />
         {msgDesc && <p className="fbcrm-msg" role="status">{msgDesc}</p>}
+        {borrador && <p className="fbcrm-aviso-linea">Hay un texto de la descripción que no alcanzó a guardarse en este equipo. <button type="button" className="fbcrm-texto" onClick={() => { setF({ ...f, descripcionFicha: borrador }); setBorrador(''); }}>Recuperarlo</button> · <button type="button" className="fbcrm-texto" onClick={() => { try { localStorage.removeItem(claveBorrador); } catch (e) { /* nada */ } setBorrador(''); }}>Descartar</button></p>}
         <p className="fbcrm-seccion">Propietario</p>
         <div className="fbcrm-form">
           <Campo label="Propietario o contacto" ancho><input value={f.propietario || ''} onChange={set('propietario')} /></Campo>
@@ -991,11 +1004,12 @@ function FichaCampo({ ctx, inicial, cerrar }) {
       {!esNuevo && <Seguimiento ctx={ctx} f={f} setF={setF} ocupado={ocupado} onGuardar={() => grabar()} />}
       {!esNuevo && <Historial col="campos" f={f} setF={setCampo} api={api} cargar={cargar} />}
 
+      {okBarra && !sinGuardar && <div className="fbcrm-guardar-barra" role="status"><span>✓ Cambios guardados</span></div>}
       {sinGuardar && (
         <div className="fbcrm-guardar-barra" role="status">
           <span>Tienes cambios sin guardar</span>
-          <button onClick={() => { setF({ ...f, ...JSON.parse(base).reduce((o, v, i) => ({ ...o, [CAMPOS_EDITABLES[i]]: v }), {}) }); }}>Descartar</button>
           <button className="fbcrm-primario" disabled={ocupado || !f.nombre} onClick={() => grabar()}>{ocupado ? 'Guardando…' : 'Guardar'}</button>
+          <button className="fbcrm-texto fbcrm-descartar" onClick={() => { if (!window.confirm('¿Descartar los cambios que no has guardado?')) return; setF({ ...f, ...JSON.parse(base).reduce((o, v, i) => ({ ...o, [CAMPOS_EDITABLES[i]]: v }), {}) }); }}>Descartar</button>
         </div>
       )}
     </Hoja>
@@ -5953,6 +5967,7 @@ const CSS = `
 .fbcrm-info h3{font-size:1.1rem}
 .fbcrm-seccion{font-size:.8rem;font-weight:600;color:var(--potrero-osc);text-transform:none;margin:20px 0 8px;padding-top:14px;border-top:1px solid var(--linea2)}
 .fbcrm-info h3+.fbcrm-seccion{margin-top:4px;padding-top:0;border-top:0}
+.fbcrm .fbcrm-guardar-barra .fbcrm-descartar{color:#fff;opacity:.75;margin-left:auto;font-size:.88rem}
 .fbcrm-guardar-barra{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px -4px 0;padding:12px 14px;background:var(--tinta);color:#fff;border-radius:14px;box-shadow:0 -4px 20px rgba(23,38,29,.18)}
 .fbcrm-guardar-barra span{flex:1;min-width:150px;font-weight:500}
 .fbcrm .fbcrm-guardar-barra button{background:transparent;color:#fff;border-color:rgba(255,255,255,.35)}
