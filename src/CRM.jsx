@@ -5158,6 +5158,71 @@ export function FormularioVende() {
     </>,
   );
 }
+// Formulario público "Solicita tu tasación" (se puede insertar en farmbrokers.cl igual que el de vender)
+const TIPOS_TASACION_WEB = ['Agrícola', 'Parcela', 'Forestal', 'Turística', 'Industrial', 'Habitacional', 'Derechos de agua'];
+const MOTIVOS_TASACION = ['Vender', 'Comprar', 'Crédito o banco', 'Herencia o posesión efectiva', 'Partición o sociedad', 'Otro'];
+export function FormularioTasacion() {
+  const [f, setF] = useState({ nombre: '', telefono: '', email: '', region: '', comuna: '', tipo: 'Agrícola', rol: '', hectareas: '', motivo: '', mensaje: '', acepto: false, sitio: '' });
+  const [aviso, setAviso] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [listo, setListo] = useState(false);
+  const embebido = typeof window !== 'undefined' && (new URLSearchParams(window.location.search).get('embed') === '1' || window.self !== window.top);
+  const avisar = (m) => { try { window.parent.postMessage({ fbVende: true, ...m }, '*'); } catch (e) { /* sin página contenedora */ } };
+  useEffect(() => { document.title = 'Solicita tu tasación - Farm Brokers Chile'; }, []);
+  useEffect(() => {
+    if (!embebido) return undefined;
+    const medir = () => avisar({ alto: Math.ceil(document.documentElement.scrollHeight) });
+    medir();
+    const ro = window.ResizeObserver ? new ResizeObserver(medir) : null; if (ro) ro.observe(document.body);
+    window.addEventListener('resize', medir);
+    return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', medir); };
+  }, []);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const enviar = async () => {
+    setEnviando(true); setAviso('');
+    try {
+      const cuerpo = { ...f, region: f.region ? (REG_NOMBRE[f.region] || f.region) : '' };
+      const r = await fetch(`${API_BASE}/api/crm/publico-tasacion`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
+      setListo(true); window.scrollTo && window.scrollTo(0, 0); if (embebido) avisar({ arriba: true });
+    } catch (e) { setAviso(e.message === 'Failed to fetch' ? 'No se pudo enviar. Revisa tu conexión e inténtalo de nuevo.' : e.message); }
+    setEnviando(false);
+  };
+  const okContacto = f.telefono.trim().length >= 8 || /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(f.email.trim());
+  const listoParaEnviar = f.nombre.trim().length >= 3 && okContacto && f.acepto;
+  const caja = (cab, cuerpo) => embebido
+    ? (<div className="fbcrm fbcrm-prop fbcrm-vende embebido"><style>{CSS}</style><main className="fbcrm-prop-main">{listo ? cab : null}{cuerpo}</main></div>)
+    : (<div className="fbcrm fbcrm-prop fbcrm-vende"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{cab}</header><main className="fbcrm-prop-main">{cuerpo}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 7193 90 40</footer></div>);
+  if (listo) return caja(<div><h1>¡Gracias, {primerNombre(f.nombre)}!</h1><p className="fbcrm-sub">Recibimos tu solicitud de tasación.</p></div>,
+    <section className="fbcrm-bloque"><h2>Te contactaremos pronto</h2><p>Un tasador de Farm Brokers revisará tu solicitud y se comunicará contigo{f.telefono ? ` al ${f.telefono}` : f.email ? ` a ${f.email}` : ''} para enviarte la cotización.</p></section>);
+  return caja(
+    <div><h1>Solicita tu tasación</h1><p className="fbcrm-sub">Tasaciones de campos, parcelas y terrenos en todo Chile. Cuéntanos de tu propiedad y te enviamos la cotización.</p></div>,
+    <section className="fbcrm-bloque">
+      <h2>Tus datos</h2>
+      <div className="fbcrm-form">
+        <Campo label="Nombre completo" ancho><input value={f.nombre} onChange={set('nombre')} autoComplete="name" /></Campo>
+        <Campo label="Teléfono"><input type="tel" value={f.telefono} onChange={set('telefono')} autoComplete="tel" placeholder="+56 9 1234 5678" /></Campo>
+        <Campo label="Email"><input type="email" value={f.email} onChange={set('email')} autoComplete="email" /></Campo>
+      </div>
+      <h2 className="fbcrm-sep">La propiedad</h2>
+      <div className="fbcrm-form">
+        <Campo label="Tipo de propiedad"><select value={f.tipo} onChange={set('tipo')}>{TIPOS_TASACION_WEB.map((t) => <option key={t}>{t}</option>)}</select></Campo>
+        <Campo label="¿Para qué es la tasación? (opcional)"><select value={f.motivo} onChange={set('motivo')}><option value="">Elegir</option>{MOTIVOS_TASACION.map((t) => <option key={t}>{t}</option>)}</select></Campo>
+        <Campo label="Región"><select value={f.region} onChange={set('region')}><option value="">Elige la región</option>{ORDEN_REG.map((r) => <option key={r} value={r}>{REG_NOMBRE[r] || r}</option>)}</select></Campo>
+        <Campo label="Comuna"><input value={f.comuna} onChange={set('comuna')} placeholder="Ej. Curicó" /></Campo>
+        <Campo label="Rol de avalúo (opcional)"><input value={f.rol} onChange={set('rol')} placeholder="Ej. 245-12" /></Campo>
+        <Campo label="Superficie aproximada (opcional)"><input value={f.hectareas} onChange={set('hectareas')} placeholder="Ej. 25 ha" /></Campo>
+        <Campo label="Mensaje (opcional)" ancho><textarea rows={4} value={f.mensaje} onChange={set('mensaje')} placeholder="Lo que quieras contarnos" /></Campo>
+        <input className="fbcrm-trampa" tabIndex={-1} autoComplete="off" aria-hidden="true" value={f.sitio} onChange={set('sitio')} />
+      </div>
+      <label className="fbcrm-check-linea fbcrm-acepto"><input type="checkbox" checked={f.acepto} onChange={(e) => setF({ ...f, acepto: e.target.checked })} />Acepto que Farm Brokers me contacte por esta solicitud.</label>
+      {aviso && <p className="fbcrm-error" role="alert">{aviso}</p>}
+      {!listoParaEnviar && <p className="fbcrm-nota-suave">Para enviar: tu nombre, un teléfono o email y marcar la casilla.</p>}
+      <div className="fbcrm-prop-pie"><button className="fbcrm-primario" disabled={enviando || !listoParaEnviar} onClick={enviar}>{enviando ? 'Enviando…' : 'Enviar solicitud'}</button></div>
+    </section>,
+  );
+}
 const ESTADOS_OFERTA = [['nueva', 'Nueva'], ['contactada', 'Contactada'], ['convertida', 'Campo creado'], ['descartada', 'Descartada']];
 function OfertasWeb({ ctx }) {
   const { datos, api, usuario, cargar, abrir } = ctx;

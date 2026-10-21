@@ -14,6 +14,7 @@ export default defineConfig({
         plano: resolve(__dirname, 'plano.html'),
         propietario: resolve(__dirname, 'propietario.html'),
         vende: resolve(__dirname, 'vende.html'),
+        tasacion: resolve(__dirname, 'tasacion.html'),
       },
     },
   },

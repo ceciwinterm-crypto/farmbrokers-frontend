@@ -2,13 +2,14 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './sesion.js' // agrega el token de la sesión a cada petición al backend
-import CRM, { FormularioPropietario, FormularioPlano, FormularioOrden, FormularioVende, Puerta } from './CRM.jsx'
+import CRM, { FormularioPropietario, FormularioPlano, FormularioOrden, FormularioVende, FormularioTasacion, Puerta } from './CRM.jsx'
 
 // Los links nuevos son /orden/CODIGO, /plano/CODIGO y /propietario/CODIGO (los antiguos con # siguen funcionando)
 const ruta = window.location.pathname.match(/^\/(orden|plano|propietario)\/([^/?#]+)/)
 const hash = ruta ? `#${ruta[1]}/${ruta[2]}` : window.location.hash
 let pantalla = <Puerta><App /></Puerta>
 if (/^\/vende\/?$/.test(window.location.pathname) || /^vende\./i.test(window.location.hostname)) pantalla = <FormularioVende />
+else if (/^\/tasacion\/?$/.test(window.location.pathname)) pantalla = <FormularioTasacion />
 else if (hash.startsWith('#propietario/')) pantalla = <FormularioPropietario token={hash.split('/')[1]} />
 else if (hash.startsWith('#plano/')) pantalla = <FormularioPlano token={hash.split('/')[1]} />
 else if (hash.startsWith('#orden/')) pantalla = <FormularioOrden token={hash.split('/')[1]} />

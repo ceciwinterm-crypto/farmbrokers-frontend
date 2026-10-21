@@ -1,8 +1,24 @@
 {
   "rewrites": [
-    { "source": "/orden/:token", "destination": "/orden.html" },
-    { "source": "/plano/:token", "destination": "/plano.html" },
-    { "source": "/propietario/:token", "destination": "/propietario.html" },
-    { "source": "/vende", "destination": "/vende.html" }
+    {
+      "source": "/orden/:token",
+      "destination": "/orden.html"
+    },
+    {
+      "source": "/plano/:token",
+      "destination": "/plano.html"
+    },
+    {
+      "source": "/propietario/:token",
+      "destination": "/propietario.html"
+    },
+    {
+      "source": "/vende",
+      "destination": "/vende.html"
+    },
+    {
+      "source": "/tasacion",
+      "destination": "/tasacion.html"
+    }
   ]
 }
