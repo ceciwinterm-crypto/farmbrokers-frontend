@@ -1284,7 +1284,7 @@ function ListaClientes({ ctx }) {
             <span className="fbcrm-der">
               <small className="fbcrm-fecha-ingreso">{fmtMes(fechaIngresoCliente(c))}</small>
               {c.revisar && <span className="fbcrm-badge gris">Completar</span>}
-              {porCliente[c.id] > 0 && <span className="fbcrm-badge">{plural(porCliente[c.id], 'campo')}</span>}
+              {porCliente[c.id] > 0 && <span className="fbcrm-badge" title="Campos disponibles (en venta o arriendo) que le calzan fuerte">{plural(porCliente[c.id], 'calce fuerte', 'calces fuertes')}</span>}
             </span>
           </button>
         ))}
@@ -1649,7 +1649,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         <h3>Qué busca {f.busquedas.length > 1 && <span>{plural(f.busquedas.length, 'búsqueda', 'búsquedas')}</span>}</h3>
         <div className="fbcrm-chips fbcrm-busq-tabs" role="tablist">
           {f.busquedas.map((x, i) => {
-            const n = esNuevo ? 0 : camposQueCalzan.filter((y) => y.m.busquedaId ? y.m.busquedaId === x.id : i === 0).length;
+            const n = esNuevo ? 0 : camposQueCalzan.filter((y) => (y.m.busquedaId ? y.m.busquedaId === x.id : i === 0) && y.m.nivel === 'fuerte' && datos.ofrecibles.includes(y.campo.etapa)).length;
             return <button key={x.id} role="tab" aria-selected={x.id === b.id} className={`${x.id === b.id ? 'on' : ''} ${x.activa === false ? 'pausada' : ''}`} onClick={() => setBSel(i)}>{x.nombre || `Búsqueda ${i + 1}`}{x.activa === false ? ' (pausada)' : n ? ` · ${n}` : ''}</button>;
           })}
           <button className="fbcrm-busq-nueva" onClick={() => { setF((x) => ({ ...x, busquedas: [...x.busquedas, { ...BUSQUEDA_VACIA(), nombre: `Búsqueda ${x.busquedas.length + 1}` }] })); setBSel(f.busquedas.length); }}>+ Nueva búsqueda</button>
@@ -1692,19 +1692,28 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
       </div>
       {!esNuevo && <Seguimiento ctx={ctx} f={f} setF={setF} ocupado={ocupado} onGuardar={() => grabar()} />}
-      {camposQueCalzan.length > 0 && (
-        <div className="fbcrm-bloque">
-          <h3>Campos que le calzan <span>{camposQueCalzan.length}</span></h3>
-          {camposQueCalzan.map(({ campo, m }) => {
+      {camposQueCalzan.length > 0 && (() => {
+        // Mismo criterio que la lista de clientes: primero los campos disponibles (en venta o arriendo) con calce fuerte
+        const fila = ({ campo, m }) => {
             const env = (campo.envios || []).find((e) => e.clienteId === f.id);
             return (
               <button key={campo.id} className="fbcrm-fila" onClick={() => abrir('campos', campo)}>
                 <span className="fbcrm-cuerpo"><strong>{campo.nombre}</strong><small>{[(m.razones.find((r) => /^Búsqueda: /.test(r)) || '').replace('Búsqueda: ', 'para '), campo.sector, campo.etapa, m.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial', env ? `enviado ${fmtFecha(env.fecha)}` : 'no enviado'].filter(Boolean).join(', ')}</small></span>
               </button>
             );
-          })}
-        </div>
-      )}
+        };
+        const disp = camposQueCalzan.filter((x) => datos.ofrecibles.includes(x.campo.etapa));
+        const fuertes = disp.filter((x) => x.m.nivel === 'fuerte'), parciales = disp.filter((x) => x.m.nivel !== 'fuerte');
+        const otros = camposQueCalzan.filter((x) => !datos.ofrecibles.includes(x.campo.etapa));
+        return (
+          <div className="fbcrm-bloque">
+            <h3>Campos que le calzan <span>{plural(fuertes.length, 'calce fuerte', 'calces fuertes')}</span></h3>
+            {fuertes.length ? fuertes.map(fila) : <p className="fbcrm-nota-suave">No hay campos disponibles con calce fuerte. Revisa los de calce parcial.</p>}
+            {parciales.length > 0 && <details className="fbcrm-aviso"><summary><strong>Calce parcial</strong> <span>{plural(parciales.length, 'campo')} disponibles que calzan en algunas cosas</span></summary>{parciales.map(fila)}</details>}
+            {otros.length > 0 && <details className="fbcrm-aviso"><summary><strong>Aún no disponibles</strong> <span>{plural(otros.length, 'campo')} en captación, documentación, suspendidos u otra etapa</span></summary>{otros.map(fila)}</details>}
+          </div>
+        );
+      })()}
       {!esNuevo && (
         <div className="fbcrm-bloque br-invita">
           <div><h3>Brochure de campos</h3><p className="fbcrm-nota-suave">Una página de campos destacados con diseño: foto, datos clave y frase de cada campo, lista para enviar.</p></div>
