@@ -66,5 +66,8 @@ export const authApi = {
   usuarios: () => pedir('/usuarios'),
   crearUsuario: (datos) => pedir('/usuarios', datos),
   editarUsuario: (id, datos) => pedir(`/usuarios/${encodeURIComponent(id)}`, datos, 'PUT'),
+  olvide: (email) => pedir('/olvide', { email }),
+  restablecer: async (token, nueva) => { const d = await pedir('/restablecer', { token, nueva }); guardarSesion(d); return d; },
+  recuperarAdmin: async (email, claveAdmin, nueva) => { const d = await pedir('/recuperar-admin', { email, claveAdmin, nueva }); guardarSesion(d); return d; },
   salir: async () => { try { await pedir('/logout', {}); } catch (e) {} guardarSesion(null); },
 };

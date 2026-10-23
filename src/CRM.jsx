@@ -278,6 +278,8 @@ export function Puerta({ children }) {
     window.addEventListener('fb-sesion-vencida', vencida);
     return () => { vivo = false; clearTimeout(espera); window.removeEventListener('fb-sesion-vencida', vencida); };
   }, []);
+  const tokenRestablecer = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('restablecer') : '';
+  if (tokenRestablecer && /^[a-f0-9]{64}$/.test(tokenRestablecer)) return <PantallaIngreso key="restablecer" modo="restablecer" token={tokenRestablecer} />;
   if (!listo) return null;
   if (ses && ses.usuario && ses.usuario.debeCambiarClave) return <PantallaIngreso key="cambiar" modo="cambiar" claveActual={claveRecien} alListo={() => setSes(leerSesion())} />;
   if (ses) return children;
@@ -287,7 +289,11 @@ export function Puerta({ children }) {
   return <PantallaIngreso key="entrar" modo="entrar" aviso={aviso} claveAntigua={estado.claveAntigua} alEntrar={(clave) => { setClaveRecien(clave); setAviso(''); setSes(leerSesion()); }} alSeguirConClave={() => { elegirModoClave(true); setEstado({ ...estado }); }} />;
 }
 
-function PantallaIngreso({ modo, aviso, claveAntigua, alEntrar, alSeguirConClave, claveActual, alListo }) {
+function PantallaIngreso({ modo: modoInicial, aviso, claveAntigua, alEntrar, alSeguirConClave, claveActual, alListo, token }) {
+  const [modo, setModo] = useState(modoInicial);
+  const [claveAdmin, setClaveAdmin] = useState('');
+  const [verAdmin, setVerAdmin] = useState(false);
+  const [okMsg, setOkMsg] = useState('');
   const [email, setEmail] = useState('');
   const [clave, setClave] = useState('');
   const [actual, setActual] = useState(claveActual || '');
@@ -305,11 +311,58 @@ function PantallaIngreso({ modo, aviso, claveAntigua, alEntrar, alSeguirConClave
     setOcupado(true);
     try { const r = await authApi.cambiarClave(actual, nueva); actualizarUsuarioSesion(r.usuario); alListo(); } catch (e) { setError(e.message); } finally { setOcupado(false); }
   };
+  const irAlCrm = () => { window.location.href = `${window.location.origin}/#crm`; };
+  const pedirLink = async () => {
+    setError(''); setOkMsg(''); setOcupado(true);
+    try { const r = await authApi.olvide(email.trim()); setOkMsg(r.mensaje || 'Revisa tu correo.'); } catch (e) { setError(e.message); } finally { setOcupado(false); }
+  };
+  const conClaveAdmin = async () => {
+    setError('');
+    if (nueva !== nueva2) { setError('Las dos contraseñas nuevas no coinciden.'); return; }
+    setOcupado(true);
+    try { await authApi.recuperarAdmin(email.trim(), claveAdmin, nueva); irAlCrm(); } catch (e) { setError(e.message); } finally { setOcupado(false); }
+  };
+  const restablecer = async () => {
+    setError('');
+    if (nueva !== nueva2) { setError('Las dos contraseñas nuevas no coinciden.'); return; }
+    setOcupado(true);
+    try { await authApi.restablecer(token, nueva); irAlCrm(); } catch (e) { setError(e.message); } finally { setOcupado(false); }
+  };
   return (
     <div className="fbcrm fbcrm-acceso">
       <style>{CSS}</style>
       <img src={LOGO_FB_BLANCO} alt="Farm Brokers Chile" className="fbcrm-acceso-logo" />
-      {modo === 'cambiar' ? (
+      {modo === 'restablecer' ? (
+        <div className="fbcrm-acceso-card">
+          <h1>Nueva contraseña</h1>
+          <p className="fbcrm-sub">Elige tu nueva contraseña: al menos 8 caracteres, con letras y números.</p>
+          {error && <p className="fbcrm-error" role="alert">{error}</p>}
+          <label>Contraseña nueva<input type="password" value={nueva} onChange={(e) => setNueva(e.target.value)} autoComplete="new-password" /></label>
+          <label>Repite la contraseña nueva<input type="password" value={nueva2} onChange={(e) => setNueva2(e.target.value)} autoComplete="new-password" onKeyDown={(e) => e.key === 'Enter' && nueva && restablecer()} /></label>
+          <button className="fbcrm-primario fbcrm-grande" disabled={!nueva || !nueva2 || ocupado} onClick={restablecer}>{ocupado ? 'Guardando…' : 'Guardar y entrar'}</button>
+          <button className="fbcrm-texto" onClick={irAlCrm}>Volver a entrar</button>
+        </div>
+      ) : modo === 'olvide' ? (
+        <div className="fbcrm-acceso-card">
+          <h1>¿Olvidaste tu contraseña?</h1>
+          <p className="fbcrm-sub">Escribe tu correo y te enviamos un link para crear una nueva (vale 30 minutos).</p>
+          {error && <p className="fbcrm-error" role="alert">{error}</p>}
+          {okMsg && <p className="fbcrm-msg" role="status">{okMsg}</p>}
+          <label>Correo<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" /></label>
+          <button className="fbcrm-primario fbcrm-grande" disabled={!email.trim() || ocupado} onClick={pedirLink}>{ocupado ? 'Enviando…' : 'Enviarme el link'}</button>
+          <button className="fbcrm-texto" onClick={() => setVerAdmin(!verAdmin)}>{verAdmin ? 'Ocultar' : 'Soy la administradora y no me llega el correo'}</button>
+          {verAdmin && (
+            <>
+              <p className="fbcrm-nota-suave">Usa la <b>clave de administradora</b>: es el valor de la variable <b>CRM_ADMIN_KEY</b> en Railway (farmbrokers-backend › Variables).</p>
+              <label>Clave de administradora (CRM_ADMIN_KEY)<input type="password" value={claveAdmin} onChange={(e) => setClaveAdmin(e.target.value)} autoComplete="off" /></label>
+              <label>Contraseña nueva<input type="password" value={nueva} onChange={(e) => setNueva(e.target.value)} autoComplete="new-password" /></label>
+              <label>Repite la contraseña nueva<input type="password" value={nueva2} onChange={(e) => setNueva2(e.target.value)} autoComplete="new-password" /></label>
+              <button className="fbcrm-primario" disabled={!email.trim() || !claveAdmin || !nueva || !nueva2 || ocupado} onClick={conClaveAdmin}>{ocupado ? 'Guardando…' : 'Cambiar contraseña y entrar'}</button>
+            </>
+          )}
+          <button className="fbcrm-texto" onClick={() => { setModo('entrar'); setError(''); setOkMsg(''); }}>‹ Volver</button>
+        </div>
+      ) : modo === 'cambiar' ? (
         <div className="fbcrm-acceso-card">
           <h1>Crea tu contraseña</h1>
           <p className="fbcrm-sub">Entraste con una contraseña temporal. Elige una nueva que solo tú conozcas: al menos 8 caracteres, con letras y números.</p>
@@ -329,7 +382,8 @@ function PantallaIngreso({ modo, aviso, claveAntigua, alEntrar, alSeguirConClave
           <label>Correo<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" /></label>
           <label>Contraseña<input type="password" value={clave} onChange={(e) => setClave(e.target.value)} autoComplete="current-password" onKeyDown={(e) => e.key === 'Enter' && email && clave && entrar()} /></label>
           <button className="fbcrm-primario fbcrm-grande" disabled={!email.trim() || !clave || ocupado} onClick={entrar}>{ocupado ? 'Entrando…' : 'Entrar'}</button>
-          <p className="fbcrm-nota-suave">¿Olvidaste tu contraseña o no tienes cuenta? Pídele a la administradora que te la cree o restablezca.</p>
+          <button className="fbcrm-texto" onClick={() => { setModo('olvide'); setError(''); }}>¿Olvidaste tu contraseña?</button>
+          <p className="fbcrm-nota-suave">¿No tienes cuenta? Pídele a la administradora que te la cree.</p>
           {claveAntigua && <button className="fbcrm-texto" onClick={alSeguirConClave}>Todavía no tengo cuenta: seguir con la clave del equipo</button>}
         </div>
       )}
