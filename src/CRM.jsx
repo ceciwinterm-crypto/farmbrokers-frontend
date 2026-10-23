@@ -1575,7 +1575,7 @@ function PalabrasClave({ valor = [], onChange }) {
   };
   return (
     <div className="fbcrm-palabras">
-      <p className="fbcrm-etq">Palabras clave <span className="fbcrm-nota-suave">(le muestra todo campo que las tenga escritas, en la web, la ficha o la tasación, sin importar región, comuna ni hectáreas)</span></p>
+      <p className="fbcrm-etq">Palabras clave <span className="fbcrm-nota-suave">(son excluyentes: solo es calce fuerte el campo que las tiene escritas en la web, la ficha o la tasación, en cualquier región; los demás quedan como calce parcial)</span></p>
       <div className="fbcrm-chips">
         {valor.map((w) => <button key={w} className="on" title="Quitar" onClick={() => onChange(valor.filter((x) => x !== w))}>{w} ✕</button>)}
         <input value={txt} onChange={(e) => setTxt(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); agregar(); } }} onBlur={agregar} placeholder="Ej. lechería, ciruela d'agen" aria-label="Agregar palabra clave" />
