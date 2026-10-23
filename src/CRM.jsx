@@ -3628,6 +3628,11 @@ function Captacion({ ctx, campo, setCampo }) {
     catch (e) { setMsg(e.message); }
     setOcupado(false);
   };
+  const reabrir = async () => {
+    const motivo = window.prompt('El mandato ya está firmado. Para corregirlo se reabre: la versión firmada queda guardada en el historial y el cliente tendrá que firmar de nuevo con el mismo link.\n\n¿Qué hay que corregir? (opcional, queda en el historial)', '');
+    if (motivo === null) return;
+    try { const r = await api(`/campos/${campo.id}/mandato/reabrir`, { method: 'POST', body: { motivo } }); setCampo(r); await cargar(); setPreparar(true); } catch (e) { setMsg(e.message); }
+  };
   const firmarCorredor = async () => {
     if (!window.confirm(`¿Firmar el mandato como corredor, en nombre de Farm Brokers Chile SpA? Quedará registrado a nombre de ${usuario}.`)) return;
     try { const r = await api(`/campos/${campo.id}/captacion/corredor`, { method: 'POST' }); setCampo(r); await cargar(); } catch (e) { setMsg(e.message); }
@@ -3690,11 +3695,12 @@ function Captacion({ ctx, campo, setCampo }) {
             <button onClick={() => { window.location.href = `mailto:${emailsDe(campo.email).join(',')}?subject=${encodeURIComponent(`Mandato de venta ${cfg.titulo}`)}&body=${encodeURIComponent(texto)}`; }}>Por correo</button>
             <button onClick={() => navigator.clipboard && navigator.clipboard.writeText(link).then(() => setMsg('Link copiado.'))}>Copiar link</button>
           </div>
-          <p className="fbcrm-nota-suave fbcrm-sep">Comisión {fmtNum(cap.config.comision)}%{cap.config.iva ? ' + IVA' : ''}{cap.config.comisionMenor ? ` (${fmtNum(cap.config.comisionMenor)}% si el precio es menor)` : ''}, vigencia {cap.config.vigencia} días, firma en {cap.config.ciudad}.{!cap.firma && <> <button className="fbcrm-texto" onClick={() => (equipo ? setPreparar(true) : setEditar(true))}>{equipo ? 'Editar el mandato' : 'Cambiar condiciones'}</button></>}</p>
+          <p className="fbcrm-nota-suave fbcrm-sep">Comisión {fmtNum(cap.config.comision)}%{cap.config.iva ? ' + IVA' : ''}{cap.config.comisionMenor ? ` (${fmtNum(cap.config.comisionMenor)}% si el precio es menor)` : ''}, vigencia {cap.config.vigencia} días, firma en {cap.config.ciudad}.{!cap.firma && !equipo && <> <button className="fbcrm-texto" onClick={() => setEditar(true)}>Cambiar condiciones</button></>}</p>
           <div className="fbcrm-acciones">
             {(cap.firma || equipo || cap.estado === 'completado') && <button onClick={() => imprimir({ tipo: 'mandato', id: campo.id })}>{cap.firma ? 'Ver mandato firmado' : 'Vista previa del mandato'}</button>}
             {(cap.firma || equipo || cap.estado === 'completado') && <BotonPdf className="fbcrm-primario" etiqueta={cap.firma ? 'Descargar mandato firmado (PDF)' : 'Descargar PDF para firmar en papel'} alError={setMsg} crear={async () => { const m = await api(`/campos/${campo.id}/mandato`); return { pdf: await pdfMandato(m, { papel: true }), nombre: nombreMandato(m) }; }} />}
-            {!cap.firma && !equipo && <button className="fbcrm-texto" onClick={() => setPreparar(true)}>Preparar yo el mandato</button>}
+            {!cap.firma && <button onClick={() => setPreparar(true)}>✏️ Modificar datos del mandato</button>}
+            {cap.firma && <button className="fbcrm-texto" onClick={reabrir}>Corregir el mandato firmado</button>}
             {cap.firma && !cap.firmaCorredor && <button className="fbcrm-primario" onClick={firmarCorredor}>Firmar como corredor</button>}
             {cap.firmaCorredor && <span className="fbcrm-ok-linea">Firmado por Farm Brokers: {cap.firmaCorredor.nombre}, {fmtFecha(cap.firmaCorredor.fecha)}</span>}
           </div>
@@ -3737,16 +3743,30 @@ function MandatoEquipo({ ctx, campo, setCampo, cerrar }) {
       const r = await api(`/campos/${campo.id}/mandato-equipo`, { method: 'POST', body: { datos, config: cfg } });
       setCampo(r.campo); await cargar();
       const p = r.pendientes || [];
-      cerrar(p.length ? `Mandato listo. Quedaron en blanco para completar después: ${p.join(', ')}. El cliente también puede completarlos al firmar.` : 'Mandato listo. Envíale el link al cliente para que lo firme.');
+      const ya = !!campo.captacion;
+      cerrar(`${ya ? 'Cambios guardados en el mandato. El cliente los ve en el mismo link: no hay que enviarle uno nuevo.' : 'Mandato listo. Envíale el link al cliente para que lo firme.'}${p.length ? ` Quedaron en blanco para completar después: ${p.join(', ')}.` : ''}`);
       if (verDespues) ctx.imprimir({ tipo: 'mandato', id: campo.id });
     } catch (e) { setMsg(e.message); }
     setOcupado(false);
   };
   const regiones = REGIONES_FORM;
+  // Diferencias con la ficha del campo (hectáreas y precio), para corregir con un toque
+  const haMandato = d.predios.reduce((a, p) => a + (Number(String(p.hectareas ?? '').replace(',', '.')) || 0), 0);
+  const difHa = campo.hectareas != null && d.predios.length === 1 && Math.abs(haMandato - campo.hectareas) > 0.001;
+  const [monFicha, valFicha] = campo.precioUF ? ['UF', campo.precioUF] : campo.precioCLP ? ['CLP', campo.precioCLP] : [null, null];
+  const difPrecio = valFicha && d.precios.length === 1 && (numero(d.precios[0].precio) !== valFicha || d.precios[0].moneda !== monFicha);
+  const txtPrecio = (v, mon) => (v ? (mon === 'UF' ? `UF ${fmtNum(v)}` : `$${Math.round(v).toLocaleString('es-CL')}`) : 'sin precio');
   return (
     <div className="fbcrm-bloque fbcrm-cap">
-      <h3>Preparar mandato de venta</h3>
-      <p className="fbcrm-nota-suave">Los datos del campo vienen del CRM: revísalos. Tú completas los del cliente. La firma de Farm Brokers se agrega sola cuando el cliente firma.</p>
+      <h3>{campo.captacion ? 'Modificar mandato de venta' : 'Preparar mandato de venta'}</h3>
+      <p className="fbcrm-nota-suave">{campo.captacion ? 'Cambia lo que necesites (hectáreas, precio, vendedor, comisión…) y guarda. El cliente ve la versión nueva en el mismo link; si lo tenía abierto, se le pide revisarlo de nuevo antes de firmar.' : 'Los datos del campo vienen del CRM: revísalos. Tú completas los del cliente. La firma de Farm Brokers se agrega sola cuando el cliente firma.'}</p>
+      {(difHa || difPrecio) && (
+        <div className="fbcrm-aviso-caja">
+          <p><strong>La ficha del campo tiene otros datos que el mandato:</strong></p>
+          {difHa && <p>Superficie: ficha {fmtNum(campo.hectareas)} ha · mandato {haMandato ? `${fmtNum(haMandato)} ha` : 'sin superficie'} <button className="fbcrm-texto" onClick={() => setPr(0, 'hectareas', campo.hectareas)}>Usar la de la ficha</button></p>}
+          {difPrecio && <p>Precio: ficha {txtPrecio(valFicha, monFicha)} · mandato {txtPrecio(numero(d.precios[0].precio), d.precios[0].moneda)} <button className="fbcrm-texto" onClick={() => setD({ ...d, precios: [{ ...d.precios[0], moneda: monFicha, precio: valFicha }] })}>Usar el de la ficha</button></p>}
+        </div>
+      )}
       <div className="fbcrm-form">
         <Campo label="Título del mandato" ancho><input value={cfg.titulo} onChange={(e) => setCfg({ ...cfg, titulo: e.target.value })} placeholder="Ej. Predio El Maitén, Chancón, Rancagua" /></Campo>
       </div>
@@ -5747,6 +5767,8 @@ const CSS = `
 .fbcrm-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
 .fbcrm-tag{font-size:.77rem;background:var(--hoja);color:var(--tinta);padding:3px 9px;border-radius:999px;line-height:1.35}
 .fbcrm-tag.aviso{background:var(--trigo-cl);color:var(--trigo-osc)}
+.fbcrm-aviso-caja{background:var(--trigo-cl);color:var(--trigo-osc);border-radius:12px;padding:10px 14px;margin:10px 0 14px;font-size:.9rem}
+.fbcrm-aviso-caja p{margin:3px 0}
 .fbcrm-calce-resumen{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:.8rem;margin-top:3px;color:var(--salvia)}
 .fbcrm-calce-resumen .c-ok,.fbcrm-calce-linea.c-ok .ico{color:var(--potrero)}
 .fbcrm-calce-resumen .c-medio,.fbcrm-calce-linea.c-medio .ico{color:var(--trigo-osc)}
