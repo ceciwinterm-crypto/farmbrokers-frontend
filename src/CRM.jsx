@@ -59,18 +59,21 @@ function useUF() {
   return uf || UF_RESPALDO;
 }
 const precioEnUF = (c, uf) => (c.precioUF ? c.precioUF : c.precioCLP ? c.precioCLP / uf : null);
-const numUF = (t) => { const x = String(t || '').replace(/[^\d,.]/g, '').replace(/\./g, '').replace(',', '.'); return x ? Number(x) : null; };
-const pasaPrecio = (c, uf, desde, hasta) => {
-  const d = numUF(desde), h = numUF(hasta);
+const numUF = (t) => { const x = String(t || '').replace(/[^\d,.]/g, '').replace(/\./g, '').replace(',', '.'); if (!x) return null; return Number(x) * (/m\s*m|mill/i.test(String(t)) ? 1e6 : 1); }; // "600 MM" = 600 millones
+const pasaPrecio = (c, uf, desde, hasta, moneda = 'UF') => {
+  const enUF = (t) => { const v = numUF(t); return v == null ? null : moneda === 'CLP' ? v / uf : v; };
+  const d = enUF(desde), h = enUF(hasta);
   if (d == null && h == null) return true;
   const v = precioEnUF(c, uf);
   return v != null && (d == null || v >= d) && (h == null || v <= h);
 };
-function FiltroPrecio({ desde, hasta, setDesde, setHasta }) {
+function FiltroPrecio({ desde, hasta, setDesde, setHasta, moneda, setMoneda }) {
+  const uf = moneda !== 'CLP';
   return (
     <span className="fbcrm-filtro-precio">
-      <label><span>Precio desde (UF)</span><input inputMode="numeric" value={desde} onChange={(e) => setDesde(e.target.value)} placeholder="Ej. 10.000" /></label>
-      <label><span>hasta (UF)</span><input inputMode="numeric" value={hasta} onChange={(e) => setHasta(e.target.value)} placeholder="Ej. 50.000" /></label>
+      <label><span>Precio en</span><select value={moneda} onChange={(e) => setMoneda(e.target.value)}><option value="UF">UF</option><option value="CLP">Pesos ($)</option></select></label>
+      <label><span>Desde ({uf ? 'UF' : '$'})</span><input inputMode="numeric" value={desde} onChange={(e) => setDesde(e.target.value)} placeholder={uf ? 'Ej. 10.000' : 'Ej. 400.000.000 o 400 MM'} /></label>
+      <label><span>Hasta ({uf ? 'UF' : '$'})</span><input inputMode="numeric" value={hasta} onChange={(e) => setHasta(e.target.value)} placeholder={uf ? 'Ej. 50.000' : 'Ej. 2.000 MM'} /></label>
     </span>
   );
 }
@@ -765,6 +768,7 @@ function ListaCampos({ ctx, importar }) {
   const [fDif, setFDif] = useState(false);
   const [pDesde, setPDesde] = useState('');
   const [pHasta, setPHasta] = useState('');
+  const [pMoneda, setPMoneda] = useState('UF');
   const uf = useUF();
   const [verFiltros, setVerFiltros] = useState(false);
   const FILTROS = { activos: ['Activos', ['Mandato firmado', 'En venta', 'En arriendo', 'En negociación']], captacion: ['Captación', ['Prospección', 'Captación', 'Documentación']], cerrados: ['Cerrados', ['Vendido', 'Arrendado', 'Suspendido', 'Retirado de la web', 'Descartado']], todos: ['Todos', datos.etapas.campos] };
@@ -773,7 +777,7 @@ function ListaCampos({ ctx, importar }) {
   const idxR = (r) => { const i = datos.regiones.indexOf(r); return i < 0 ? 99 : i; };
   const cmp = (a, b) => String(a || '').localeCompare(String(b || ''), 'es', { sensitivity: 'base' });
   const lista = enEtapa.filter((c) => (!fRegion || (c.region || '') === fRegion) && (!fTipo || c.tipo === fTipo) &&
-    pasaPerfiles(c, fPerfiles) && (!fDif || diferenciasWeb(c).length > 0) && (!fVisib.length || fVisib.includes(visibDe(c))) && (!fOper || operDe(c) === fOper || operDe(c) === 'ambas') && pasaCorredor(c, fCorredor) && pasaPrecio(c, uf, pDesde, pHasta) &&
+    pasaPerfiles(c, fPerfiles) && (!fDif || diferenciasWeb(c).length > 0) && (!fVisib.length || fVisib.includes(visibDe(c))) && (!fOper || operDe(c) === fOper || operDe(c) === 'ambas') && pasaCorredor(c, fCorredor) && pasaPrecio(c, uf, pDesde, pHasta, pMoneda) &&
     (!nq || [c.nombre, c.sector, c.codigo, c.rol, c.plantaciones, c.aptitud, c.propietario, REG_NOMBRE[c.region], TIPOS[c.tipo]].join(' ').toLowerCase().includes(nq)));
   const porRegion = (a, b) => idxR(a.region) - idxR(b.region) || cmp(a.sector, b.sector) || cmp(a.nombre, b.nombre);
   const ordenes = {
@@ -823,7 +827,7 @@ function ListaCampos({ ctx, importar }) {
         <label><span>Ordenar</span><select value={orden} onChange={(e) => setOrden(e.target.value)}>
           <option value="region">Región, de norte a sur</option><option value="etapa">Etapa</option><option value="tipo">Tipo de propiedad</option><option value="nombre">Nombre</option><option value="hectareas">Hectáreas, mayor a menor</option><option value="plantadas">Hectáreas plantadas, mayor a menor</option><option value="precio">Precio, menor a mayor</option><option value="precioDesc">Precio, mayor a menor</option><option value="precioHa">Precio por hectárea, menor a mayor</option>
         </select></label>
-        <FiltroPrecio desde={pDesde} hasta={pHasta} setDesde={setPDesde} setHasta={setPHasta} />
+        <FiltroPrecio desde={pDesde} hasta={pHasta} setDesde={setPDesde} setHasta={setPHasta} moneda={pMoneda} setMoneda={setPMoneda} />
       </div>
       <FiltroPerfiles datos={datos} elegidos={fPerfiles} setElegidos={setFPerfiles} />
       <div className="fbcrm-filtro-perfiles" role="group" aria-label="Filtrar por visibilidad">
@@ -1737,6 +1741,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
   const [ordenCalce, setOrdenCalce] = useState('calce');
   const [mDesde, setMDesde] = useState('');
   const [mHasta, setMHasta] = useState('');
+  const [mMoneda, setMMoneda] = useState('UF');
   const uf = useUF();
   const camposQueCalzan = esNuevo ? [] : Object.entries(datos.matches).map(([cid, l]) => ({ campo: datos.campos.find((c) => c.id === cid), m: l.find((x) => x.clienteId === f.id) }))
     .filter((x) => x.m && x.campo).sort((a, b) => b.m.score - a.m.score);
@@ -1865,7 +1870,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
           precioDesc: (a, b) => (precioEnUF(b.campo, uf) ?? -1) - (precioEnUF(a.campo, uf) ?? -1),
           hectareas: (a, b) => (b.campo.hectareas || 0) - (a.campo.hectareas || 0),
         };
-        const filtrarOrdenar = (l) => { const x = l.filter((y) => pasaPrecio(y.campo, uf, mDesde, mHasta)); return ORD[ordenCalce] ? [...x].sort(ORD[ordenCalce]) : x; };
+        const filtrarOrdenar = (l) => { const x = l.filter((y) => pasaPrecio(y.campo, uf, mDesde, mHasta, mMoneda)); return ORD[ordenCalce] ? [...x].sort(ORD[ordenCalce]) : x; };
         const lista = filtrarOrdenar(ver === 'todas' ? camposQueCalzan : deBusq(ver));
         const sinPrecioFuera = numUF(mDesde) != null || numUF(mHasta) != null ? (ver === 'todas' ? camposQueCalzan : deBusq(ver)).length - lista.length : 0;
         const nFuertes = (l) => l.filter((x) => x.m.nivel === 'fuerte' && datos.ofrecibles.includes(x.campo.etapa)).length;
@@ -1888,7 +1893,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
             <h3>Campos que le calzan <span>{plural(fuertes.length, 'calce fuerte', 'calces fuertes')}</span></h3>
             <div className="fbcrm-filtros fbcrm-filtros-calce">
               <label><span>Ordenar</span><select value={ordenCalce} onChange={(e) => setOrdenCalce(e.target.value)}><option value="calce">Mejor calce primero</option><option value="precio">Precio, menor a mayor</option><option value="precioDesc">Precio, mayor a menor</option><option value="hectareas">Hectáreas, mayor a menor</option></select></label>
-              <FiltroPrecio desde={mDesde} hasta={mHasta} setDesde={setMDesde} setHasta={setMHasta} />
+              <FiltroPrecio desde={mDesde} hasta={mHasta} setDesde={setMDesde} setHasta={setMHasta} moneda={mMoneda} setMoneda={setMMoneda} />
             </div>
             {sinPrecioFuera > 0 && <p className="fbcrm-nota-suave">{plural(sinPrecioFuera, 'campo queda', 'campos quedan')} fuera por el filtro de precio (incluye los que no tienen precio escrito).</p>}
             <label className="fbcrm-porque-switch"><input type="checkbox" checked={verPorQue} onChange={(e) => setVerPorQue(e.target.checked)} /> Mostrar por qué calza cada campo (ubicación, cultivo, hectáreas…)</label>
@@ -5845,7 +5850,7 @@ const CSS = `
 .fbcrm-tag.aviso{background:var(--trigo-cl);color:var(--trigo-osc)}
 .fbcrm-palabras .fbcrm-chips input{flex:1;min-width:200px;border:1px solid var(--linea);border-radius:999px;padding:6px 12px;font:inherit;font-size:.88rem;background:var(--papel)}
 .fbcrm-filtro-precio{display:contents}
-.fbcrm-filtro-precio input{width:100%}
+.fbcrm-filtro-precio input,.fbcrm-filtro-precio select{width:100%}
 .fbcrm-filtros-calce{margin:0 0 10px}
 .fbcrm-aviso-caja{background:var(--trigo-cl);color:var(--trigo-osc);border-radius:12px;padding:10px 14px;margin:10px 0 14px;font-size:.9rem}
 .fbcrm-aviso-caja p{margin:3px 0}
