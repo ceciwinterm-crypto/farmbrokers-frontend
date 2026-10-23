@@ -1,5 +1,6 @@
 // CRM.jsx — Farm Brokers v2: campos, clientes, match automático, tasaciones y seguimiento del equipo
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { COMUNAS_POR_REGION } from './comunas.js';
 import { leerSesion, guardarSesion, actualizarUsuarioSesion, authApi, modoClave, elegirModoClave } from './sesion.js';
 
 // ⚠️ Cambia esta dirección por la URL de tu backend en Railway (la misma que usa la plataforma)
@@ -1277,7 +1278,7 @@ function ListaClientes({ ctx }) {
             <span className="fbcrm-avatar">{iniciales(c.nombre)}</span>
             <span className="fbcrm-cuerpo">
               <strong>{c.nombre}{c.clase === 'empresa' && <span className="fbcrm-tag-clase">Empresa{contactosDe(c).length > 1 ? ` · ${contactosDe(c).length} contactos` : ''}</span>}{busquedasCli(c).length > 1 && <span className="fbcrm-tag-clase">{busquedasCli(c).length} búsquedas</span>}</strong>
-              <small>{busquedasCli(c).length > 1 ? busquedasCli(c).filter((x) => x.activa !== false).map((x) => x.nombre).join(' · ') : [c.requerimiento, c.regiones.length ? c.regiones.join('–') : c.zona, c.haMin != null || c.haMax != null ? rangoTxt(c) : ''].filter(Boolean).join(', ')}</small>
+              <small>{busquedasCli(c).length > 1 ? busquedasCli(c).filter((x) => x.activa !== false).map((x) => x.nombre).join(' · ') : [c.requerimiento, (c.comunas || []).length ? c.comunas.map((x) => x.c).join(', ') : c.regiones.length ? c.regiones.join('–') : c.zona, c.haMin != null || c.haMax != null ? rangoTxt(c) : ''].filter(Boolean).join(', ')}</small>
               <EtiquetasPerfil datos={datos} ids={c.perfiles} />
             </span>
             <span className="fbcrm-der">
@@ -1521,7 +1522,24 @@ function CorredoresAdmin({ ctx }) {
 const rangoTxt = (c) => (c.haMax == null ? `${c.haMin}+ ha` : `${c.haMin || 0}–${c.haMax} ha`);
 
 const nuevoId = () => (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
-const BUSQUEDA_VACIA = () => ({ id: nuevoId(), nombre: '', activa: true, requerimiento: '', tipo: '', operacion: 'compra', regiones: [], cultivos: [], perfiles: [], zona: '', haMin: '', haMax: '', presupuesto: '' });
+// Comunas de una búsqueda: si eliges comunas de una región, en esa región solo calzan los campos de esas comunas
+function ElegirComunas({ valor, regiones, onChange }) {
+  const [txt, setTxt] = useState('');
+  const fuente = (regiones.length ? regiones : Object.keys(COMUNAS_POR_REGION)).flatMap((r) => (COMUNAS_POR_REGION[r] || []).map((c) => ({ c, r })));
+  const n = (x) => norm(x);
+  const sugeridas = txt.trim().length >= 2 ? fuente.filter((x) => n(x.c).includes(n(txt)) && !valor.some((v) => n(v.c) === n(x.c) && v.r === x.r)).slice(0, 8) : [];
+  const agregar = (x) => { onChange([...valor, x], x.r); setTxt(''); };
+  return (
+    <div className="fbcrm-comunas">
+      <p className="fbcrm-etq">Comunas <span className="fbcrm-nota-suave">(opcional: en esa región solo calzan los campos de estas comunas)</span></p>
+      {valor.length > 0 && <div className="fbcrm-chips">{valor.map((v) => <button key={`${v.r}-${v.c}`} className="on" title="Quitar" onClick={() => onChange(valor.filter((y) => !(y.c === v.c && y.r === v.r)))}>{v.c} <small>({v.r})</small> ×</button>)}</div>}
+      <input value={txt} onChange={(e) => setTxt(e.target.value)} placeholder={regiones.length ? 'Escribe una comuna de las regiones elegidas' : 'Escribe una comuna (ej. Pirque)'} aria-label="Agregar comuna"
+        onKeyDown={(e) => { if (e.key === 'Enter' && sugeridas[0]) { e.preventDefault(); agregar(sugeridas[0]); } }} />
+      {sugeridas.length > 0 && <div className="fbcrm-chips fbcrm-sep">{sugeridas.map((x) => <button key={`${x.r}-${x.c}`} onClick={() => agregar(x)}>+ {x.c} <small>({x.r})</small></button>)}</div>}
+    </div>
+  );
+}
+const BUSQUEDA_VACIA = () => ({ id: nuevoId(), nombre: '', activa: true, requerimiento: '', tipo: '', operacion: 'compra', regiones: [], comunas: [], cultivos: [], perfiles: [], zona: '', haMin: '', haMax: '', presupuesto: '' });
 function prepararCliente(c) {
   const contactos = Array.isArray(c.contactos) && c.contactos.length ? c.contactos.map((x) => ({ ...x }))
     : contactosDe(c).length ? contactosDe(c).map((x) => ({ ...x, id: x.id || nuevoId() })) : [{ id: nuevoId(), nombre: '', cargo: '', telefono: '', email: '', principal: true }];
@@ -1655,6 +1673,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         <div className="fbcrm-chips">{Object.entries(datos.cultivos).map(([k, l]) => <button key={k} className={b.cultivos.includes(k) ? 'on' : ''} aria-pressed={b.cultivos.includes(k)} onClick={() => toggleB('cultivos', k)}>{l}</button>)}</div>
         <p className="fbcrm-etq">Regiones</p>
         <div className="fbcrm-chips">{datos.regiones.map((r) => <button key={r} className={b.regiones.includes(r) ? 'on' : ''} aria-pressed={b.regiones.includes(r)} title={REG_NOMBRE[r]} onClick={() => toggleB('regiones', r)}>{r === 'PE' ? 'Perú' : r}</button>)}</div>
+        <ElegirComunas valor={b.comunas || []} regiones={b.regiones || []} onChange={(comunas, region) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, comunas, regiones: region && !(y.regiones || []).includes(region) ? [...(y.regiones || []), region] : y.regiones } : y)) }))} />
         {(() => { const n = [(b.regiones || []).length > 0, b.haMin !== '' && b.haMin != null || b.haMax !== '' && b.haMax != null, (b.cultivos || []).length > 0].filter(Boolean).length; return n < 2 && !(b.zona || '').trim() && <p className="fbcrm-aviso-linea">Para que esta búsqueda haga match, indica al menos dos de estos datos: regiones, hectáreas o cultivos (o una comuna en “Zonas”).</p>; })()}
         {f.busquedas.length > 1 && <p className="fbcrm-sep2"><button className="fbcrm-texto fbcrm-peligro-texto" onClick={() => { if (!window.confirm(`¿Quitar la búsqueda “${b.nombre}”?`)) return; setF((x) => ({ ...x, busquedas: x.busquedas.filter((y) => y.id !== b.id) })); setBSel(0); }}>Quitar esta búsqueda</button></p>}
       </div>
