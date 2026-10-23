@@ -1539,8 +1539,15 @@ function ElegirZonas({ ctx, valor, onChange, excluidas = [], onExcluidas }) {
   return (
     <div className="fbcrm-zonas">
       <p className="fbcrm-etq">Zonas <span className="fbcrm-nota-suave">(valles: en esa región solo calzan los campos de sus comunas)</span></p>
+      {[['oficial', 'Valles oficiales (Decreto 464, SAG)', ([, z]) => /Decreto/.test(z.fuente || '')], ['comercial', 'Zonas comerciales', ([, z]) => !/Decreto/.test(z.fuente || '')]].map(([g, titulo, filtro]) => (
+        <div key={g}>
+          <p className="fbcrm-nota-suave fbcrm-zona-grupo">{titulo}</p>
+          <div className="fbcrm-chips">
+            {orden.filter(filtro).map(([k, z]) => <button key={k} className={valor.includes(k) ? 'on' : ''} aria-pressed={valor.includes(k)} title={`${REG_NOMBRE[z.r] || z.r}: ${z.comunas.join(', ')}${z.fuente ? ` · Fuente: ${z.fuente}` : ''}`} onClick={() => (valor.includes(k) ? onChange(valor.filter((x) => x !== k)) : onChange([...valor, k], z.r))}>{z.nombre}</button>)}
+          </div>
+        </div>
+      ))}
       <div className="fbcrm-chips">
-        {orden.map(([k, z]) => <button key={k} className={valor.includes(k) ? 'on' : ''} aria-pressed={valor.includes(k)} title={`${REG_NOMBRE[z.r] || z.r}: ${z.comunas.join(', ')}`} onClick={() => (valor.includes(k) ? onChange(valor.filter((x) => x !== k)) : onChange([...valor, k], z.r))}>{z.nombre}</button>)}
         <button className="fbcrm-chip-agregar" onClick={() => setNueva(nueva ? null : { nombre: '', r: '', comunas: [] })}>{nueva ? 'Cancelar' : '+ Agregar o corregir zona'}</button>
       </div>
       {valor.filter((k) => zonas[k]).map((k) => {
