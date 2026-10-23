@@ -1278,7 +1278,7 @@ function ListaClientes({ ctx }) {
             <span className="fbcrm-avatar">{iniciales(c.nombre)}</span>
             <span className="fbcrm-cuerpo">
               <strong>{c.nombre}{c.clase === 'empresa' && <span className="fbcrm-tag-clase">Empresa{contactosDe(c).length > 1 ? ` · ${contactosDe(c).length} contactos` : ''}</span>}{busquedasCli(c).length > 1 && <span className="fbcrm-tag-clase">{busquedasCli(c).length} búsquedas</span>}</strong>
-              <small>{busquedasCli(c).length > 1 ? busquedasCli(c).filter((x) => x.activa !== false).map((x) => x.nombre).join(' · ') : [c.requerimiento, (c.comunas || []).length ? c.comunas.map((x) => x.c).join(', ') : c.regiones.length ? c.regiones.join('–') : c.zona, c.haMin != null || c.haMax != null ? rangoTxt(c) : ''].filter(Boolean).join(', ')}</small>
+              <small>{busquedasCli(c).length > 1 ? busquedasCli(c).filter((x) => x.activa !== false).map((x) => x.nombre).join(' · ') : [c.requerimiento, (c.zonas || []).length ? c.zonas.map((z) => ((datos.zonas || {})[z] || {}).nombre || z).join(', ') : (c.comunas || []).length ? c.comunas.map((x) => x.c).join(', ') : c.regiones.length ? c.regiones.join('–') : c.zona, c.haMin != null || c.haMax != null ? rangoTxt(c) : ''].filter(Boolean).join(', ')}</small>
               <EtiquetasPerfil datos={datos} ids={c.perfiles} />
             </span>
             <span className="fbcrm-der">
@@ -1522,6 +1522,40 @@ function CorredoresAdmin({ ctx }) {
 const rangoTxt = (c) => (c.haMax == null ? `${c.haMin}+ ha` : `${c.haMin || 0}–${c.haMax} ha`);
 
 const nuevoId = () => (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
+// Zonas agrícolas (valles): en esa región solo calzan los campos de las comunas de la zona
+function ElegirZonas({ ctx, valor, onChange }) {
+  const { datos, api, cargar } = ctx;
+  const zonas = datos.zonas || {};
+  const [nueva, setNueva] = useState(null);
+  const [msg, setMsg] = useState('');
+  const orden = Object.entries(zonas).sort((a, b) => ORDEN_REG.indexOf(a[1].r) - ORDEN_REG.indexOf(b[1].r) || a[1].nombre.localeCompare(b[1].nombre, 'es'));
+  const guardarZona = async () => {
+    setMsg('');
+    try { const r = await api('/zonas', { method: 'POST', body: { nombre: nueva.nombre, r: nueva.r, comunas: nueva.comunas.map((x) => x.c), clave: nueva.clave } }); await cargar(); if (!valor.includes(r.clave)) onChange([...valor, r.clave], nueva.r); setNueva(null); }
+    catch (e) { setMsg(e.message); }
+  };
+  return (
+    <div className="fbcrm-zonas">
+      <p className="fbcrm-etq">Zonas <span className="fbcrm-nota-suave">(valles: en esa región solo calzan los campos de sus comunas)</span></p>
+      <div className="fbcrm-chips">
+        {orden.map(([k, z]) => <button key={k} className={valor.includes(k) ? 'on' : ''} aria-pressed={valor.includes(k)} title={`${REG_NOMBRE[z.r] || z.r}: ${z.comunas.join(', ')}`} onClick={() => (valor.includes(k) ? onChange(valor.filter((x) => x !== k)) : onChange([...valor, k], z.r))}>{z.nombre}</button>)}
+        <button className="fbcrm-chip-agregar" onClick={() => setNueva(nueva ? null : { nombre: '', r: '', comunas: [] })}>{nueva ? 'Cancelar' : '+ Agregar o corregir zona'}</button>
+      </div>
+      {nueva && (
+        <div className="fbcrm-bloque fbcrm-sep">
+          <div className="fbcrm-form">
+            <Campo label="Zona (si ya existe, la corriges)"><input value={nueva.nombre} list="fbcrm-zonas-lista" onChange={(e) => { const nombre = e.target.value; const ex = orden.find(([, z]) => z.nombre.toLowerCase() === nombre.trim().toLowerCase()); setNueva(ex ? { nombre, r: ex[1].r, clave: ex[0], comunas: ex[1].comunas.map((c) => ({ c, r: ex[1].r })) } : { ...nueva, nombre, clave: undefined }); }} placeholder="Ej. Valle de Cauquenes" /></Campo>
+            <datalist id="fbcrm-zonas-lista">{orden.map(([k, z]) => <option key={k} value={z.nombre} />)}</datalist>
+            <Campo label="Región"><select value={nueva.r} onChange={(e) => setNueva({ ...nueva, r: e.target.value, comunas: [] })}><option value="">Elegir</option>{ORDEN_REG.filter((r) => r !== 'PE').map((r) => <option key={r} value={r}>{REG_NOMBRE[r] || r}</option>)}</select></Campo>
+          </div>
+          {nueva.r && <ElegirComunas valor={nueva.comunas} regiones={[nueva.r]} onChange={(comunas) => setNueva({ ...nueva, comunas: comunas.filter((x) => x.r === nueva.r) })} />}
+          {msg && <p className="fbcrm-error">{msg}</p>}
+          <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={!nueva.nombre.trim() || !nueva.r || !nueva.comunas.length} onClick={guardarZona}>Guardar zona</button></div>
+        </div>
+      )}
+    </div>
+  );
+}
 // Comunas de una búsqueda: si eliges comunas de una región, en esa región solo calzan los campos de esas comunas
 function ElegirComunas({ valor, regiones, onChange }) {
   const [txt, setTxt] = useState('');
@@ -1539,7 +1573,7 @@ function ElegirComunas({ valor, regiones, onChange }) {
     </div>
   );
 }
-const BUSQUEDA_VACIA = () => ({ id: nuevoId(), nombre: '', activa: true, requerimiento: '', tipo: '', operacion: 'compra', regiones: [], comunas: [], cultivos: [], perfiles: [], zona: '', haMin: '', haMax: '', presupuesto: '' });
+const BUSQUEDA_VACIA = () => ({ id: nuevoId(), nombre: '', activa: true, requerimiento: '', tipo: '', operacion: 'compra', regiones: [], comunas: [], zonas: [], cultivos: [], perfiles: [], zona: '', haMin: '', haMax: '', presupuesto: '' });
 function prepararCliente(c) {
   const contactos = Array.isArray(c.contactos) && c.contactos.length ? c.contactos.map((x) => ({ ...x }))
     : contactosDe(c).length ? contactosDe(c).map((x) => ({ ...x, id: x.id || nuevoId() })) : [{ id: nuevoId(), nombre: '', cargo: '', telefono: '', email: '', principal: true }];
@@ -1683,6 +1717,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         </div>
         <p className="fbcrm-etq">Regiones</p>
         <div className="fbcrm-chips">{datos.regiones.map((r) => <button key={r} className={b.regiones.includes(r) ? 'on' : ''} aria-pressed={b.regiones.includes(r)} title={REG_NOMBRE[r]} onClick={() => toggleB('regiones', r)}>{r === 'PE' ? 'Perú' : r}</button>)}</div>
+        <ElegirZonas ctx={ctx} valor={b.zonas || []} onChange={(zonas, region) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, zonas, regiones: region && !(y.regiones || []).includes(region) ? [...(y.regiones || []), region] : y.regiones } : y)) }))} />
         <ElegirComunas valor={b.comunas || []} regiones={b.regiones || []} onChange={(comunas, region) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, comunas, regiones: region && !(y.regiones || []).includes(region) ? [...(y.regiones || []), region] : y.regiones } : y)) }))} />
         {(() => { const n = [(b.regiones || []).length > 0, b.haMin !== '' && b.haMin != null || b.haMax !== '' && b.haMax != null, (b.cultivos || []).length > 0].filter(Boolean).length; return n < 2 && !(b.zona || '').trim() && <p className="fbcrm-aviso-linea">Para que esta búsqueda haga match, indica al menos dos de estos datos: regiones, hectáreas o cultivos (o una comuna en “Zonas”).</p>; })()}
         {f.busquedas.length > 1 && <p className="fbcrm-sep2"><button className="fbcrm-texto fbcrm-peligro-texto" onClick={() => { if (!window.confirm(`¿Quitar la búsqueda “${b.nombre}”?`)) return; setF((x) => ({ ...x, busquedas: x.busquedas.filter((y) => y.id !== b.id) })); setBSel(0); }}>Quitar esta búsqueda</button></p>}
