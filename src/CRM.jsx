@@ -1525,7 +1525,7 @@ const nuevoId = () => (window.crypto && window.crypto.randomUUID ? window.crypto
 // Zonas (valles) a las que pertenece una comuna
 const zonasDeComuna = (zonas, comuna, region) => Object.entries(zonas || {}).filter(([, z]) => (!region || z.r === region) && z.comunas.some((c) => norm(c) === norm(comuna))).map(([k, z]) => ({ k, ...z }));
 // Zonas agrícolas (valles): en esa región solo calzan los campos de las comunas de la zona
-function ElegirZonas({ ctx, valor, onChange }) {
+function ElegirZonas({ ctx, valor, onChange, excluidas = [], onExcluidas }) {
   const { datos, api, cargar } = ctx;
   const zonas = datos.zonas || {};
   const [nueva, setNueva] = useState(null);
@@ -1543,7 +1543,18 @@ function ElegirZonas({ ctx, valor, onChange }) {
         {orden.map(([k, z]) => <button key={k} className={valor.includes(k) ? 'on' : ''} aria-pressed={valor.includes(k)} title={`${REG_NOMBRE[z.r] || z.r}: ${z.comunas.join(', ')}`} onClick={() => (valor.includes(k) ? onChange(valor.filter((x) => x !== k)) : onChange([...valor, k], z.r))}>{z.nombre}</button>)}
         <button className="fbcrm-chip-agregar" onClick={() => setNueva(nueva ? null : { nombre: '', r: '', comunas: [] })}>{nueva ? 'Cancelar' : '+ Agregar o corregir zona'}</button>
       </div>
-      {valor.filter((k) => zonas[k]).map((k) => <p key={k} className="fbcrm-nota-suave fbcrm-zona-incluye"><b>{zonas[k].nombre}</b> ({REG_NOMBRE[zonas[k].r] || zonas[k].r}) incluye: {zonas[k].comunas.join(', ')}.</p>)}
+      {valor.filter((k) => zonas[k]).map((k) => {
+        const z = zonas[k], fuera = (c) => excluidas.some((x) => x.r === z.r && norm(x.c) === norm(c));
+        return (
+          <div key={k} className="fbcrm-zona-incluye">
+            <p className="fbcrm-nota-suave"><b>{z.nombre}</b> ({REG_NOMBRE[z.r] || z.r}): toca una comuna para sacarla de esta búsqueda.</p>
+            <div className="fbcrm-chips fbcrm-chips-mini">
+              {z.comunas.map((c) => <button key={c} className={fuera(c) ? 'fbcrm-excluida' : 'on'} aria-pressed={!fuera(c)} title={fuera(c) ? 'No la quiere: toca para volver a incluirla' : 'Incluida: toca para sacarla'}
+                onClick={() => onExcluidas(fuera(c) ? excluidas.filter((x) => !(x.r === z.r && norm(x.c) === norm(c))) : [...excluidas, { c, r: z.r }])}>{fuera(c) ? '✕ ' : ''}{c}</button>)}
+            </div>
+          </div>
+        );
+      })}
       {nueva && (
         <div className="fbcrm-bloque fbcrm-sep">
           <div className="fbcrm-form">
@@ -1576,7 +1587,7 @@ function ElegirComunas({ valor, regiones, onChange, zonas }) {
     </div>
   );
 }
-const BUSQUEDA_VACIA = () => ({ id: nuevoId(), nombre: '', activa: true, requerimiento: '', tipo: '', operacion: 'compra', regiones: [], comunas: [], zonas: [], cultivos: [], perfiles: [], zona: '', haMin: '', haMax: '', presupuesto: '' });
+const BUSQUEDA_VACIA = () => ({ id: nuevoId(), nombre: '', activa: true, requerimiento: '', tipo: '', operacion: 'compra', regiones: [], comunas: [], zonas: [], excluidas: [], cultivos: [], perfiles: [], zona: '', haMin: '', haMax: '', presupuesto: '' });
 function prepararCliente(c) {
   const contactos = Array.isArray(c.contactos) && c.contactos.length ? c.contactos.map((x) => ({ ...x }))
     : contactosDe(c).length ? contactosDe(c).map((x) => ({ ...x, id: x.id || nuevoId() })) : [{ id: nuevoId(), nombre: '', cargo: '', telefono: '', email: '', principal: true }];
@@ -1720,7 +1731,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         </div>
         <p className="fbcrm-etq">Regiones</p>
         <div className="fbcrm-chips">{datos.regiones.map((r) => <button key={r} className={b.regiones.includes(r) ? 'on' : ''} aria-pressed={b.regiones.includes(r)} title={REG_NOMBRE[r]} onClick={() => toggleB('regiones', r)}>{r === 'PE' ? 'Perú' : r}</button>)}</div>
-        <ElegirZonas ctx={ctx} valor={b.zonas || []} onChange={(zonas, region) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, zonas, regiones: region && !(y.regiones || []).includes(region) ? [...(y.regiones || []), region] : y.regiones } : y)) }))} />
+        <ElegirZonas ctx={ctx} valor={b.zonas || []} excluidas={b.excluidas || []} onExcluidas={(v) => setB('excluidas', v)} onChange={(zonas, region) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, zonas, regiones: region && !(y.regiones || []).includes(region) ? [...(y.regiones || []), region] : y.regiones } : y)) }))} />
         <ElegirComunas zonas={datos.zonas} valor={b.comunas || []} regiones={b.regiones || []} onChange={(comunas, region) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, comunas, regiones: region && !(y.regiones || []).includes(region) ? [...(y.regiones || []), region] : y.regiones } : y)) }))} />
         {(() => { const n = [(b.regiones || []).length > 0, b.haMin !== '' && b.haMin != null || b.haMax !== '' && b.haMax != null, (b.cultivos || []).length > 0].filter(Boolean).length; return n < 2 && !(b.zona || '').trim() && <p className="fbcrm-aviso-linea">Para que esta búsqueda haga match, indica al menos dos de estos datos: regiones, hectáreas o cultivos (o una comuna en “Zonas”).</p>; })()}
         {f.busquedas.length > 1 && <p className="fbcrm-sep2"><button className="fbcrm-texto fbcrm-peligro-texto" onClick={() => { if (!window.confirm(`¿Quitar la búsqueda “${b.nombre}”?`)) return; setF((x) => ({ ...x, busquedas: x.busquedas.filter((y) => y.id !== b.id) })); setBSel(0); }}>Quitar esta búsqueda</button></p>}
@@ -6178,6 +6189,8 @@ const CSS = `
 .fbcrm-info h3+.fbcrm-seccion{margin-top:4px;padding-top:0;border-top:0}
 .fbcrm .fbcrm-guardar-barra .fbcrm-descartar{color:#fff;opacity:.75;margin-left:auto;font-size:.88rem}
 .fbcrm .fbcrm-chips .fbcrm-chip-agregar{border-style:dashed;color:var(--potrero);background:transparent}
+.fbcrm .fbcrm-chips button.fbcrm-excluida{text-decoration:line-through;color:#9B4B43;border-color:#E8C9C4;background:#FBF1EF}
+.fbcrm .fbcrm-chips-mini button{padding:4px 10px;font-size:.82rem}
 .fbcrm-guardar-barra{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px -4px 0;padding:12px 14px;background:var(--tinta);color:#fff;border-radius:14px;box-shadow:0 -4px 20px rgba(23,38,29,.18)}
 .fbcrm-guardar-barra span{flex:1;min-width:150px;font-weight:500}
 .fbcrm .fbcrm-guardar-barra button{background:transparent;color:#fff;border-color:rgba(255,255,255,.35)}
