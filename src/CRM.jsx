@@ -1669,8 +1669,17 @@ function FichaCliente({ ctx, inicial, cerrar }) {
           <Campo label="Presupuesto" ancho><input value={b.presupuesto || ''} onChange={(e) => setB('presupuesto', e.target.value)} placeholder="Ej. hasta UF 150.000" /></Campo>
           <Campo label="Zonas o comunas específicas" ancho><input value={b.zona || ''} onChange={(e) => setB('zona', e.target.value)} placeholder="Ej. Las Cabras, Rapel, Mallarauco" /></Campo>
         </div>
-        <p className="fbcrm-etq">Cultivos</p>
-        <div className="fbcrm-chips">{Object.entries(datos.cultivos).map(([k, l]) => <button key={k} className={b.cultivos.includes(k) ? 'on' : ''} aria-pressed={b.cultivos.includes(k)} onClick={() => toggleB('cultivos', k)}>{l}</button>)}</div>
+        <div className="fbcrm-form fbcrm-sep2">
+          <Campo label="¿Plantado o sin plantar?"><select value={b.plantado || ''} onChange={(e) => setB('plantado', e.target.value)}><option value="">Le da lo mismo</option><option value="plantado">Plantado (en producción)</option><option value="sin_plantar">Sin plantar (para plantar)</option></select></Campo>
+        </div>
+        <p className="fbcrm-etq">Cultivos {b.plantado === 'sin_plantar' ? <span className="fbcrm-nota-suave">(lo que quiere plantar)</span> : null}</p>
+        <div className="fbcrm-chips">{Object.entries(datos.cultivos).map(([k, l]) => <button key={k} className={b.cultivos.includes(k) ? 'on' : ''} aria-pressed={b.cultivos.includes(k)} onClick={() => toggleB('cultivos', k)}>{l}</button>)}
+          <button className="fbcrm-chip-agregar" onClick={async () => {
+            const nombre = (window.prompt('Nombre del cultivo nuevo (ej. Ciruelos, Kiwis, Pistachos):') || '').trim(); if (!nombre) return;
+            const frutal = window.confirm(`¿${nombre} es un frutal? (Aceptar = sí). Así también calza con los clientes que buscan "frutales".`);
+            try { const r = await api('/cultivos', { method: 'POST', body: { nombre, frutal } }); await cargar(); if (!b.cultivos.includes(r.clave)) toggleB('cultivos', r.clave); } catch (e) { window.alert(e.message); }
+          }}>+ Agregar cultivo</button>
+        </div>
         <p className="fbcrm-etq">Regiones</p>
         <div className="fbcrm-chips">{datos.regiones.map((r) => <button key={r} className={b.regiones.includes(r) ? 'on' : ''} aria-pressed={b.regiones.includes(r)} title={REG_NOMBRE[r]} onClick={() => toggleB('regiones', r)}>{r === 'PE' ? 'Perú' : r}</button>)}</div>
         <ElegirComunas valor={b.comunas || []} regiones={b.regiones || []} onChange={(comunas, region) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, comunas, regiones: region && !(y.regiones || []).includes(region) ? [...(y.regiones || []), region] : y.regiones } : y)) }))} />
@@ -6106,6 +6115,7 @@ const CSS = `
 .fbcrm-seccion{font-size:.8rem;font-weight:600;color:var(--potrero-osc);text-transform:none;margin:20px 0 8px;padding-top:14px;border-top:1px solid var(--linea2)}
 .fbcrm-info h3+.fbcrm-seccion{margin-top:4px;padding-top:0;border-top:0}
 .fbcrm .fbcrm-guardar-barra .fbcrm-descartar{color:#fff;opacity:.75;margin-left:auto;font-size:.88rem}
+.fbcrm .fbcrm-chips .fbcrm-chip-agregar{border-style:dashed;color:var(--potrero);background:transparent}
 .fbcrm-guardar-barra{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px -4px 0;padding:12px 14px;background:var(--tinta);color:#fff;border-radius:14px;box-shadow:0 -4px 20px rgba(23,38,29,.18)}
 .fbcrm-guardar-barra span{flex:1;min-width:150px;font-weight:500}
 .fbcrm .fbcrm-guardar-barra button{background:transparent;color:#fff;border-color:rgba(255,255,255,.35)}
