@@ -1579,6 +1579,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
     if (!window.confirm(`¿Eliminar a ${f.nombre}?`)) return;
     try { const r = await api(`/clientes/${f.id}`, { method: 'DELETE', body: ctx.datos.esAdmin ? {} : { motivo: window.prompt('¿Por qué hay que eliminarlo? (lo verá la administradora)') || '' } }); await cargar(); if (r.pendiente) { setMsg(r.mensaje); return; } cerrar(); } catch (e) { setMsg(e.message); }
   };
+  const [verBusq, setVerBusq] = useState('todas'); // calces: todas las búsquedas o una en particular
   const camposQueCalzan = esNuevo ? [] : Object.entries(datos.matches).map(([cid, l]) => ({ campo: datos.campos.find((c) => c.id === cid), m: l.find((x) => x.clienteId === f.id) }))
     .filter((x) => x.m && x.campo).sort((a, b) => b.m.score - a.m.score);
   const antiguedad = f.fechaRequerimiento ? (Date.now() - new Date(f.fechaRequerimiento.slice(0, 7) + '-15')) / (864e5 * 30.4) : 0;
@@ -1694,20 +1695,34 @@ function FichaCliente({ ctx, inicial, cerrar }) {
       {!esNuevo && <Seguimiento ctx={ctx} f={f} setF={setF} ocupado={ocupado} onGuardar={() => grabar()} />}
       {camposQueCalzan.length > 0 && (() => {
         // Mismo criterio que la lista de clientes: primero los campos disponibles (en venta o arriendo) con calce fuerte
+        const activas = f.busquedas.filter((b) => b.activa !== false);
+        const varias = activas.length > 1;
+        const deBusq = (id) => camposQueCalzan.map((x) => { const pb = (x.m.porBusqueda || []).find((p) => p.busquedaId === id) || (!(x.m.porBusqueda || []).length && x.m.busquedaId === id ? x.m : null); return pb ? { campo: x.campo, m: { ...x.m, ...pb, razones: pb.razones.filter((r) => !/^Búsqueda: /.test(r)) } } : null; }).filter(Boolean);
+        const ver = varias && verBusq !== 'todas' && activas.some((b) => b.id === verBusq) ? verBusq : 'todas';
+        const lista = ver === 'todas' ? camposQueCalzan : deBusq(ver);
+        const nFuertes = (l) => l.filter((x) => x.m.nivel === 'fuerte' && datos.ofrecibles.includes(x.campo.etapa)).length;
+        const paraQuien = (m) => (ver !== 'todas' || !varias ? '' : (m.porBusqueda || []).length ? `para ${m.porBusqueda.map((p) => p.nombre).join(' y ')}` : (m.razones.find((r) => /^Búsqueda: /.test(r)) || '').replace('Búsqueda: ', 'para '));
         const fila = ({ campo, m }) => {
             const env = (campo.envios || []).find((e) => e.clienteId === f.id);
             return (
               <button key={campo.id} className="fbcrm-fila" onClick={() => abrir('campos', campo)}>
-                <span className="fbcrm-cuerpo"><strong>{campo.nombre}</strong><small>{[(m.razones.find((r) => /^Búsqueda: /.test(r)) || '').replace('Búsqueda: ', 'para '), campo.sector, campo.etapa, m.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial', env ? `enviado ${fmtFecha(env.fecha)}` : 'no enviado'].filter(Boolean).join(', ')}</small></span>
+                <span className="fbcrm-cuerpo"><strong>{campo.nombre}</strong><small>{[paraQuien(m), campo.sector, campo.etapa, m.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial', env ? `enviado ${fmtFecha(env.fecha)}` : 'no enviado'].filter(Boolean).join(', ')}</small></span>
               </button>
             );
         };
-        const disp = camposQueCalzan.filter((x) => datos.ofrecibles.includes(x.campo.etapa));
+        const disp = lista.filter((x) => datos.ofrecibles.includes(x.campo.etapa));
         const fuertes = disp.filter((x) => x.m.nivel === 'fuerte'), parciales = disp.filter((x) => x.m.nivel !== 'fuerte');
-        const otros = camposQueCalzan.filter((x) => !datos.ofrecibles.includes(x.campo.etapa));
+        const otros = lista.filter((x) => !datos.ofrecibles.includes(x.campo.etapa));
         return (
           <div className="fbcrm-bloque">
             <h3>Campos que le calzan <span>{plural(fuertes.length, 'calce fuerte', 'calces fuertes')}</span></h3>
+            {varias && (
+              <div className="fbcrm-chips" role="tablist" aria-label="Ver calces de">
+                <button role="tab" aria-selected={ver === 'todas'} className={ver === 'todas' ? 'on' : ''} onClick={() => setVerBusq('todas')}>Todas las búsquedas · {nFuertes(camposQueCalzan)}</button>
+                {activas.map((b) => <button key={b.id} role="tab" aria-selected={ver === b.id} className={ver === b.id ? 'on' : ''} onClick={() => setVerBusq(b.id)}>{b.nombre || 'Búsqueda'} · {nFuertes(deBusq(b.id))}</button>)}
+              </div>
+            )}
+            {varias && ver === 'todas' && <p className="fbcrm-nota-suave">Cada campo aparece una vez; debajo dice para qué búsqueda calza. Toca una búsqueda para ver solo sus calces.</p>}
             {fuertes.length ? fuertes.map(fila) : <p className="fbcrm-nota-suave">No hay campos disponibles con calce fuerte. Revisa los de calce parcial.</p>}
             {parciales.length > 0 && <details className="fbcrm-aviso"><summary><strong>Calce parcial</strong> <span>{plural(parciales.length, 'campo')} disponibles que calzan en algunas cosas</span></summary>{parciales.map(fila)}</details>}
             {otros.length > 0 && <details className="fbcrm-aviso"><summary><strong>Aún no disponibles</strong> <span>{plural(otros.length, 'campo')} en captación, documentación, suspendidos u otra etapa</span></summary>{otros.map(fila)}</details>}
