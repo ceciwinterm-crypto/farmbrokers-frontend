@@ -971,7 +971,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           <Campo label={etqWeb('Tipo de propiedad', 'tipo')}>{deWeb('tipo') ? <input value={(datos.tipos || {})[f.tipo] || TIPOS[f.tipo] || f.tipo || ''} disabled /> : <SelectTipo ctx={ctx} value={f.tipo || 'agricola'} onChange={(v) => setF((x) => ({ ...x, tipo: v }))} />}</Campo>
           {esNuevo && <Campo label="Etapa"><select value={f.etapa} onChange={set('etapa')}>{datos.etapas.campos.map((e) => <option key={e}>{e}</option>)}</select></Campo>}
           <Campo label={etqWeb('Región', 'region')}><select value={f.region || ''} disabled={deWeb('region')} onChange={set('region')}><option value="">Sin región</option>{datos.regiones.map((r) => <option key={r} value={r}>{r === 'PE' ? 'Perú' : `${r}, ${REG_NOMBRE[r]}`}</option>)}</select></Campo>
-          <Campo label={etqWeb('Comuna o sector', 'sector')}><input value={f.sector || ''} disabled={deWeb('sector')} onChange={set('sector')} /></Campo>
+          <Campo label={etqWeb('Comuna o sector', 'sector')}><input value={f.sector || ''} disabled={deWeb('sector')} onChange={set('sector')} />{(() => { const zs = zonasDeComuna(datos.zonas, f.sector || '', f.region); return zs.length ? <small className="fbcrm-nota-suave">Zona: {zs.map((z) => z.nombre).join(', ')}</small> : null; })()}</Campo>
           <Campo label="Rol SII"><input value={f.rol || ''} onChange={set('rol')} placeholder="28-95" /></Campo>
           <Campo label={etqWeb('Código', 'codigo')}><input value={f.codigo || ''} disabled={deWeb('codigo')} onChange={set('codigo')} /></Campo>
           <Campo label="Coordenadas (pega desde Google Maps)" ancho><input value={f.coordenadas || ''} onChange={set('coordenadas')} placeholder="-34.3963, -71.6152" /></Campo>
@@ -1522,6 +1522,8 @@ function CorredoresAdmin({ ctx }) {
 const rangoTxt = (c) => (c.haMax == null ? `${c.haMin}+ ha` : `${c.haMin || 0}–${c.haMax} ha`);
 
 const nuevoId = () => (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
+// Zonas (valles) a las que pertenece una comuna
+const zonasDeComuna = (zonas, comuna, region) => Object.entries(zonas || {}).filter(([, z]) => (!region || z.r === region) && z.comunas.some((c) => norm(c) === norm(comuna))).map(([k, z]) => ({ k, ...z }));
 // Zonas agrícolas (valles): en esa región solo calzan los campos de las comunas de la zona
 function ElegirZonas({ ctx, valor, onChange }) {
   const { datos, api, cargar } = ctx;
@@ -1541,6 +1543,7 @@ function ElegirZonas({ ctx, valor, onChange }) {
         {orden.map(([k, z]) => <button key={k} className={valor.includes(k) ? 'on' : ''} aria-pressed={valor.includes(k)} title={`${REG_NOMBRE[z.r] || z.r}: ${z.comunas.join(', ')}`} onClick={() => (valor.includes(k) ? onChange(valor.filter((x) => x !== k)) : onChange([...valor, k], z.r))}>{z.nombre}</button>)}
         <button className="fbcrm-chip-agregar" onClick={() => setNueva(nueva ? null : { nombre: '', r: '', comunas: [] })}>{nueva ? 'Cancelar' : '+ Agregar o corregir zona'}</button>
       </div>
+      {valor.filter((k) => zonas[k]).map((k) => <p key={k} className="fbcrm-nota-suave fbcrm-zona-incluye"><b>{zonas[k].nombre}</b> ({REG_NOMBRE[zonas[k].r] || zonas[k].r}) incluye: {zonas[k].comunas.join(', ')}.</p>)}
       {nueva && (
         <div className="fbcrm-bloque fbcrm-sep">
           <div className="fbcrm-form">
@@ -1557,7 +1560,7 @@ function ElegirZonas({ ctx, valor, onChange }) {
   );
 }
 // Comunas de una búsqueda: si eliges comunas de una región, en esa región solo calzan los campos de esas comunas
-function ElegirComunas({ valor, regiones, onChange }) {
+function ElegirComunas({ valor, regiones, onChange, zonas }) {
   const [txt, setTxt] = useState('');
   const fuente = (regiones.length ? regiones : Object.keys(COMUNAS_POR_REGION)).flatMap((r) => (COMUNAS_POR_REGION[r] || []).map((c) => ({ c, r })));
   const n = (x) => norm(x);
@@ -1569,7 +1572,7 @@ function ElegirComunas({ valor, regiones, onChange }) {
       {valor.length > 0 && <div className="fbcrm-chips">{valor.map((v) => <button key={`${v.r}-${v.c}`} className="on" title="Quitar" onClick={() => onChange(valor.filter((y) => !(y.c === v.c && y.r === v.r)))}>{v.c} <small>({v.r})</small> ×</button>)}</div>}
       <input value={txt} onChange={(e) => setTxt(e.target.value)} placeholder={regiones.length ? 'Escribe una comuna de las regiones elegidas' : 'Escribe una comuna (ej. Pirque)'} aria-label="Agregar comuna"
         onKeyDown={(e) => { if (e.key === 'Enter' && sugeridas[0]) { e.preventDefault(); agregar(sugeridas[0]); } }} />
-      {sugeridas.length > 0 && <div className="fbcrm-chips fbcrm-sep">{sugeridas.map((x) => <button key={`${x.r}-${x.c}`} onClick={() => agregar(x)}>+ {x.c} <small>({x.r})</small></button>)}</div>}
+      {sugeridas.length > 0 && <div className="fbcrm-chips fbcrm-sep">{sugeridas.map((x) => { const zs = zonasDeComuna(zonas, x.c, x.r); return <button key={`${x.r}-${x.c}`} onClick={() => agregar(x)}>+ {x.c} <small>({x.r}{zs.length ? ` · ${zs.map((z) => z.nombre).join(', ')}` : ''})</small></button>; })}</div>}
     </div>
   );
 }
@@ -1718,7 +1721,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         <p className="fbcrm-etq">Regiones</p>
         <div className="fbcrm-chips">{datos.regiones.map((r) => <button key={r} className={b.regiones.includes(r) ? 'on' : ''} aria-pressed={b.regiones.includes(r)} title={REG_NOMBRE[r]} onClick={() => toggleB('regiones', r)}>{r === 'PE' ? 'Perú' : r}</button>)}</div>
         <ElegirZonas ctx={ctx} valor={b.zonas || []} onChange={(zonas, region) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, zonas, regiones: region && !(y.regiones || []).includes(region) ? [...(y.regiones || []), region] : y.regiones } : y)) }))} />
-        <ElegirComunas valor={b.comunas || []} regiones={b.regiones || []} onChange={(comunas, region) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, comunas, regiones: region && !(y.regiones || []).includes(region) ? [...(y.regiones || []), region] : y.regiones } : y)) }))} />
+        <ElegirComunas zonas={datos.zonas} valor={b.comunas || []} regiones={b.regiones || []} onChange={(comunas, region) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, comunas, regiones: region && !(y.regiones || []).includes(region) ? [...(y.regiones || []), region] : y.regiones } : y)) }))} />
         {(() => { const n = [(b.regiones || []).length > 0, b.haMin !== '' && b.haMin != null || b.haMax !== '' && b.haMax != null, (b.cultivos || []).length > 0].filter(Boolean).length; return n < 2 && !(b.zona || '').trim() && <p className="fbcrm-aviso-linea">Para que esta búsqueda haga match, indica al menos dos de estos datos: regiones, hectáreas o cultivos (o una comuna en “Zonas”).</p>; })()}
         {f.busquedas.length > 1 && <p className="fbcrm-sep2"><button className="fbcrm-texto fbcrm-peligro-texto" onClick={() => { if (!window.confirm(`¿Quitar la búsqueda “${b.nombre}”?`)) return; setF((x) => ({ ...x, busquedas: x.busquedas.filter((y) => y.id !== b.id) })); setBSel(0); }}>Quitar esta búsqueda</button></p>}
       </div>
