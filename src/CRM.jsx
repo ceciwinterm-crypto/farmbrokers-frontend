@@ -1071,6 +1071,39 @@ function FichaCampo({ ctx, inicial, cerrar }) {
   );
 }
 
+// Por qué calza: un resumen corto (✓ ubicación · ⚠ superficie) y, si se pide, el detalle de cada criterio
+const ICONO_CALCE = { ok: '✓', medio: '⚠', no: '✗', neutro: '–' };
+const ESTADO_CALCE = { ok: 'calza', medio: 'a medias o falta un dato', no: 'no calza', neutro: 'no se filtró por esto' };
+function ResumenCalce({ detalle }) {
+  const l = (detalle || []).filter((d) => d.estado !== 'neutro' && d.criterio !== 'Presupuesto');
+  if (!l.length) return null;
+  return (
+    <span className="fbcrm-calce-resumen">
+      {l.map((d) => <span key={d.criterio} className={`c-${d.estado}`} title={`${d.criterio}: ${ESTADO_CALCE[d.estado]}`}>{ICONO_CALCE[d.estado]} {d.criterio.toLowerCase()}</span>)}
+    </span>
+  );
+}
+function DetalleCalce({ m, titulo }) {
+  const grupos = (m.porBusqueda || []).length ? m.porBusqueda.map((p) => ({ nombre: p.nombre, detalle: p.detalle, score: p.score, nivel: p.nivel })) : [{ nombre: titulo || '', detalle: m.detalle, score: m.score, nivel: m.nivel }];
+  if (!grupos.some((g) => (g.detalle || []).length)) return null;
+  return (
+    <span className="fbcrm-calce-detalle">
+      {grupos.map((g, i) => (
+        <span key={i} className="fbcrm-calce-grupo">
+          {(g.nombre || grupos.length > 1) && <span className="fbcrm-calce-titulo">{g.nombre ? `Búsqueda “${g.nombre}”` : 'Búsqueda'} · {g.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial'} · {g.score} de 100 pts</span>}
+          {!g.nombre && grupos.length === 1 && <span className="fbcrm-calce-titulo">{g.nivel === 'fuerte' ? 'Calce fuerte' : 'Calce parcial'} · {g.score} de 100 pts</span>}
+          {(g.detalle || []).map((d) => (
+            <span key={d.criterio} className={`fbcrm-calce-linea c-${d.estado}`}>
+              <span className="ico" aria-label={ESTADO_CALCE[d.estado]}>{ICONO_CALCE[d.estado]}</span>
+              <span><b>{d.criterio}:</b> {d.texto}</span>
+            </span>
+          ))}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function Match({ ctx, campo, setCampo }) {
   const { datos, api, usuario, cargar, abrir } = ctx;
   const lista = datos.matches[campo.id] || [];
@@ -1129,10 +1162,17 @@ function Match({ ctx, campo, setCampo }) {
         <label className="fbcrm-match-sel"><input type="checkbox" checked={sel.has(m.clienteId)} onChange={() => { const s = new Set(sel); s.has(m.clienteId) ? s.delete(m.clienteId) : s.add(m.clienteId); setSel(s); }} aria-label={`Seleccionar ${c.nombre}`} /></label>
         <div className="fbcrm-match-cuerpo">
           <button className="fbcrm-texto" onClick={() => abrir('clientes', c)}><strong>{c.nombre}</strong></button>
-          <span className="fbcrm-tags">
-            {m.razones.map((r) => <span key={r} className="fbcrm-tag">{r}</span>)}
-            {m.alertas.map((a) => <span key={a} className="fbcrm-tag aviso">{a}</span>)}
-          </span>
+          {(m.detalle || []).length ? (
+            <details className="fbcrm-porque">
+              <summary><ResumenCalce detalle={m.detalle} /> <span className="fbcrm-porque-ver">¿Por qué calza?</span></summary>
+              <DetalleCalce m={m} />
+            </details>
+          ) : (
+            <span className="fbcrm-tags">
+              {m.razones.map((r) => <span key={r} className="fbcrm-tag">{r}</span>)}
+              {m.alertas.map((a) => <span key={a} className="fbcrm-tag aviso">{a}</span>)}
+            </span>
+          )}
           {env && <small className="fbcrm-ok">Enviado {fmtFecha(env.fecha)} por {env.canal}, {env.autor}</small>}
         </div>
         {(() => { const cts = contactosDe(c).filter((x) => fonoWa(x.telefono)).slice(0, 4); return cts.length > 0 && <span className="fbcrm-wa-contactos">{cts.map((ct, i) => <button key={ct.id || i} className="fbcrm-mini" disabled={!!enviando} onClick={() => enviarWa(m.clienteId, ct)}>{enviando === m.clienteId ? 'Preparando…' : cts.length > 1 ? `WhatsApp ${primerNombre(ct.nombre) || i + 1}` : 'WhatsApp con ficha'}</button>)}</span>; })()}
@@ -1635,6 +1675,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
     try { const r = await api(`/clientes/${f.id}`, { method: 'DELETE', body: ctx.datos.esAdmin ? {} : { motivo: window.prompt('¿Por qué hay que eliminarlo? (lo verá la administradora)') || '' } }); await cargar(); if (r.pendiente) { setMsg(r.mensaje); return; } cerrar(); } catch (e) { setMsg(e.message); }
   };
   const [verBusq, setVerBusq] = useState('todas'); // calces: todas las búsquedas o una en particular
+  const [verPorQue, setVerPorQue] = useState(false); // mostrar el detalle de por qué calza cada campo
   const camposQueCalzan = esNuevo ? [] : Object.entries(datos.matches).map(([cid, l]) => ({ campo: datos.campos.find((c) => c.id === cid), m: l.find((x) => x.clienteId === f.id) }))
     .filter((x) => x.m && x.campo).sort((a, b) => b.m.score - a.m.score);
   const antiguedad = f.fechaRequerimiento ? (Date.now() - new Date(f.fechaRequerimiento.slice(0, 7) + '-15')) / (864e5 * 30.4) : 0;
@@ -1762,7 +1803,9 @@ function FichaCliente({ ctx, inicial, cerrar }) {
             const env = (campo.envios || []).find((e) => e.clienteId === f.id);
             return (
               <button key={campo.id} className="fbcrm-fila" onClick={() => abrir('campos', campo)}>
-                <span className="fbcrm-cuerpo"><strong>{campo.nombre}</strong><small>{[paraQuien(m), campo.sector, campo.etapa, m.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial', env ? `enviado ${fmtFecha(env.fecha)}` : 'no enviado'].filter(Boolean).join(', ')}</small></span>
+                <span className="fbcrm-cuerpo"><strong>{campo.nombre}</strong><small>{[paraQuien(m), campo.sector, campo.etapa, m.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial', env ? `enviado ${fmtFecha(env.fecha)}` : 'no enviado'].filter(Boolean).join(', ')}</small>
+                  {verPorQue ? <DetalleCalce m={ver === 'todas' ? m : { ...m, porBusqueda: [] }} /> : <ResumenCalce detalle={m.detalle} />}
+                </span>
               </button>
             );
         };
@@ -1772,6 +1815,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         return (
           <div className="fbcrm-bloque">
             <h3>Campos que le calzan <span>{plural(fuertes.length, 'calce fuerte', 'calces fuertes')}</span></h3>
+            <label className="fbcrm-porque-switch"><input type="checkbox" checked={verPorQue} onChange={(e) => setVerPorQue(e.target.checked)} /> Mostrar por qué calza cada campo (ubicación, cultivo, hectáreas…)</label>
             {varias && (
               <div className="fbcrm-chips" role="tablist" aria-label="Ver calces de">
                 <button role="tab" aria-selected={ver === 'todas'} className={ver === 'todas' ? 'on' : ''} onClick={() => setVerBusq('todas')}>Todas las búsquedas · {nFuertes(camposQueCalzan)}</button>
@@ -5703,6 +5747,21 @@ const CSS = `
 .fbcrm-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
 .fbcrm-tag{font-size:.77rem;background:var(--hoja);color:var(--tinta);padding:3px 9px;border-radius:999px;line-height:1.35}
 .fbcrm-tag.aviso{background:var(--trigo-cl);color:var(--trigo-osc)}
+.fbcrm-calce-resumen{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:.8rem;margin-top:3px;color:var(--salvia)}
+.fbcrm-calce-resumen .c-ok,.fbcrm-calce-linea.c-ok .ico{color:var(--potrero)}
+.fbcrm-calce-resumen .c-medio,.fbcrm-calce-linea.c-medio .ico{color:var(--trigo-osc)}
+.fbcrm-calce-resumen .c-no,.fbcrm-calce-linea.c-no .ico{color:var(--oxido)}
+.fbcrm-calce-detalle{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.fbcrm-calce-grupo{display:flex;flex-direction:column;gap:3px}
+.fbcrm-calce-titulo{font-size:.8rem;font-weight:600;color:var(--tinta)}
+.fbcrm-calce-linea{display:flex;gap:7px;font-size:.84rem;line-height:1.4;color:var(--tinta);white-space:normal}
+.fbcrm-calce-linea .ico{flex:none;width:14px;text-align:center;font-weight:700;color:var(--salvia)}
+.fbcrm-calce-linea b{font-weight:600}
+.fbcrm-porque summary{cursor:pointer;list-style:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.fbcrm-porque summary::-webkit-details-marker{display:none}
+.fbcrm-porque-ver{font-size:.8rem;color:var(--potrero);text-decoration:underline}
+.fbcrm-porque[open] .fbcrm-porque-ver{display:none}
+.fbcrm-porque-switch{display:flex;gap:8px;align-items:center;font-size:.88rem;color:var(--salvia);margin:0 0 10px;cursor:pointer}
 .fbcrm-historial ul{list-style:none;padding:0;margin:14px 0 0}
 .fbcrm-historial li{padding:0 0 14px 20px;position:relative}
 .fbcrm-historial li::before{content:'';position:absolute;left:3px;top:7px;width:8px;height:8px;border-radius:999px;background:var(--linea)}
