@@ -43,6 +43,37 @@ const haPlantadas = (c) => {
   }
   return hay ? Math.round(suma * 100) / 100 : null;
 };
+// Precio en UF para ordenar y filtrar (los precios en pesos se convierten con la UF del día)
+const UF_RESPALDO = 39500; // solo si no se pudo leer la UF del día
+const leerUFGuardada = () => { try { const x = JSON.parse(localStorage.getItem('fbcrm_uf') || 'null'); return x && x.v > 0 ? x : null; } catch (e) { return null; } };
+function useUF() {
+  const [uf, setUf] = useState(() => (leerUFGuardada() || {}).v || 0);
+  useEffect(() => {
+    const x = leerUFGuardada();
+    if (x && Date.now() - x.t < 12 * 3600 * 1000) return;
+    fetch('https://mindicador.cl/api/uf').then((r) => r.json()).then((d) => {
+      const v = d && d.serie && d.serie[0] && Number(d.serie[0].valor);
+      if (v > 0) { setUf(v); try { localStorage.setItem('fbcrm_uf', JSON.stringify({ v, t: Date.now() })); } catch (e) { /* sin almacenamiento */ } }
+    }).catch(() => {});
+  }, []);
+  return uf || UF_RESPALDO;
+}
+const precioEnUF = (c, uf) => (c.precioUF ? c.precioUF : c.precioCLP ? c.precioCLP / uf : null);
+const numUF = (t) => { const x = String(t || '').replace(/[^\d,.]/g, '').replace(/\./g, '').replace(',', '.'); return x ? Number(x) : null; };
+const pasaPrecio = (c, uf, desde, hasta) => {
+  const d = numUF(desde), h = numUF(hasta);
+  if (d == null && h == null) return true;
+  const v = precioEnUF(c, uf);
+  return v != null && (d == null || v >= d) && (h == null || v <= h);
+};
+function FiltroPrecio({ desde, hasta, setDesde, setHasta }) {
+  return (
+    <span className="fbcrm-filtro-precio">
+      <label><span>Precio desde (UF)</span><input inputMode="numeric" value={desde} onChange={(e) => setDesde(e.target.value)} placeholder="Ej. 10.000" /></label>
+      <label><span>hasta (UF)</span><input inputMode="numeric" value={hasta} onChange={(e) => setHasta(e.target.value)} placeholder="Ej. 50.000" /></label>
+    </span>
+  );
+}
 const fmtPrecio = (c) => (c.precioUF ? `UF ${fmtNum(c.precioUF)}` : c.precioCLP ? `$${fmtNum(c.precioCLP / 1e6)} MM` : c.precioTexto || '');
 const plural = (n, s, p) => `${n} ${n === 1 ? s : p || s + 's'}`;
 const emailsDe = (t) => (String(t || '').match(/[^\s,;<>]+@[^\s,;<>]+\.[a-z]{2,}/gi) || []);
@@ -732,6 +763,9 @@ function ListaCampos({ ctx, importar }) {
   const corredores = nombresCorredores(datos);
   const [verCorredores, setVerCorredores] = useState(false);
   const [fDif, setFDif] = useState(false);
+  const [pDesde, setPDesde] = useState('');
+  const [pHasta, setPHasta] = useState('');
+  const uf = useUF();
   const [verFiltros, setVerFiltros] = useState(false);
   const FILTROS = { activos: ['Activos', ['Mandato firmado', 'En venta', 'En arriendo', 'En negociación']], captacion: ['Captación', ['Prospección', 'Captación', 'Documentación']], cerrados: ['Cerrados', ['Vendido', 'Arrendado', 'Suspendido', 'Retirado de la web', 'Descartado']], todos: ['Todos', datos.etapas.campos] };
   const nq = q.toLowerCase();
@@ -739,7 +773,7 @@ function ListaCampos({ ctx, importar }) {
   const idxR = (r) => { const i = datos.regiones.indexOf(r); return i < 0 ? 99 : i; };
   const cmp = (a, b) => String(a || '').localeCompare(String(b || ''), 'es', { sensitivity: 'base' });
   const lista = enEtapa.filter((c) => (!fRegion || (c.region || '') === fRegion) && (!fTipo || c.tipo === fTipo) &&
-    pasaPerfiles(c, fPerfiles) && (!fDif || diferenciasWeb(c).length > 0) && (!fVisib.length || fVisib.includes(visibDe(c))) && (!fOper || operDe(c) === fOper || operDe(c) === 'ambas') && pasaCorredor(c, fCorredor) &&
+    pasaPerfiles(c, fPerfiles) && (!fDif || diferenciasWeb(c).length > 0) && (!fVisib.length || fVisib.includes(visibDe(c))) && (!fOper || operDe(c) === fOper || operDe(c) === 'ambas') && pasaCorredor(c, fCorredor) && pasaPrecio(c, uf, pDesde, pHasta) &&
     (!nq || [c.nombre, c.sector, c.codigo, c.rol, c.plantaciones, c.aptitud, c.propietario, REG_NOMBRE[c.region], TIPOS[c.tipo]].join(' ').toLowerCase().includes(nq)));
   const porRegion = (a, b) => idxR(a.region) - idxR(b.region) || cmp(a.sector, b.sector) || cmp(a.nombre, b.nombre);
   const ordenes = {
@@ -749,7 +783,9 @@ function ListaCampos({ ctx, importar }) {
     nombre: (a, b) => cmp(a.nombre, b.nombre),
     hectareas: (a, b) => (b.hectareas || 0) - (a.hectareas || 0),
     plantadas: (a, b) => (haPlantadas(b) || 0) - (haPlantadas(a) || 0) || (b.hectareas || 0) - (a.hectareas || 0),
-    precioHa: (a, b) => (!!b.precioUF - !!a.precioUF) || ((precioHaNum(a) ?? 1e15) - (precioHaNum(b) ?? 1e15)),
+    precioHa: (a, b) => { const x = (c) => (c.hectareas > 0 && precioEnUF(c, uf) ? precioEnUF(c, uf) / c.hectareas : null); return (x(a) ?? 1e15) - (x(b) ?? 1e15); },
+    precio: (a, b) => (precioEnUF(a, uf) ?? 1e15) - (precioEnUF(b, uf) ?? 1e15),
+    precioDesc: (a, b) => (precioEnUF(b, uf) ?? -1) - (precioEnUF(a, uf) ?? -1),
   };
   const ordenados = [...lista].sort(ordenes[orden]);
   const grupos = [];
@@ -762,7 +798,8 @@ function ListaCampos({ ctx, importar }) {
   const tituloGrupo = (k) => (orden === 'region' ? (k ? `${REG_NOMBRE[k] || k}` : 'Sin región') : orden === 'etapa' ? k : orden === 'tipo' ? TIPOS[k] || k || 'Sin tipo' : '');
   const regionesHay = [...new Set(enEtapa.map((c) => c.region || ''))].sort((a, b) => idxR(a) - idxR(b));
   const tiposHay = [...new Set(enEtapa.map((c) => c.tipo))].sort((a, b) => cmp(TIPOS[a], TIPOS[b]));
-  const hayFiltros = fRegion || fTipo || fPerfiles.length || fVisib.length || fOper || fCorredor || fDif || q;
+  const hayPrecio = numUF(pDesde) != null || numUF(pHasta) != null;
+  const hayFiltros = fRegion || fTipo || fPerfiles.length || fVisib.length || fOper || fCorredor || fDif || q || hayPrecio;
   return (
     <section className={verFiltros ? 'ver-filtros' : ''}>
       <div className="solo-pc"><SyncWeb ctx={ctx} /></div>
@@ -779,13 +816,14 @@ function ListaCampos({ ctx, importar }) {
       {verCorredores && <div className="fbcrm-bloque"><CorredoresAdmin ctx={ctx} /></div>}
       <div className="fbcrm-filtros">
         <Buscador placeholder="Buscar por nombre, comuna, código, rol, plantación o propietario" value={q} onChange={setQ} />
-        <button type="button" className={`solo-movil fbcrm-btn-filtros ${verFiltros ? 'on' : ''}`} onClick={() => setVerFiltros(!verFiltros)}>Filtros{[fRegion, fTipo, fCorredor, fOper, fDif].filter(Boolean).length + fPerfiles.length + fVisib.length ? ` (${[fRegion, fTipo, fCorredor, fOper, fDif].filter(Boolean).length + fPerfiles.length + fVisib.length})` : ''}</button>
+        <button type="button" className={`solo-movil fbcrm-btn-filtros ${verFiltros ? 'on' : ''}`} onClick={() => setVerFiltros(!verFiltros)}>Filtros{[fRegion, fTipo, fCorredor, fOper, fDif, hayPrecio].filter(Boolean).length + fPerfiles.length + fVisib.length ? ` (${[fRegion, fTipo, fCorredor, fOper, fDif, hayPrecio].filter(Boolean).length + fPerfiles.length + fVisib.length})` : ''}</button>
         <label><span>Región</span><select value={fRegion} onChange={(e) => setFRegion(e.target.value)}><option value="">Todas</option>{regionesHay.map((r) => <option key={r || 'sin'} value={r}>{r ? REG_NOMBRE[r] || r : 'Sin región'}</option>)}</select></label>
         <label><span>Tipo</span><select value={fTipo} onChange={(e) => setFTipo(e.target.value)}><option value="">Todos</option>{tiposHay.map((t) => <option key={t} value={t}>{TIPOS[t] || t}</option>)}</select></label>
         <label><span>Corredor</span><select value={fCorredor} onChange={(e) => setFCorredor(e.target.value)}><option value="">Todos</option>{corredores.map((n) => <option key={n} value={n}>{n}</option>)}<option value="__sin">Sin corredor</option></select></label>
         <label><span>Ordenar</span><select value={orden} onChange={(e) => setOrden(e.target.value)}>
-          <option value="region">Región, de norte a sur</option><option value="etapa">Etapa</option><option value="tipo">Tipo de propiedad</option><option value="nombre">Nombre</option><option value="hectareas">Hectáreas, mayor a menor</option><option value="plantadas">Hectáreas plantadas, mayor a menor</option><option value="precioHa">Precio por hectárea, menor a mayor</option>
+          <option value="region">Región, de norte a sur</option><option value="etapa">Etapa</option><option value="tipo">Tipo de propiedad</option><option value="nombre">Nombre</option><option value="hectareas">Hectáreas, mayor a menor</option><option value="plantadas">Hectáreas plantadas, mayor a menor</option><option value="precio">Precio, menor a mayor</option><option value="precioDesc">Precio, mayor a menor</option><option value="precioHa">Precio por hectárea, menor a mayor</option>
         </select></label>
+        <FiltroPrecio desde={pDesde} hasta={pHasta} setDesde={setPDesde} setHasta={setPHasta} />
       </div>
       <FiltroPerfiles datos={datos} elegidos={fPerfiles} setElegidos={setFPerfiles} />
       <div className="fbcrm-filtro-perfiles" role="group" aria-label="Filtrar por visibilidad">
@@ -802,14 +840,14 @@ function ListaCampos({ ctx, importar }) {
         const arr = enVenta.filter((c) => c.etapa === 'En arriendo').length, ven = enVenta.filter((c) => c.etapa === 'En venta').length;
         return enVenta.length > 0 && <p className="fbcrm-resumen-venta solo-pc"><b>{plural(enVenta.length, 'campo activo', 'campos activos')}:</b> {ven} en venta, {arr} en arriendo{enVenta.length - ven - arr ? `, ${enVenta.length - ven - arr} con mandato o en negociación` : ''}. {plural(n('publica'), 'público', 'públicos')} en la web, {n('reservada')} off market{n('interna') ? `, ${n('interna')} sin definir` : ''}.</p>;
       })()}
-      <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); setFPerfiles([]); setFVisib([]); setFOper(''); setFCorredor(''); setFDif(false); }}>Quitar filtros</button></>}</p>
+      <p className="fbcrm-conteo">{plural(lista.length, 'campo')}{hayFiltros ? ` de ${enEtapa.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFRegion(''); setFTipo(''); setFPerfiles([]); setFVisib([]); setFOper(''); setFCorredor(''); setFDif(false); setPDesde(''); setPHasta(''); }}>Quitar filtros</button></>}{hayPrecio && <span className="fbcrm-nota-suave"> · Con filtro de precio no aparecen los campos sin precio escrito.</span>}</p>
       {!lista.length && <p className="fbcrm-vacio">{datos.campos.length ? 'Ningún campo coincide con el filtro.' : 'Aún no hay campos. Importa la planilla o usa “Nuevo campo”.'}</p>}
       {lista.length > 0 && (
         <div className="fbcrm-tabla">
           <div className="fbcrm-tabla-cab" aria-hidden="true"><span>Campo</span><span>Región</span><span>Comuna</span><span>Tipo</span><span>Perfil</span><span>Corredor</span><span>Etapa</span><span className="der">Precio</span><span className="der">Calzan</span></div>
           {grupos.map((g) => (
             <div key={g.k} className="fbcrm-tabla-bloque">
-              {orden !== 'nombre' && orden !== 'hectareas' && orden !== 'plantadas' && <div className="fbcrm-tabla-grupo"><strong>{tituloGrupo(g.k)}</strong><span>{g.items.length}</span></div>}
+              {!['nombre', 'hectareas', 'plantadas', 'precio', 'precioDesc', 'precioHa'].includes(orden) && <div className="fbcrm-tabla-grupo"><strong>{tituloGrupo(g.k)}</strong><span>{g.items.length}</span></div>}
               {g.items.map((c) => {
                 const nM = (datos.matches[c.id] || []).filter((m) => m.nivel === 'fuerte').length;
                 return (
@@ -1696,6 +1734,10 @@ function FichaCliente({ ctx, inicial, cerrar }) {
   };
   const [verBusq, setVerBusq] = useState('todas'); // calces: todas las búsquedas o una en particular
   const [verPorQue, setVerPorQue] = useState(false); // mostrar el detalle de por qué calza cada campo
+  const [ordenCalce, setOrdenCalce] = useState('calce');
+  const [mDesde, setMDesde] = useState('');
+  const [mHasta, setMHasta] = useState('');
+  const uf = useUF();
   const camposQueCalzan = esNuevo ? [] : Object.entries(datos.matches).map(([cid, l]) => ({ campo: datos.campos.find((c) => c.id === cid), m: l.find((x) => x.clienteId === f.id) }))
     .filter((x) => x.m && x.campo).sort((a, b) => b.m.score - a.m.score);
   const antiguedad = f.fechaRequerimiento ? (Date.now() - new Date(f.fechaRequerimiento.slice(0, 7) + '-15')) / (864e5 * 30.4) : 0;
@@ -1817,14 +1859,22 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         const varias = activas.length > 1;
         const deBusq = (id) => camposQueCalzan.map((x) => { const pb = (x.m.porBusqueda || []).find((p) => p.busquedaId === id) || (!(x.m.porBusqueda || []).length && x.m.busquedaId === id ? x.m : null); return pb ? { campo: x.campo, m: { ...x.m, ...pb, razones: pb.razones.filter((r) => !/^Búsqueda: /.test(r)) } } : null; }).filter(Boolean);
         const ver = varias && verBusq !== 'todas' && activas.some((b) => b.id === verBusq) ? verBusq : 'todas';
-        const lista = ver === 'todas' ? camposQueCalzan : deBusq(ver);
+        const ORD = {
+          calce: null,
+          precio: (a, b) => (precioEnUF(a.campo, uf) ?? 1e15) - (precioEnUF(b.campo, uf) ?? 1e15),
+          precioDesc: (a, b) => (precioEnUF(b.campo, uf) ?? -1) - (precioEnUF(a.campo, uf) ?? -1),
+          hectareas: (a, b) => (b.campo.hectareas || 0) - (a.campo.hectareas || 0),
+        };
+        const filtrarOrdenar = (l) => { const x = l.filter((y) => pasaPrecio(y.campo, uf, mDesde, mHasta)); return ORD[ordenCalce] ? [...x].sort(ORD[ordenCalce]) : x; };
+        const lista = filtrarOrdenar(ver === 'todas' ? camposQueCalzan : deBusq(ver));
+        const sinPrecioFuera = numUF(mDesde) != null || numUF(mHasta) != null ? (ver === 'todas' ? camposQueCalzan : deBusq(ver)).length - lista.length : 0;
         const nFuertes = (l) => l.filter((x) => x.m.nivel === 'fuerte' && datos.ofrecibles.includes(x.campo.etapa)).length;
         const paraQuien = (m) => (ver !== 'todas' || !varias ? '' : (m.porBusqueda || []).length ? `para ${m.porBusqueda.map((p) => p.nombre).join(' y ')}` : (m.razones.find((r) => /^Búsqueda: /.test(r)) || '').replace('Búsqueda: ', 'para '));
         const fila = ({ campo, m }) => {
             const env = (campo.envios || []).find((e) => e.clienteId === f.id);
             return (
               <button key={campo.id} className="fbcrm-fila" onClick={() => abrir('campos', campo)}>
-                <span className="fbcrm-cuerpo"><strong>{campo.nombre}</strong><small>{[paraQuien(m), campo.sector, campo.etapa, m.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial', env ? `enviado ${fmtFecha(env.fecha)}` : 'no enviado'].filter(Boolean).join(', ')}</small>
+                <span className="fbcrm-cuerpo"><strong>{campo.nombre}</strong><small>{[paraQuien(m), campo.sector, campo.hectareas ? `${fmtNum(campo.hectareas)} ha` : '', fmtPrecio(campo), campo.etapa, m.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial', env ? `enviado ${fmtFecha(env.fecha)}` : 'no enviado'].filter(Boolean).join(', ')}</small>
                   {verPorQue ? <DetalleCalce m={ver === 'todas' ? m : { ...m, porBusqueda: [] }} /> : <ResumenCalce detalle={m.detalle} />}
                 </span>
               </button>
@@ -1836,6 +1886,11 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         return (
           <div className="fbcrm-bloque">
             <h3>Campos que le calzan <span>{plural(fuertes.length, 'calce fuerte', 'calces fuertes')}</span></h3>
+            <div className="fbcrm-filtros fbcrm-filtros-calce">
+              <label><span>Ordenar</span><select value={ordenCalce} onChange={(e) => setOrdenCalce(e.target.value)}><option value="calce">Mejor calce primero</option><option value="precio">Precio, menor a mayor</option><option value="precioDesc">Precio, mayor a menor</option><option value="hectareas">Hectáreas, mayor a menor</option></select></label>
+              <FiltroPrecio desde={mDesde} hasta={mHasta} setDesde={setMDesde} setHasta={setMHasta} />
+            </div>
+            {sinPrecioFuera > 0 && <p className="fbcrm-nota-suave">{plural(sinPrecioFuera, 'campo queda', 'campos quedan')} fuera por el filtro de precio (incluye los que no tienen precio escrito).</p>}
             <label className="fbcrm-porque-switch"><input type="checkbox" checked={verPorQue} onChange={(e) => setVerPorQue(e.target.checked)} /> Mostrar por qué calza cada campo (ubicación, cultivo, hectáreas…)</label>
             {varias && (
               <div className="fbcrm-chips" role="tablist" aria-label="Ver calces de">
@@ -5789,6 +5844,9 @@ const CSS = `
 .fbcrm-tag{font-size:.77rem;background:var(--hoja);color:var(--tinta);padding:3px 9px;border-radius:999px;line-height:1.35}
 .fbcrm-tag.aviso{background:var(--trigo-cl);color:var(--trigo-osc)}
 .fbcrm-palabras .fbcrm-chips input{flex:1;min-width:200px;border:1px solid var(--linea);border-radius:999px;padding:6px 12px;font:inherit;font-size:.88rem;background:var(--papel)}
+.fbcrm-filtro-precio{display:contents}
+.fbcrm-filtro-precio input{width:100%}
+.fbcrm-filtros-calce{margin:0 0 10px}
 .fbcrm-aviso-caja{background:var(--trigo-cl);color:var(--trigo-osc);border-radius:12px;padding:10px 14px;margin:10px 0 14px;font-size:.9rem}
 .fbcrm-aviso-caja p{margin:3px 0}
 .fbcrm-calce-resumen{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:.8rem;margin-top:3px;color:var(--salvia)}
