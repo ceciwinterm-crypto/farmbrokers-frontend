@@ -1079,7 +1079,7 @@ function ResumenCalce({ detalle }) {
   if (!l.length) return null;
   return (
     <span className="fbcrm-calce-resumen">
-      {l.map((d) => <span key={d.criterio} className={`c-${d.estado}`} title={`${d.criterio}: ${ESTADO_CALCE[d.estado]}`}>{ICONO_CALCE[d.estado]} {d.criterio.toLowerCase()}</span>)}
+      {l.map((d, i) => <span key={i} className={`c-${d.estado}`} title={`${d.criterio}: ${ESTADO_CALCE[d.estado]}`}>{ICONO_CALCE[d.estado]} {d.criterio.toLowerCase()}</span>)}
     </span>
   );
 }
@@ -1092,8 +1092,8 @@ function DetalleCalce({ m, titulo }) {
         <span key={i} className="fbcrm-calce-grupo">
           {(g.nombre || grupos.length > 1) && <span className="fbcrm-calce-titulo">{g.nombre ? `Búsqueda “${g.nombre}”` : 'Búsqueda'} · {g.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial'} · {g.score} de 100 pts</span>}
           {!g.nombre && grupos.length === 1 && <span className="fbcrm-calce-titulo">{g.nivel === 'fuerte' ? 'Calce fuerte' : 'Calce parcial'} · {g.score} de 100 pts</span>}
-          {(g.detalle || []).map((d) => (
-            <span key={d.criterio} className={`fbcrm-calce-linea c-${d.estado}`}>
+          {(g.detalle || []).map((d, j) => (
+            <span key={j} className={`fbcrm-calce-linea c-${d.estado}`}>
               <span className="ico" aria-label={ESTADO_CALCE[d.estado]}>{ICONO_CALCE[d.estado]}</span>
               <span><b>{d.criterio}:</b> {d.texto}</span>
             </span>
@@ -1565,6 +1565,26 @@ const nuevoId = () => (window.crypto && window.crypto.randomUUID ? window.crypto
 // Zonas (valles) a las que pertenece una comuna
 const zonasDeComuna = (zonas, comuna, region) => Object.entries(zonas || {}).filter(([, z]) => (!region || z.r === region) && z.comunas.some((c) => norm(c) === norm(comuna))).map(([k, z]) => ({ k, ...z }));
 // Zonas agrícolas (valles): en esa región solo calzan los campos de las comunas de la zona
+// Palabras clave ("palabras mágicas"): calzan con todo campo que las tenga escritas, en cualquier región
+function PalabrasClave({ valor = [], onChange }) {
+  const [txt, setTxt] = useState('');
+  const agregar = () => {
+    const nuevas = txt.split(/[,;]/).map((x) => x.trim()).filter((x) => x.length >= 3 && !valor.some((v) => v.toLowerCase() === x.toLowerCase()));
+    if (nuevas.length) onChange([...valor, ...nuevas]);
+    setTxt('');
+  };
+  return (
+    <div className="fbcrm-palabras">
+      <p className="fbcrm-etq">Palabras clave <span className="fbcrm-nota-suave">(le muestra todo campo que las tenga escritas, en la web, la ficha o la tasación, sin importar región, comuna ni hectáreas)</span></p>
+      <div className="fbcrm-chips">
+        {valor.map((w) => <button key={w} className="on" title="Quitar" onClick={() => onChange(valor.filter((x) => x !== w))}>{w} ✕</button>)}
+        <input value={txt} onChange={(e) => setTxt(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); agregar(); } }} onBlur={agregar} placeholder="Ej. lechería, ciruela d'agen" aria-label="Agregar palabra clave" />
+        {txt.trim().length >= 3 && <button className="fbcrm-chip-agregar" onMouseDown={(e) => e.preventDefault()} onClick={agregar}>+ Agregar</button>}
+      </div>
+    </div>
+  );
+}
+
 function ElegirZonas({ ctx, valor, onChange, excluidas = [], onExcluidas }) {
   const { datos, api, cargar } = ctx;
   const zonas = datos.zonas || {};
@@ -1634,7 +1654,7 @@ function ElegirComunas({ valor, regiones, onChange, zonas }) {
     </div>
   );
 }
-const BUSQUEDA_VACIA = () => ({ id: nuevoId(), nombre: '', activa: true, requerimiento: '', tipo: '', operacion: 'compra', regiones: [], comunas: [], zonas: [], excluidas: [], cultivos: [], perfiles: [], zona: '', haMin: '', haMax: '', presupuesto: '' });
+const BUSQUEDA_VACIA = () => ({ id: nuevoId(), nombre: '', activa: true, requerimiento: '', tipo: '', operacion: 'compra', regiones: [], comunas: [], zonas: [], excluidas: [], cultivos: [], perfiles: [], palabras: [], zona: '', haMin: '', haMax: '', presupuesto: '' });
 function prepararCliente(c) {
   const contactos = Array.isArray(c.contactos) && c.contactos.length ? c.contactos.map((x) => ({ ...x }))
     : contactosDe(c).length ? contactosDe(c).map((x) => ({ ...x, id: x.id || nuevoId() })) : [{ id: nuevoId(), nombre: '', cargo: '', telefono: '', email: '', principal: true }];
@@ -1769,6 +1789,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         <div className="fbcrm-form fbcrm-sep2">
           <Campo label="¿Plantado o sin plantar?"><select value={b.plantado || ''} onChange={(e) => setB('plantado', e.target.value)}><option value="">Le da lo mismo</option><option value="plantado">Plantado (en producción)</option><option value="sin_plantar">Sin plantar (para plantar)</option></select></Campo>
         </div>
+        <PalabrasClave valor={b.palabras || []} onChange={(v) => setB('palabras', v)} />
         <p className="fbcrm-etq">Cultivos {b.plantado === 'sin_plantar' ? <span className="fbcrm-nota-suave">(lo que quiere plantar)</span> : null}</p>
         <div className="fbcrm-chips">{Object.entries(datos.cultivos).map(([k, l]) => <button key={k} className={b.cultivos.includes(k) ? 'on' : ''} aria-pressed={b.cultivos.includes(k)} onClick={() => toggleB('cultivos', k)}>{l}</button>)}
           <button className="fbcrm-chip-agregar" onClick={async () => {
@@ -1781,7 +1802,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         <div className="fbcrm-chips">{datos.regiones.map((r) => <button key={r} className={b.regiones.includes(r) ? 'on' : ''} aria-pressed={b.regiones.includes(r)} title={REG_NOMBRE[r]} onClick={() => toggleB('regiones', r)}>{r === 'PE' ? 'Perú' : r}</button>)}</div>
         <ElegirZonas ctx={ctx} valor={b.zonas || []} excluidas={b.excluidas || []} onExcluidas={(v) => setB('excluidas', v)} onChange={(zonas, region) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, zonas, regiones: region && !(y.regiones || []).includes(region) ? [...(y.regiones || []), region] : y.regiones } : y)) }))} />
         <ElegirComunas zonas={datos.zonas} valor={b.comunas || []} regiones={b.regiones || []} onChange={(comunas, region) => setF((x) => ({ ...x, busquedas: x.busquedas.map((y) => (y.id === b.id ? { ...y, comunas, regiones: region && !(y.regiones || []).includes(region) ? [...(y.regiones || []), region] : y.regiones } : y)) }))} />
-        {(() => { const n = [(b.regiones || []).length > 0, b.haMin !== '' && b.haMin != null || b.haMax !== '' && b.haMax != null, (b.cultivos || []).length > 0].filter(Boolean).length; return n < 2 && !(b.zona || '').trim() && <p className="fbcrm-aviso-linea">Para que esta búsqueda haga match, indica al menos dos de estos datos: regiones, hectáreas o cultivos (o una comuna en “Zonas”).</p>; })()}
+        {(() => { const n = [(b.regiones || []).length > 0, b.haMin !== '' && b.haMin != null || b.haMax !== '' && b.haMax != null, (b.cultivos || []).length > 0].filter(Boolean).length; return n < 2 && !(b.zona || '').trim() && !(b.palabras || []).length && <p className="fbcrm-aviso-linea">Para que esta búsqueda haga match, indica al menos dos de estos datos: regiones, hectáreas o cultivos (o una comuna en “Zonas”).</p>; })()}
         {f.busquedas.length > 1 && <p className="fbcrm-sep2"><button className="fbcrm-texto fbcrm-peligro-texto" onClick={() => { if (!window.confirm(`¿Quitar la búsqueda “${b.nombre}”?`)) return; setF((x) => ({ ...x, busquedas: x.busquedas.filter((y) => y.id !== b.id) })); setBSel(0); }}>Quitar esta búsqueda</button></p>}
       </div>
       <div className="fbcrm-acciones fbcrm-guardar-cliente">
@@ -5767,6 +5788,7 @@ const CSS = `
 .fbcrm-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
 .fbcrm-tag{font-size:.77rem;background:var(--hoja);color:var(--tinta);padding:3px 9px;border-radius:999px;line-height:1.35}
 .fbcrm-tag.aviso{background:var(--trigo-cl);color:var(--trigo-osc)}
+.fbcrm-palabras .fbcrm-chips input{flex:1;min-width:200px;border:1px solid var(--linea);border-radius:999px;padding:6px 12px;font:inherit;font-size:.88rem;background:var(--papel)}
 .fbcrm-aviso-caja{background:var(--trigo-cl);color:var(--trigo-osc);border-radius:12px;padding:10px 14px;margin:10px 0 14px;font-size:.9rem}
 .fbcrm-aviso-caja p{margin:3px 0}
 .fbcrm-calce-resumen{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:.8rem;margin-top:3px;color:var(--salvia)}
