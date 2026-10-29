@@ -77,6 +77,16 @@ function FiltroPrecio({ desde, hasta, setDesde, setHasta, moneda, setMoneda }) {
     </span>
   );
 }
+// Fecha de ingreso del campo al CRM: la escrita en la ficha; si no hay, la de creación (salvo los importados de la planilla, que no la tienen)
+const fechaIngresoCampo = (c) => {
+  const f = c.fechaIngreso || '';
+  if (/^\d{4}-\d{2}$/.test(f)) return new Date(`${f}-01T12:00:00`);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(f)) return new Date(`${f}T12:00:00`);
+  const importado = (c.historial || [])[0] && c.historial[0].autor === 'Importación';
+  return !importado && c.creado ? new Date(c.creado) : null;
+};
+const fmtFechaIngreso = (c) => { const d = fechaIngresoCampo(c); if (!d) return ''; return /^\d{4}-\d{2}$/.test(c.fechaIngreso || '') ? d.toLocaleDateString('es-CL', { month: 'short', year: 'numeric' }) : d.toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' }); };
+const isoDia = (d) => (d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '');
 const fmtPrecio = (c) => (c.precioUF ? `UF ${fmtNum(c.precioUF)}` : c.precioCLP ? `$${fmtNum(c.precioCLP / 1e6)} MM` : c.precioTexto || '');
 const plural = (n, s, p) => `${n} ${n === 1 ? s : p || s + 's'}`;
 const emailsDe = (t) => (String(t || '').match(/[^\s,;<>]+@[^\s,;<>]+\.[a-z]{2,}/gi) || []);
@@ -789,6 +799,8 @@ function ListaCampos({ ctx, importar }) {
     plantadas: (a, b) => (haPlantadas(b) || 0) - (haPlantadas(a) || 0) || (b.hectareas || 0) - (a.hectareas || 0),
     precioHa: (a, b) => { const x = (c) => (c.hectareas > 0 && precioEnUF(c, uf) ? precioEnUF(c, uf) / c.hectareas : null); return (x(a) ?? 1e15) - (x(b) ?? 1e15); },
     precio: (a, b) => (precioEnUF(a, uf) ?? 1e15) - (precioEnUF(b, uf) ?? 1e15),
+    recientes: (a, b) => ((fechaIngresoCampo(b) || 0) - (fechaIngresoCampo(a) || 0)),
+    antiguos: (a, b) => ((fechaIngresoCampo(a) || 8.64e15) - (fechaIngresoCampo(b) || 8.64e15)),
     precioDesc: (a, b) => (precioEnUF(b, uf) ?? -1) - (precioEnUF(a, uf) ?? -1),
   };
   const ordenados = [...lista].sort(ordenes[orden]);
@@ -825,7 +837,7 @@ function ListaCampos({ ctx, importar }) {
         <label><span>Tipo</span><select value={fTipo} onChange={(e) => setFTipo(e.target.value)}><option value="">Todos</option>{tiposHay.map((t) => <option key={t} value={t}>{TIPOS[t] || t}</option>)}</select></label>
         <label><span>Corredor</span><select value={fCorredor} onChange={(e) => setFCorredor(e.target.value)}><option value="">Todos</option>{corredores.map((n) => <option key={n} value={n}>{n}</option>)}<option value="__sin">Sin corredor</option></select></label>
         <label><span>Ordenar</span><select value={orden} onChange={(e) => setOrden(e.target.value)}>
-          <option value="region">Región, de norte a sur</option><option value="etapa">Etapa</option><option value="tipo">Tipo de propiedad</option><option value="nombre">Nombre</option><option value="hectareas">Hectáreas, mayor a menor</option><option value="plantadas">Hectáreas plantadas, mayor a menor</option><option value="precio">Precio, menor a mayor</option><option value="precioDesc">Precio, mayor a menor</option><option value="precioHa">Precio por hectárea, menor a mayor</option>
+          <option value="region">Región, de norte a sur</option><option value="etapa">Etapa</option><option value="tipo">Tipo de propiedad</option><option value="nombre">Nombre</option><option value="hectareas">Hectáreas, mayor a menor</option><option value="plantadas">Hectáreas plantadas, mayor a menor</option><option value="recientes">Fecha de ingreso, más recientes primero</option><option value="antiguos">Fecha de ingreso, más antiguos primero</option><option value="precio">Precio, menor a mayor</option><option value="precioDesc">Precio, mayor a menor</option><option value="precioHa">Precio por hectárea, menor a mayor</option>
         </select></label>
         <FiltroPrecio desde={pDesde} hasta={pHasta} setDesde={setPDesde} setHasta={setPHasta} moneda={pMoneda} setMoneda={setPMoneda} />
       </div>
@@ -851,7 +863,7 @@ function ListaCampos({ ctx, importar }) {
           <div className="fbcrm-tabla-cab" aria-hidden="true"><span>Campo</span><span>Región</span><span>Comuna</span><span>Tipo</span><span>Perfil</span><span>Corredor</span><span>Etapa</span><span className="der">Precio</span><span className="der">Calzan</span></div>
           {grupos.map((g) => (
             <div key={g.k} className="fbcrm-tabla-bloque">
-              {!['nombre', 'hectareas', 'plantadas', 'precio', 'precioDesc', 'precioHa'].includes(orden) && <div className="fbcrm-tabla-grupo"><strong>{tituloGrupo(g.k)}</strong><span>{g.items.length}</span></div>}
+              {!['nombre', 'hectareas', 'plantadas', 'precio', 'precioDesc', 'precioHa', 'recientes', 'antiguos'].includes(orden) && <div className="fbcrm-tabla-grupo"><strong>{tituloGrupo(g.k)}</strong><span>{g.items.length}</span></div>}
               {g.items.map((c) => {
                 const nM = (datos.matches[c.id] || []).filter((m) => m.nivel === 'fuerte').length;
                 return (
@@ -859,7 +871,7 @@ function ListaCampos({ ctx, importar }) {
                     <span className="tc-campo">
                       <span className={`fbcrm-ha ha-${c.tipo}`}><b>{c.hectareas ? fmtNum(Math.round(c.hectareas)) : '–'}</b><i>ha</i></span>
                       <span className="fbcrm-cuerpo"><strong>{c.nombre}{diferenciasWeb(c).length > 0 && <span className="fbcrm-dif-web" title={`No coincide con farmbrokers.cl: ${diferenciasWeb(c).map((k) => ETQ_WEB[k]).join(', ')}`}>≠ web</span>}</strong>{(() => { const hp = haPlantadas(c); return hp ? <small className="tc-plantado" title={c.plantaciones}><b>🌱 {fmtNum(hp)} ha plantadas</b>{c.hectareas && hp <= c.hectareas ? ` · ${Math.round((hp / c.hectareas) * 100)}%` : ''}</small>
-                        : <small title={c.plantaciones || ''}>{c.plantaciones ? `Plantación: ${c.plantaciones}` : <em className="tc-sin-plant">Sin plantación indicada</em>}</small>; })()}</span>
+                        : <small title={c.plantaciones || ''}>{c.plantaciones ? `Plantación: ${c.plantaciones}` : <em className="tc-sin-plant">Sin plantación indicada</em>}</small>; })()}{fmtFechaIngreso(c) && <small className="tc-ingreso" title="Fecha de ingreso al CRM">Ingresó {fmtFechaIngreso(c)}</small>}</span>
                     </span>
                     <span className="tc-region">{c.region ? REG_NOMBRE[c.region] || c.region : <em>Sin región</em>}</span>
                     <span className="tc-comuna">{c.sector || <em>Sin comuna</em>}</span>
@@ -1015,6 +1027,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           <Campo label={etqWeb('Región', 'region')}><select value={f.region || ''} disabled={deWeb('region')} onChange={set('region')}><option value="">Sin región</option>{datos.regiones.map((r) => <option key={r} value={r}>{r === 'PE' ? 'Perú' : `${r}, ${REG_NOMBRE[r]}`}</option>)}</select></Campo>
           <Campo label={etqWeb('Comuna o sector', 'sector')}><input value={f.sector || ''} disabled={deWeb('sector')} onChange={set('sector')} />{(() => { const zs = zonasDeComuna(datos.zonas, f.sector || '', f.region); return zs.length ? <small className="fbcrm-nota-suave">Zona: {zs.map((z) => z.nombre).join(', ')}</small> : null; })()}</Campo>
           <Campo label="Rol SII"><input value={f.rol || ''} onChange={set('rol')} placeholder="28-95" /></Campo>
+          <Campo label="Fecha de ingreso al CRM"><input type="date" value={/^\d{4}-\d{2}$/.test(f.fechaIngreso || '') ? `${f.fechaIngreso}-01` : f.fechaIngreso || isoDia(fechaIngresoCampo(f))} max={isoDia(new Date())} onChange={set('fechaIngreso')} /></Campo>
           <Campo label={etqWeb('Código', 'codigo')}><input value={f.codigo || ''} disabled={deWeb('codigo')} onChange={set('codigo')} /></Campo>
           <Campo label="Coordenadas (pega desde Google Maps)" ancho><input value={f.coordenadas || ''} onChange={set('coordenadas')} placeholder="-34.3963, -71.6152" /></Campo>
           <Campo label="Acceso" ancho><input value={f.acceso || ''} onChange={set('acceso')} placeholder="Ej. 3 km de camino pavimentado desde la Ruta 66" /><small className="fbcrm-nota-suave">Solo para el equipo: en las fichas y brochures sale en términos generales (por ejemplo, “Acceso por camino pavimentado”).</small></Campo>
@@ -5852,6 +5865,7 @@ const CSS = `
 .fbcrm-filtro-precio{display:contents}
 .fbcrm-filtro-precio input,.fbcrm-filtro-precio select{width:100%}
 .fbcrm-filtros-calce{margin:0 0 10px}
+.fbcrm-cuerpo small.tc-ingreso{font-size:.78rem;color:var(--salvia);opacity:.85}
 .fbcrm-aviso-caja{background:var(--trigo-cl);color:var(--trigo-osc);border-radius:12px;padding:10px 14px;margin:10px 0 14px;font-size:.9rem}
 .fbcrm-aviso-caja p{margin:3px 0}
 .fbcrm-calce-resumen{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:.8rem;margin-top:3px;color:var(--salvia)}
