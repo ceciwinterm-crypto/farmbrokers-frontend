@@ -3711,6 +3711,7 @@ function Captacion({ ctx, campo, setCampo }) {
   const [cfg, setCfg] = useState({ comision: cap ? cap.config.comision : 2, vigencia: cap ? cap.config.vigencia : 180, ciudad: cap ? cap.config.ciudad : 'Santiago', titulo: cap ? cap.config.titulo : campo.nombre });
   const [editar, setEditar] = useState(false);
   const [preparar, setPreparar] = useState(false); // formulario del mandato preparado por el equipo
+  const [editarTexto, setEditarTexto] = useState(false); // reescribir a mano todo el texto del mandato
   const equipo = cap && cap.modo === 'equipo';
   const [msg, setMsg] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -3746,6 +3747,7 @@ function Captacion({ ctx, campo, setCampo }) {
   const texto = equipo
     ? `Hola${primerNombre ? ` ${primerNombre}` : ''}, le envío el mandato de venta de ${cap.config.titulo || campo.nombre} para que lo revise y lo firme en línea:\n\n${link}\n\nSe firma desde el celular en un par de minutos, solo con su nombre y RUT. Cualquier duda me escribe.\n\n${usuario}\nFarm Brokers Chile`
     : `Hola${primerNombre ? ` ${primerNombre}` : ''}, le envío el link para completar los datos de su campo y firmar el mandato de venta con Farm Brokers:\n\n${link}\n\nPuede hacerlo desde el celular y avanzar por partes; lo que escriba queda guardado. Cualquier duda me escribe.\n\n${usuario}\nFarm Brokers Chile`;
+  if (editarTexto) return <TextoMandato ctx={ctx} campo={campo} setCampo={setCampo} cerrar={(m) => { setEditarTexto(false); if (m) setMsg(m); }} />;
   if (preparar) return <MandatoEquipo ctx={ctx} campo={campo} setCampo={setCampo} cerrar={(m) => { setPreparar(false); if (m) setMsg(m); }} />;
   const archivos = campo.archivos || [];
 
@@ -3794,6 +3796,7 @@ function Captacion({ ctx, campo, setCampo }) {
             {(cap.firma || equipo || cap.estado === 'completado') && <button onClick={() => imprimir({ tipo: 'mandato', id: campo.id })}>{cap.firma ? 'Ver mandato firmado' : 'Vista previa del mandato'}</button>}
             {(cap.firma || equipo || cap.estado === 'completado') && <BotonPdf className="fbcrm-primario" etiqueta={cap.firma ? 'Descargar mandato firmado (PDF)' : 'Descargar PDF para firmar en papel'} alError={setMsg} crear={async () => { const m = await api(`/campos/${campo.id}/mandato`); return { pdf: await pdfMandato(m, { papel: true }), nombre: nombreMandato(m) }; }} />}
             {!cap.firma && <button onClick={() => setPreparar(true)}>✏️ Modificar datos del mandato</button>}
+            {!cap.firma && <button onClick={() => setEditarTexto(true)}>📝 Editar todo el texto{cap.textoEditado ? ' (editado a mano)' : ''}</button>}
             {cap.firma && <button className="fbcrm-texto" onClick={reabrir}>Corregir el mandato firmado</button>}
             {cap.firma && !cap.firmaCorredor && <button className="fbcrm-primario" onClick={firmarCorredor}>Firmar como corredor</button>}
             {cap.firmaCorredor && <span className="fbcrm-ok-linea">Firmado por Farm Brokers: {cap.firmaCorredor.nombre}, {fmtFecha(cap.firmaCorredor.fecha)}</span>}
@@ -3801,6 +3804,50 @@ function Captacion({ ctx, campo, setCampo }) {
         </>
       )}
       {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+    </div>
+  );
+}
+
+// Texto completo del mandato, editable a mano (cláusulas, redacción, todo)
+function TextoMandato({ ctx, campo, setCampo, cerrar }) {
+  const { api, cargar, imprimir } = ctx;
+  const [t, setT] = useState(null);
+  const [auto, setAuto] = useState('');
+  const [editado, setEditado] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+  useEffect(() => { api(`/campos/${campo.id}/mandato-texto`).then((r) => { setT(r.texto); setAuto(r.automatico); setEditado(r.editado); }).catch((e) => setMsg(e.message)); }, []);
+  const guardar = async (texto, ver) => {
+    setOcupado(true); setMsg('');
+    try {
+      const r = await api(`/campos/${campo.id}/mandato-texto`, { method: 'POST', body: { texto } });
+      setCampo(r); await cargar();
+      cerrar(texto ? 'Texto del mandato guardado. El cliente lo ve así en el mismo link.' : 'El mandato volvió al texto automático.');
+      if (ver) imprimir({ tipo: 'mandato', id: campo.id });
+    } catch (e) { setMsg(e.message); }
+    setOcupado(false);
+  };
+  if (t == null) return <div className="fbcrm-bloque fbcrm-cap"><h3>Editar el texto del mandato</h3><p className="fbcrm-vacio">{msg || 'Cargando el texto…'}</p></div>;
+  return (
+    <div className="fbcrm-bloque fbcrm-cap">
+      <h3>Editar el texto del mandato</h3>
+      <p className="fbcrm-nota-suave">Puedes cambiar cualquier cosa: redacción, cláusulas, agregar o quitar párrafos. Las firmas se agregan solas al final.</p>
+      <ul className="fbcrm-ayuda-texto">
+        <li>Deja una <b>línea en blanco</b> entre párrafos. La primera línea es el título.</li>
+        <li>Un subtítulo es una línea sola con número y en mayúsculas, como <b>7. GASTOS</b>.</li>
+        <li>Para una lista, empieza cada línea con <b>- </b> (guion y espacio).</li>
+        <li>Para negrita, encierra el texto entre dos asteriscos: <b>**así**</b>.</li>
+        <li><b>[FECHA]</b> se reemplaza por la fecha del día en que se firma.</li>
+      </ul>
+      {editado && <p className="fbcrm-aviso-caja">Este mandato ya tiene el texto editado a mano. Si cambias datos con “Modificar datos del mandato” (hectáreas, precio…), cámbialos también aquí: el texto editado no se actualiza solo.</p>}
+      <textarea className="fbcrm-texto-mandato" value={t} onChange={(e) => setT(e.target.value)} rows={28} spellCheck />
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+      <div className="fbcrm-acciones">
+        <button className="fbcrm-primario" disabled={ocupado} onClick={() => guardar(t, true)}>{ocupado ? 'Guardando…' : 'Guardar y ver el mandato'}</button>
+        <button disabled={ocupado} onClick={() => guardar(t, false)}>Guardar</button>
+        {(editado || t !== auto) && <button className="fbcrm-texto" disabled={ocupado} onClick={() => { if (window.confirm('¿Volver al texto automático? Se pierden los cambios hechos a mano en el texto (los datos del mandato se mantienen).')) guardar('', false); }}>Volver al texto automático</button>}
+        <button className="fbcrm-texto" onClick={() => cerrar()}>Cancelar</button>
+      </div>
     </div>
   );
 }
@@ -3854,6 +3901,7 @@ function MandatoEquipo({ ctx, campo, setCampo, cerrar }) {
     <div className="fbcrm-bloque fbcrm-cap">
       <h3>{campo.captacion ? 'Modificar mandato de venta' : 'Preparar mandato de venta'}</h3>
       <p className="fbcrm-nota-suave">{campo.captacion ? 'Cambia lo que necesites (hectáreas, precio, vendedor, comisión…) y guarda. El cliente ve la versión nueva en el mismo link; si lo tenía abierto, se le pide revisarlo de nuevo antes de firmar.' : 'Los datos del campo vienen del CRM: revísalos. Tú completas los del cliente. La firma de Farm Brokers se agrega sola cuando el cliente firma.'}</p>
+      {campo.captacion && campo.captacion.textoEditado && <p className="fbcrm-aviso-caja">El texto de este mandato fue editado a mano: lo que cambies aquí no cambia el texto. Después de guardar, revisa “📝 Editar todo el texto” o vuelve ahí al texto automático.</p>}
       {(difHa || difPrecio) && (
         <div className="fbcrm-aviso-caja">
           <p><strong>La ficha del campo tiene otros datos que el mandato:</strong></p>
@@ -5866,6 +5914,8 @@ const CSS = `
 .fbcrm-filtro-precio input,.fbcrm-filtro-precio select{width:100%}
 .fbcrm-filtros-calce{margin:0 0 10px}
 .fbcrm-cuerpo small.tc-ingreso{font-size:.78rem;color:var(--salvia);opacity:.85}
+.fbcrm-texto-mandato{width:100%;min-height:420px;font:inherit;font-size:.92rem;line-height:1.55;padding:12px 14px;border:1px solid var(--linea);border-radius:12px;background:var(--papel);resize:vertical;box-sizing:border-box}
+.fbcrm-ayuda-texto{margin:0 0 10px;padding-left:18px;font-size:.86rem;color:var(--salvia)}
 .fbcrm-aviso-caja{background:var(--trigo-cl);color:var(--trigo-osc);border-radius:12px;padding:10px 14px;margin:10px 0 14px;font-size:.9rem}
 .fbcrm-aviso-caja p{margin:3px 0}
 .fbcrm-calce-resumen{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:.8rem;margin-top:3px;color:var(--salvia)}
