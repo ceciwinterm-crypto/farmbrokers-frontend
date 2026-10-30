@@ -2054,14 +2054,26 @@ async function fotosCRM(c, usuario) {
 }
 // items: [{ campo, texto: {titular, campo, zona}, fotos: [url], foto: índice de la portada }]
 // Un campo: una hoja grande. Dos o más: una fila por campo (foto grande + datos + descripción), 2 en la primera hoja y 3 en las siguientes.
-function TarjetaBrochure({ it, i, fila }) {
+// Corta el texto en el último punto que cabe (nunca a media frase); si no hay punto, en una palabra con "…"
+const ajustarTexto = (t, max) => {
+  t = String(t || '').replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  const c = t.slice(0, max), punto = Math.max(c.lastIndexOf('. '), c.lastIndexOf('.'));
+  return punto > max * 0.45 ? c.slice(0, punto + 1) : `${c.replace(/[\s,;:]+\S*$/, '')}…`;
+};
+// Sin fotos ni satelital: una tarjeta sobria en vez de un recuadro vacío
+const SinFotoBrochure = ({ off }) => (
+  <div className="br-t-img br-sin-foto br-sin-foto-txt"><img src={LOGO_FB_BLANCO} alt="" /><span>{off ? 'Propiedad confidencial' : 'Fotos al coordinar la visita'}</span></div>
+);
+function TarjetaBrochure({ it, i, fila, max = 340 }) {
   const d = datosBrochure(it.campo), t = it.texto || {};
   if (!d.url && it.url) d.url = it.url;
   const datos = [d.ha, d.precio, d.plantado && `${d.plantado} plantadas`, d.agua && corto(d.agua, 48)].filter(Boolean);
   return (
     <article className={`br-tarjeta ${fila ? 'br-fila' : ''}`} data-enlace={d.url || undefined}>
       <div className="br-t-foto">
-        {it.fotos.length ? <Foto src={it.fotoPdf || it.fotos[it.foto || 0]} clase="br-t-img" /> : <SateliteTarjeta campo={it.campo} />}
+        {it.fotos.length ? <Foto src={it.fotoPdf || it.fotos[it.foto || 0]} clase="br-t-img" /> : <SinFotoBrochure off={visibDe(it.campo) === 'reservada'} />}
+        {it.sat && it.fotos.length > 0 && <span className="br-t-sat-etq">Vista satelital</span>}
         <span className="br-t-num">{dosDig(i + 1)}</span>
         {visibDe(it.campo) === 'reservada' ? <span className="br-t-tipo br-t-off">★ Off market</span> : d.tipo && <span className="br-t-tipo">{d.tipo}</span>}
       </div>
@@ -2069,8 +2081,8 @@ function TarjetaBrochure({ it, i, fila }) {
         <h2>{corto(d.titulo, 70)}</h2>
         <p className="br-t-lugar">{[d.comuna, d.region].filter(Boolean).join(', ')}</p>
         <p className="br-t-datos">{datos.map((x, k) => <span key={k}>{x}</span>)}</p>
-        {t.titular && <p className="br-t-frase">{t.titular}</p>}
-        {t.campo && <p className="br-t-texto">{t.campo}</p>}
+        {t.titular && <p className="br-t-frase">{ajustarTexto(t.titular, 90)}</p>}
+        {t.campo && <p className="br-t-texto">{fila ? ajustarTexto(t.campo, max) : t.campo}</p>}
         {!fila && t.zona && <p className="br-t-texto">{t.zona}</p>}
         {d.url && <p className="br-t-link">Ver publicación →</p>}
       </div>
@@ -2116,7 +2128,7 @@ function DocBrochure({ items, usuario, datosUsuario, busca }) {
             </header>
           )}
           <div className={`br-grilla ${n === 1 ? 'br-uno' : 'br-filas'}`}>
-            {h.map((it) => { const k = num++; return <TarjetaBrochure key={it.campo.id} it={it} i={k} fila={n > 1} />; })}
+            {h.map((it) => { const k = num++; return <TarjetaBrochure key={it.campo.id} it={it} i={k} fila={n > 1} max={h.length <= 2 ? 560 : hi === hojas.length - 1 && hi === 0 ? 260 : 330} />; })}
           </div>
           {hi === hojas.length - 1 && pie}
         </section>
@@ -2166,7 +2178,7 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
       // Primero las fotos subidas al CRM (con la portada elegida), luego las de la publicación web
       let fotos = (nuevos[id] && nuevos[id].fotos.length) ? nuevos[id].fotos
         : [...await fotosCRM(c, usuario), ...(!off && cw.web && cw.web.fotos ? cw.web.fotos : [])].slice(0, 8);
-      let url = '';
+      let url = '', sat = false;
       // Sin link a la web: se busca su publicación en farmbrokers.cl (y queda enlazado)
       if (!fotos.length && off) aviso = [aviso, 'Off market sin fotos propias: sube aquí la foto que quieras mostrar (o en “Archivos y plano” del campo).'].filter(Boolean).join(' ');
       if (!fotos.length && !tieneLink && !off) {
@@ -2178,7 +2190,18 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
           else if (b.motivo) aviso = [aviso, `${b.motivo} Pega el link de su publicación en los datos del campo o sube fotos aquí.`].filter(Boolean).join(' ');
         } catch (e) { /* se usa la vista satelital */ }
       }
-      nuevos[id] = { texto, fotos, foto: (nuevos[id] && nuevos[id].foto) || 0, aviso, url };
+      // Sin ninguna foto: imagen satelital del campo (si tiene coordenadas o KMZ)
+      if (!fotos.length) {
+        const co = datosBrochure(c).coord;
+        if (co && Number.isFinite(co.lat) && Number.isFinite(co.lng)) {
+          try {
+            const r = await fetch(`${API_BASE}/mapa-satelital?lat=${co.lat}&lon=${co.lng}&zoom=${co.aprox ? 13 : 15}`);
+            if (r.ok && /^image\//.test(r.headers.get('content-type') || '')) { fotos = [URL.createObjectURL(await r.blob())]; sat = true; aviso = [aviso, 'Sin fotos: va una imagen satelital del campo. Puedes subir fotos aquí.'].filter(Boolean).join(' '); }
+          } catch (e) { /* queda la tarjeta sin foto */ }
+        }
+      }
+      if (!fotos.length) aviso = [aviso, 'Este campo no tiene fotos ni ubicación: en el brochure sale sin imagen. Sube una foto aquí.'].filter(Boolean).join(' ');
+      nuevos[id] = { texto, fotos, foto: (nuevos[id] && nuevos[id].foto) || 0, aviso, url, sat };
       setItems({ ...nuevos });
     }
     if (enlazados) ctx.cargar();
@@ -2192,7 +2215,7 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
       let c = campoDe(id);
       for (const file of files) { const a = await leerArchivo(file, 'foto'); c = (await api(`/campos/${id}/archivo`, { method: 'POST', body: { ...a, tipo: 'foto' } })).campo; }
       const nuevas = await fotosCRM(c, usuario);
-      setItems((x) => ({ ...x, [id]: { ...x[id], fotos: [...nuevas.slice(-files.length), ...((x[id] && x[id].fotos) || [])], foto: 0 } }));
+      setItems((x) => ({ ...x, [id]: { ...x[id], fotos: [...nuevas.slice(-files.length), ...((x[id] && !x[id].sat && x[id].fotos) || [])], foto: 0, sat: false, fotoPdf: '' } }));
       ctx.cargar(); setEstado('');
     } catch (e) { setEstado(e.message); }
     setSubiendo('');
@@ -2273,6 +2296,7 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
                   <button className="fbcrm-texto" onClick={() => redactar(it.campo.id)}>↻ Redactar de nuevo con IA</button>
                 </div>
               ))}
+              {paso === 'editar' && lista.some((it) => !it.fotos.length || it.sat) && <p className="fbcrm-aviso-caja">{(() => { const sin = lista.filter((it) => !it.fotos.length), sat = lista.filter((it) => it.sat); return [sin.length ? `Sin foto: ${sin.map((it) => it.campo.nombre).join(', ')}.` : '', sat.length ? `Con imagen satelital (sin fotos): ${sat.map((it) => it.campo.nombre).join(', ')}.` : ''].filter(Boolean).join(' '); })()} Puedes subir fotos en cada campo antes de generar.</p>}
               {paso === 'editar' && <div className="fbcrm-acciones br-acciones-fijas"><button onClick={() => setPaso('elegir')}>← Cambiar campos</button><button className="fbcrm-primario" onClick={generar}>Generar el brochure</button></div>}
               {paso === 'listo' && (
                 <div className="fbcrm-bloque br-listo">
@@ -6389,7 +6413,7 @@ const CSS = `
 .br-t-link{margin:8px 0 0;font-size:11px;font-weight:600;color:#B5831F;letter-spacing:.02em}
 .br-uno .br-t-info{padding:20px 24px 22px}.br-uno .br-t-info h2{font-size:28px}.br-uno .br-t-frase{font-size:17px}.br-uno .br-t-texto{font-size:13px}
 .br-dos .br-tarjeta{flex-direction:row}.br-dos .br-t-foto{flex:1.15}.br-dos .br-t-info{flex:1;padding:20px 22px;display:flex;flex-direction:column;justify-content:center}.br-dos .br-t-info h2{font-size:24px}.br-dos .br-t-frase{font-size:15px}
-.br-filas{flex:none;grid-template-columns:1fr;grid-auto-rows:252px;align-content:start;gap:14px;padding:18px 44px}
+.br-filas{flex:none;grid-template-columns:1fr;grid-auto-rows:276px;align-content:start;gap:14px;padding:18px 44px}
 .br-hoja.f1 .br-filas,.br-hoja.f2 .br-filas{grid-auto-rows:318px;gap:18px}
 .br-hoja.f1 .br-fila .br-t-texto,.br-hoja.f2 .br-fila .br-t-texto{font-size:12px}
 .br-hoja.primera.f3.con-pie .br-filas{grid-auto-rows:226px;gap:12px}
@@ -6403,6 +6427,11 @@ const CSS = `
 .br-h-mini{padding:18px 0 12px;align-items:center;justify-content:space-between}
 .br-h-mini .br-h-logo{width:70px}
 .br-hoja .br-h-pie{margin-top:auto}
+.br .br-sin-foto-txt{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:linear-gradient(135deg,#2D6A45,#1F4D31)}
+.br .br-sin-foto-txt img{width:84px;opacity:.6}
+.br .br-sin-foto-txt span{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.75);font-weight:600}
+.br .br-h-pie dl.br-h-pie-datos{display:flex!important;flex-wrap:wrap;background:none!important;padding:0 0 0 26px!important;gap:10px 0!important}
+.br .br-h-pie dl.br-h-pie-datos>div{width:50%;box-sizing:border-box;padding-right:14px}
 .br-tarjeta.ancha{grid-column:1/-1;flex-direction:row}
 .br-tarjeta.ancha .br-t-foto{flex:1.45}
 .br-tarjeta.ancha .br-t-info{flex:1;display:flex;flex-direction:column;justify-content:center;padding:18px 22px}
