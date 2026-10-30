@@ -1043,6 +1043,13 @@ function FichaCampo({ ctx, inicial, cerrar }) {
         <div className="fbcrm-form">
           <Campo label={etqWeb('Derechos de agua', 'agua')}><input value={f.agua || ''} disabled={deWeb('agua')} onChange={set('agua')} placeholder="Ej. 31 l/s" /></Campo>
           <Campo label="Fuente del agua"><input value={f.fuenteAgua || ''} onChange={set('fuenteAgua')} placeholder="Ej. Canal Cocalán, pozo profundo" /></Campo>
+          <div className="fbcrm-campo-grupo ancho"><span>¿Está plantado?</span>
+            <div className="fbcrm-chips" role="group" aria-label="¿Está plantado?">
+              <button type="button" className={f.plantado === 'si' ? 'on' : ''} aria-pressed={f.plantado === 'si'} onClick={() => setF((x) => ({ ...x, plantado: x.plantado === 'si' ? '' : 'si' }))}>🌱 Plantado</button>
+              <button type="button" className={f.plantado === 'no' ? 'on' : ''} aria-pressed={f.plantado === 'no'} onClick={() => setF((x) => ({ ...x, plantado: x.plantado === 'no' ? '' : 'no' }))}>Sin plantar</button>
+            </div>
+            <small className="fbcrm-nota-suave">{f.plantado === 'si' ? 'Marcado como plantado: calza con los clientes que buscan campos plantados.' : f.plantado === 'no' ? 'Marcado sin plantar: calza con los clientes que buscan campos para plantar.' : 'Sin marcar: se deduce de lo escrito en plantaciones y en la descripción. Toca un botón para dejarlo claro.'}</small>
+          </div>
           <Campo label={etqWeb('Plantaciones', 'plantaciones')} ancho><input value={f.plantaciones || ''} disabled={deWeb('plantaciones')} onChange={set('plantaciones')} placeholder="Ej. 40 ha almendros, 20 ha nogales" /></Campo>
           <Campo label="Aptitud" ancho><input value={f.aptitud || ''} onChange={set('aptitud')} placeholder="Ej. paltos, cítricos, uva de mesa" /></Campo>
           <Campo label="Infraestructura" ancho><textarea rows={2} value={f.infraestructura || ''} onChange={set('infraestructura')} placeholder="Ej. Casa patronal 250 m², bodega, galpón, tranque 30.000 m³" /></Campo>
@@ -1633,7 +1640,7 @@ function PalabrasClave({ valor = [], onChange }) {
   };
   return (
     <div className="fbcrm-palabras">
-      <p className="fbcrm-etq">Palabras clave <span className="fbcrm-nota-suave">(son excluyentes: solo es calce fuerte el campo que las tiene escritas en la web, la ficha o la tasación, en cualquier región; los demás quedan como calce parcial)</span></p>
+      <p className="fbcrm-etq">Palabras clave <span className="fbcrm-nota-suave">(dentro de las regiones y comunas elegidas, es calce fuerte el campo que las tiene escritas en la web, la ficha o la tasación; los demás quedan como calce parcial)</span></p>
       <div className="fbcrm-chips">
         {valor.map((w) => <button key={w} className="on" title="Quitar" onClick={() => onChange(valor.filter((x) => x !== w))}>{w} ✕</button>)}
         <input value={txt} onChange={(e) => setTxt(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); agregar(); } }} onBlur={agregar} placeholder="Ej. lechería, ciruela d'agen" aria-label="Agregar palabra clave" />
@@ -1853,7 +1860,13 @@ function FichaCliente({ ctx, inicial, cerrar }) {
           <Campo label="Zonas o comunas específicas" ancho><input value={b.zona || ''} onChange={(e) => setB('zona', e.target.value)} placeholder="Ej. Las Cabras, Rapel, Mallarauco" /></Campo>
         </div>
         <div className="fbcrm-form fbcrm-sep2">
-          <Campo label="¿Plantado o sin plantar?"><select value={b.plantado || ''} onChange={(e) => setB('plantado', e.target.value)}><option value="">Le da lo mismo</option><option value="plantado">Plantado (en producción)</option><option value="sin_plantar">Sin plantar (para plantar)</option></select></Campo>
+          <div className="fbcrm-campo-grupo ancho"><span>¿Plantado o sin plantar?</span>
+            <div className="fbcrm-chips" role="group" aria-label="¿Plantado o sin plantar?">
+              <button type="button" className={b.plantado === 'plantado' ? 'on' : ''} aria-pressed={b.plantado === 'plantado'} onClick={() => setB('plantado', b.plantado === 'plantado' ? '' : 'plantado')}>🌱 Plantado</button>
+              <button type="button" className={b.plantado === 'sin_plantar' ? 'on' : ''} aria-pressed={b.plantado === 'sin_plantar'} onClick={() => setB('plantado', b.plantado === 'sin_plantar' ? '' : 'sin_plantar')}>Sin plantar</button>
+              {b.plantado && <button type="button" className="fbcrm-texto" onClick={() => setB('plantado', '')}>Le da lo mismo</button>}
+            </div>
+          </div>
         </div>
         <PalabrasClave valor={b.palabras || []} onChange={(v) => setB('palabras', v)} />
         <p className="fbcrm-etq">Cultivos {b.plantado === 'sin_plantar' ? <span className="fbcrm-nota-suave">(lo que quiere plantar)</span> : null}</p>
@@ -5939,7 +5952,8 @@ const CSS = `
 .fbcrm-bloque>p{margin:0 0 12px}
 .fbcrm-form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .fbcrm-form label,.fbcrm-acceso label{display:flex;flex-direction:column;gap:5px;font-size:.84rem;color:var(--salvia);font-weight:500}
-.fbcrm-form label.ancho{grid-column:1/-1}
+.fbcrm-form label.ancho,.fbcrm-form .fbcrm-campo-grupo.ancho{grid-column:1/-1}
+.fbcrm-form .fbcrm-campo-grupo{display:flex;flex-direction:column;gap:5px;font-size:.84rem;color:var(--salvia);font-weight:500}
 .fbcrm-etq{font-size:.84rem;color:var(--salvia);font-weight:500;margin:16px 0 8px}
 .fbcrm-check{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .fbcrm-check label{display:flex;gap:10px;align-items:center;font-size:.92rem;cursor:pointer;padding:9px 11px;border-radius:11px;background:var(--hoja);transition:background-color .15s}
