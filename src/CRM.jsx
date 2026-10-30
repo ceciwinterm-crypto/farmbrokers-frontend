@@ -1992,6 +1992,15 @@ function EscribirCliente({ ctx, cli, contacto, canal, campos, cerrar, alEnviar }
 // ════════════════════════════ Brochure de varios campos para un cliente ════════════════════════════
 const dosDig = (n) => String(n).padStart(2, '0');
 const corto = (t, n) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1).replace(/[\s,;.]+\S*$/, '')}…` : t; };
+// Sin IA: las primeras oraciones de la descripción (cortadas en un punto, no a media palabra)
+function resumenRespaldo(c) {
+  const t = String(c.descripcionFicha || ((c.web && c.web.descripcion) || []).join(' ') || '').replace(/[•*#]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  const oraciones = t.match(/[^.!?]+[.!?]+/g) || [t];
+  let out = '';
+  for (const o of oraciones) { if ((out + o).split(' ').length > 62 && out) break; out += o; }
+  return corto(out.trim(), 480);
+}
 function datosBrochure(c) {
   const w = c.web || null, d = (w && w.detalle) || {};
   const plant = haPlantadas({ plantaciones: d.plantaciones || c.plantaciones });
@@ -2038,57 +2047,74 @@ async function fotosCRM(c, usuario) {
   return urls.filter(Boolean);
 }
 // items: [{ campo, texto: {titular, campo, zona}, fotos: [url], foto: índice de la portada }]
+// Un campo: una hoja grande. Dos o más: una fila por campo (foto grande + datos + descripción), 2 en la primera hoja y 3 en las siguientes.
+function TarjetaBrochure({ it, i, fila }) {
+  const d = datosBrochure(it.campo), t = it.texto || {};
+  if (!d.url && it.url) d.url = it.url;
+  const datos = [d.ha, d.precio, d.plantado && `${d.plantado} plantadas`, d.agua && corto(d.agua, 48)].filter(Boolean);
+  return (
+    <article className={`br-tarjeta ${fila ? 'br-fila' : ''}`} data-enlace={d.url || undefined}>
+      <div className="br-t-foto">
+        {it.fotos.length ? <Foto src={it.fotoPdf || it.fotos[it.foto || 0]} clase="br-t-img" /> : <SateliteTarjeta campo={it.campo} />}
+        <span className="br-t-num">{dosDig(i + 1)}</span>
+        {visibDe(it.campo) === 'reservada' ? <span className="br-t-tipo br-t-off">★ Off market</span> : d.tipo && <span className="br-t-tipo">{d.tipo}</span>}
+      </div>
+      <div className="br-t-info">
+        <h2>{corto(d.titulo, 70)}</h2>
+        <p className="br-t-lugar">{[d.comuna, d.region].filter(Boolean).join(', ')}</p>
+        <p className="br-t-datos">{datos.map((x, k) => <span key={k}>{x}</span>)}</p>
+        {t.titular && <p className="br-t-frase">{t.titular}</p>}
+        {t.campo && <p className="br-t-texto">{t.campo}</p>}
+        {!fila && t.zona && <p className="br-t-texto">{t.zona}</p>}
+        {d.url && <p className="br-t-link">Ver publicación →</p>}
+      </div>
+    </article>
+  );
+}
 function DocBrochure({ items, usuario, datosUsuario, busca }) {
   const du = datosUsuario || {};
   const n = items.length;
-  const forma = n === 1 ? 'uno' : n === 2 ? 'dos' : n <= 4 ? 'cuatro' : n <= 6 ? 'seis' : 'nueve';
   const tel = du.telefono || '+56 9 7193 9040';
+  // Reparto en hojas: hasta 3 campos por hoja (la primera lleva el encabezado; la última, los datos de contacto)
+  const hojas = [];
+  for (let k = 0; k < Math.max(n, 1); k += 3) hojas.push(items.slice(k, k + 3));
+  const pie = (
+    <footer className="br-h-pie">
+      <div className="br-h-pie-txt"><strong>¿Coordinamos una visita?</strong><span>Te enviamos la ficha completa y el plano de cada campo.</span></div>
+      <dl className="br-h-pie-datos">
+        <div><dt>Corredor</dt><dd>{usuario}</dd></div>
+        <div data-enlace={`https://wa.me/${fonoWa(tel)}`}><dt>WhatsApp</dt><dd>{tel}</dd></div>
+        <div data-enlace={`mailto:${du.email || 'contacto@farmbrokers.cl'}`}><dt>Correo</dt><dd>{du.email || 'contacto@farmbrokers.cl'}</dd></div>
+        <div data-enlace="https://farmbrokers.cl"><dt>Web</dt><dd>farmbrokers.cl</dd></div>
+      </dl>
+    </footer>
+  );
+  let num = 0;
   return (
     <div className="br">
-      <section className="doc-pagina br-pag br-hoja">
-        <header className="br-h-cab">
-          <img src={LOGO_FB} alt="Farm Brokers Chile" className="br-h-logo" />
-          <div className="br-h-tit">
-            <span className="br-antetitulo">Selección privada · {fechaLargaO(hoyISO())}</span>
-            <h1>Campos destacados</h1>
-            <p>{n === 1 ? 'Una propiedad elegida' : `${n} propiedades elegidas`} por Farm Brokers{busca ? ` para lo que buscas: ${corto(busca, 110)}` : ' según lo que buscas'}.</p>
+      {hojas.map((h, hi) => (
+        <section key={hi} className={`doc-pagina br-pag br-hoja f${h.length} ${hi === 0 ? 'primera' : ''} ${hi === hojas.length - 1 ? 'con-pie' : ''}`}>
+          {hi === 0 ? (
+            <header className="br-h-cab">
+              <img src={LOGO_FB} alt="Farm Brokers Chile" className="br-h-logo" />
+              <div className="br-h-tit">
+                <span className="br-antetitulo">Selección privada · {fechaLargaO(hoyISO())}</span>
+                <h1>Campos destacados</h1>
+                <p>{n === 1 ? 'Una propiedad elegida' : `${n} propiedades elegidas`} por Farm Brokers{busca ? ` para lo que buscas: ${corto(busca, 110)}` : ' según lo que buscas'}.</p>
+              </div>
+            </header>
+          ) : (
+            <header className="br-h-cab br-h-mini">
+              <img src={LOGO_FB} alt="Farm Brokers Chile" className="br-h-logo" />
+              <span className="br-antetitulo">Campos destacados · {hi + 1} de {hojas.length}</span>
+            </header>
+          )}
+          <div className={`br-grilla ${n === 1 ? 'br-uno' : 'br-filas'}`}>
+            {h.map((it) => { const k = num++; return <TarjetaBrochure key={it.campo.id} it={it} i={k} fila={n > 1} />; })}
           </div>
-        </header>
-        <div className={`br-grilla br-${forma}`}>
-          {items.map((it, i) => {
-            const d = datosBrochure(it.campo), t = it.texto || {};
-            if (!d.url && it.url) d.url = it.url;
-            const datos = [d.ha, d.precio, d.agua && corto(d.agua, forma === 'nueve' ? 22 : 34)].filter(Boolean);
-            return (
-              <article key={it.campo.id} className={`br-tarjeta ${i === 0 && n % 2 === 1 && n >= 3 && n < 9 ? 'ancha' : ''}`} data-enlace={d.url || undefined}>
-                <div className="br-t-foto">
-                  {it.fotos.length ? <Foto src={it.fotoPdf || it.fotos[it.foto || 0]} clase="br-t-img" /> : <SateliteTarjeta campo={it.campo} />}
-                  <span className="br-t-num">{dosDig(i + 1)}</span>
-                  {visibDe(it.campo) === 'reservada' ? <span className="br-t-tipo br-t-off">★ Off market</span> : d.tipo && forma !== 'nueve' && <span className="br-t-tipo">{d.tipo}</span>}
-                </div>
-                <div className="br-t-info">
-                  <h2>{corto(d.titulo, forma === 'nueve' ? 38 : 60)}</h2>
-                  <p className="br-t-lugar">{[d.comuna, d.region].filter(Boolean).join(', ')}</p>
-                  <p className="br-t-datos">{datos.map((x, k) => <span key={k}>{x}</span>)}</p>
-                  {t.titular && (forma !== 'nueve' || (i === 0 && n % 2 === 1)) && <p className="br-t-frase">{t.titular}</p>}
-                  {(forma === 'uno' || forma === 'dos') && t.campo && <p className="br-t-texto">{t.campo}</p>}
-                  {forma === 'uno' && t.zona && <p className="br-t-texto">{t.zona}</p>}
-                  {d.url && (forma === 'uno' || forma === 'dos' || (i === 0 && n % 2 === 1)) && <p className="br-t-link">Ver publicación →</p>}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-        <footer className="br-h-pie">
-          <div className="br-h-pie-txt"><strong>¿Coordinamos una visita?</strong><span>Te enviamos la ficha completa y el plano de cada campo.</span></div>
-          <dl className="br-h-pie-datos">
-            <div><dt>Corredor</dt><dd>{usuario}</dd></div>
-            <div data-enlace={`https://wa.me/${fonoWa(tel)}`}><dt>WhatsApp</dt><dd>{tel}</dd></div>
-            <div data-enlace={`mailto:${du.email || 'contacto@farmbrokers.cl'}`}><dt>Correo</dt><dd>{du.email || 'contacto@farmbrokers.cl'}</dd></div>
-            <div data-enlace="https://farmbrokers.cl"><dt>Web</dt><dd>farmbrokers.cl</dd></div>
-          </dl>
-        </footer>
-      </section>
+          {hi === hojas.length - 1 && pie}
+        </section>
+      ))}
     </div>
   );
 }
@@ -2126,13 +2152,14 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
       const c = campoDe(id); if (!c) continue;
       setEstado(`Preparando ${k + 1} de ${Math.min(sel.length, 9)}: ${c.nombre}…`);
       let texto = (nuevos[id] && nuevos[id].texto) || null, aviso = '';
-      if (!texto) { try { texto = await api(`/campos/${id}/brochure`, { method: 'POST', body: { busca } }); } catch (e) { aviso = e.message; texto = { titular: '', campo: corto((c.descripcionFicha || ((c.web && c.web.descripcion) || []).join(' ')), 420), zona: '' }; } }
+      if (!texto) { try { texto = await api(`/campos/${id}/brochure`, { method: 'POST', body: { busca } }); } catch (e) { aviso = e.message; texto = { titular: '', campo: resumenRespaldo(c), zona: '' }; } }
       let cw = c;
       const tieneLink = [c.linkWeb, c.linkPortal, c.web && c.web.url].some((u) => /^https?:\/\/(www\.)?farmbrokers\.cl\/propiedad\//i.test(String(u || '').trim()));
       const off = esOffMarket(c);
       if (!off && !(nuevos[id] && nuevos[id].fotos.length) && !(c.web && c.web.fotos && c.web.fotos.length) && tieneLink) { try { cw = await api(`/campos/${id}/web`, { method: 'POST' }); } catch (e) { /* se usan las fotos del CRM */ } }
-      let fotos = (nuevos[id] && nuevos[id].fotos.length) ? nuevos[id].fotos : (!off && cw.web && cw.web.fotos && cw.web.fotos.length ? cw.web.fotos.slice(0, 6) : []);
-      if (!fotos.length) fotos = await fotosCRM(c, usuario);
+      // Primero las fotos subidas al CRM (con la portada elegida), luego las de la publicación web
+      let fotos = (nuevos[id] && nuevos[id].fotos.length) ? nuevos[id].fotos
+        : [...await fotosCRM(c, usuario), ...(!off && cw.web && cw.web.fotos ? cw.web.fotos : [])].slice(0, 8);
       let url = '';
       // Sin link a la web: se busca su publicación en farmbrokers.cl (y queda enlazado)
       if (!fotos.length && off) aviso = [aviso, 'Off market sin fotos propias: sube aquí la foto que quieras mostrar (o en “Archivos y plano” del campo).'].filter(Boolean).join(' ');
@@ -2235,10 +2262,8 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
                     <label className="fbcrm-mini br-subir-btn">{subiendo === it.campo.id ? 'Subiendo…' : it.fotos.length ? '+ Subir otra foto' : '+ Subir fotos'}<input type="file" accept="image/*" multiple hidden disabled={!!subiendo} onChange={(e) => { subirFotos(it.campo.id, [...e.target.files]); e.target.value = ''; }} /></label>
                   </div>
                   <Campo label="Frase destacada" ancho><input value={(it.texto && it.texto.titular) || ''} maxLength={110} onChange={(e) => cambiarTexto(it.campo.id, 'titular', e.target.value)} onBlur={() => guardarTexto(it.campo.id)} /></Campo>
-                  {lista.length <= 2 && <>
-                  <Campo label="El campo" ancho><textarea rows={4} value={(it.texto && it.texto.campo) || ''} maxLength={700} onChange={(e) => cambiarTexto(it.campo.id, 'campo', e.target.value)} onBlur={() => guardarTexto(it.campo.id)} /></Campo>
-                  <Campo label="La zona" ancho><textarea rows={3} value={(it.texto && it.texto.zona) || ''} maxLength={600} onChange={(e) => cambiarTexto(it.campo.id, 'zona', e.target.value)} onBlur={() => guardarTexto(it.campo.id)} /></Campo>
-                  </>}
+                  <Campo label="Descripción del campo (sale en la tarjeta)" ancho><textarea rows={5} value={(it.texto && it.texto.campo) || ''} maxLength={700} onChange={(e) => cambiarTexto(it.campo.id, 'campo', e.target.value)} onBlur={() => guardarTexto(it.campo.id)} /></Campo>
+                  {lista.length === 1 && <Campo label="La zona" ancho><textarea rows={3} value={(it.texto && it.texto.zona) || ''} maxLength={600} onChange={(e) => cambiarTexto(it.campo.id, 'zona', e.target.value)} onBlur={() => guardarTexto(it.campo.id)} /></Campo>}
                   <button className="fbcrm-texto" onClick={() => redactar(it.campo.id)}>↻ Redactar de nuevo con IA</button>
                 </div>
               ))}
@@ -6358,6 +6383,20 @@ const CSS = `
 .br-t-link{margin:8px 0 0;font-size:11px;font-weight:600;color:#B5831F;letter-spacing:.02em}
 .br-uno .br-t-info{padding:20px 24px 22px}.br-uno .br-t-info h2{font-size:28px}.br-uno .br-t-frase{font-size:17px}.br-uno .br-t-texto{font-size:13px}
 .br-dos .br-tarjeta{flex-direction:row}.br-dos .br-t-foto{flex:1.15}.br-dos .br-t-info{flex:1;padding:20px 22px;display:flex;flex-direction:column;justify-content:center}.br-dos .br-t-info h2{font-size:24px}.br-dos .br-t-frase{font-size:15px}
+.br-filas{flex:none;grid-template-columns:1fr;grid-auto-rows:252px;align-content:start;gap:14px;padding:18px 44px}
+.br-hoja.f1 .br-filas,.br-hoja.f2 .br-filas{grid-auto-rows:318px;gap:18px}
+.br-hoja.f1 .br-fila .br-t-texto,.br-hoja.f2 .br-fila .br-t-texto{font-size:12px}
+.br-hoja.primera.f3.con-pie .br-filas{grid-auto-rows:226px;gap:12px}
+.br-fila{flex-direction:row}
+.br-fila .br-t-foto{flex:none;width:46%}
+.br-fila .br-t-info{flex:1;min-width:0;padding:18px 20px 16px;display:flex;flex-direction:column;overflow:hidden}
+.br-fila .br-t-info h2{font-size:21px}
+.br-fila .br-t-frase{font-size:13.5px;margin-top:9px}
+.br-fila .br-t-texto{font-size:11.3px;line-height:1.5;margin-top:7px}
+.br-fila .br-t-link{margin-top:auto;padding-top:6px}
+.br-h-mini{padding:18px 0 12px;align-items:center;justify-content:space-between}
+.br-h-mini .br-h-logo{width:70px}
+.br-hoja .br-h-pie{margin-top:auto}
 .br-tarjeta.ancha{grid-column:1/-1;flex-direction:row}
 .br-tarjeta.ancha .br-t-foto{flex:1.45}
 .br-tarjeta.ancha .br-t-info{flex:1;display:flex;flex-direction:column;justify-content:center;padding:18px 22px}
@@ -6370,9 +6409,9 @@ const CSS = `
 .br-h-pie-txt span{font-size:11px;line-height:1.45;color:rgba(255,255,255,.75)}
 .fbcrm-doc .br dl{display:block;padding:0;background:none;border-radius:0;gap:0}
 .fbcrm-doc .br dt,.fbcrm-doc .br dd{font-weight:inherit}
-.fbcrm-doc .br .br-h-pie-datos{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:10px 22px;margin:0;padding:0 0 0 26px;border-left:1px solid rgba(255,255,255,.25)}
-.fbcrm-doc .br .br-h-pie-datos dt{font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:#E9C46A;font-weight:600}
-.fbcrm-doc .br .br-h-pie-datos dd{margin:3px 0 0;font-size:13px;color:#fff}
+.br .br-h-pie-datos{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:10px 22px;margin:0;padding:0 0 0 26px;border-left:1px solid rgba(255,255,255,.25)}
+.br .br-h-pie-datos dt{font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:#E9C46A;font-weight:600}
+.br .br-h-pie-datos dd{margin:3px 0 0;font-size:13px;color:#fff}
 /* Panel para armarlo */
 .br-capa{position:fixed;inset:0;z-index:60;background:rgba(23,38,29,.45);display:flex;justify-content:center;align-items:flex-start;overflow:auto;padding:24px 16px}
 .br-panel{background:var(--hoja);border-radius:18px;width:min(1180px,100%);padding:20px 22px 26px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
