@@ -1852,7 +1852,6 @@ function FichaCliente({ ctx, inicial, cerrar }) {
         <SelectorPerfiles ctx={ctx} valor={b.perfiles || []} onChange={(v) => setB('perfiles', v)} />
         <div className="fbcrm-form fbcrm-sep2">
           <Campo label="Requerimiento (como lo dijo el cliente)" ancho><textarea rows={2} value={b.requerimiento || ''} onChange={(e) => setB('requerimiento', e.target.value)} /></Campo>
-          <Campo label="Tipo de propiedad"><SelectTipo ctx={ctx} value={b.tipo || ''} vacio="Cualquiera" onChange={(v) => setB('tipo', v)} /></Campo>
           <Campo label="Operación"><select value={b.operacion || 'compra'} onChange={(e) => setB('operacion', e.target.value)}><option value="compra">Compra</option><option value="arriendo">Arriendo</option><option value="ambas">Compra o arriendo</option></select></Campo>
           <Campo label="Hectáreas mínimo"><input type="number" inputMode="decimal" value={b.haMin ?? ''} onChange={(e) => setB('haMin', e.target.value)} /></Campo>
           <Campo label="Hectáreas máximo"><input type="number" inputMode="decimal" value={b.haMax ?? ''} onChange={(e) => setB('haMax', e.target.value)} placeholder="Sin límite" /></Campo>
@@ -2170,7 +2169,7 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
   const [estado, setEstado] = useState('');
   const [link, setLink] = useState('');
   const refPdf = useRef(null);
-  const busca = busquedasCli(cli).filter((b) => b.activa !== false).map((b) => b.requerimiento || [TIPOS[b.tipo] || b.tipo, b.zona, (b.regiones || []).map((r) => REG_NOMBRE[r] || r).join(' o '), b.haMin || b.haMax ? `${b.haMin || '…'} a ${b.haMax || '…'} ha` : ''].filter(Boolean).join(', ')).filter(Boolean).join('; ') || cli.requerimiento || '';
+  const busca = busquedasCli(cli).filter((b) => b.activa !== false).map((b) => b.requerimiento || [b.zona, (b.regiones || []).map((r) => REG_NOMBRE[r] || r).join(' o '), b.haMin || b.haMax ? `${b.haMin || '…'} a ${b.haMax || '…'} ha` : ''].filter(Boolean).join(', ')).filter(Boolean).join('; ') || cli.requerimiento || '';
   const campoDe = (id) => datos.campos.find((c) => c.id === id);
   const otros = datos.campos.filter((c) => !sel.includes(c.id) && c.etapa !== 'Descartado').sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   const mover = (i, d) => setSel((s) => { const n = [...s]; const j = i + d; if (j < 0 || j >= n.length) return s; [n[i], n[j]] = [n[j], n[i]]; return n; });
