@@ -1318,6 +1318,21 @@ function ListaClientes({ ctx }) {
   const [orden, setOrden] = useState('nombre');
   const [verPerfiles, setVerPerfiles] = useState(false);
   const [verFiltrosC, setVerFiltrosC] = useState(false);
+  const [fReg, setFReg] = useState('');
+  const [fZona, setFZona] = useState('');
+  const [fPlant, setFPlant] = useState('');
+  const zonasTodas = datos.zonas || {};
+  // Región, valle/zona y plantado se revisan en cada búsqueda activa del cliente
+  const busquedasActivas = (c) => { const l = busquedasCli(c).filter((b) => b.activa !== false); return l.length ? l : busquedasCli(c); };
+  const regionesDeBusq = (b) => [...(b.regiones || []), ...(b.comunas || []).map((x) => x.r), ...(b.zonas || []).flatMap((z) => regionesZona(zonasTodas[z]))];
+  const pasaRegion = (c) => !fReg || busquedasActivas(c).some((b) => regionesDeBusq(b).includes(fReg));
+  const pasaZona = (c) => {
+    if (!fZona) return true;
+    const z = zonasTodas[fZona], comZ = crZona(z);
+    return busquedasActivas(c).some((b) => (b.zonas || []).includes(fZona) || (b.comunas || []).some((x) => comZ.some((y) => y.r === x.r && norm(y.c) === norm(x.c))));
+  };
+  const pasaPlant = (c) => !fPlant || busquedasActivas(c).some((b) => (fPlant === 'igual' ? !b.plantado : b.plantado === fPlant));
+  const zonasOrdenadas = Object.entries(zonasTodas).sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, 'es'));
   const porCliente = useMemo(() => {
     const m = {}; for (const [cid, lista] of Object.entries(datos.matches)) {
       const campo = datos.campos.find((c) => c.id === cid);
@@ -1336,11 +1351,11 @@ function ListaClientes({ ctx }) {
     return true;
   };
   const base = datos.clientes.filter((c) => filtro === 'todos' || (filtro === 'revisar' ? c.revisar : c.etapa === filtro));
-  const lista = base.filter((c) => pasaPerfiles(c, fPerfiles) && enFecha(c) && pasaCorredor(c, fCorredor) &&
+  const lista = base.filter((c) => pasaPerfiles(c, fPerfiles) && enFecha(c) && pasaCorredor(c, fCorredor) && pasaRegion(c) && pasaZona(c) && pasaPlant(c) &&
     (!nq || [c.nombre, c.rut, c.contactoNombre, c.requerimiento, c.zona, c.email, c.observaciones, ...contactosDe(c).map((x) => `${x.nombre} ${x.cargo || ''} ${x.email}`), ...busquedasCli(c).map((b) => `${b.nombre} ${b.requerimiento || ''} ${b.zona || ''}`)].join(' ').toLowerCase().includes(nq)))
     .sort(orden === 'nombre' ? (a, b) => a.nombre.localeCompare(b.nombre, 'es')
       : (a, b) => ((fechaIngresoCliente(orden === 'recientes' ? b : a) || 0) - (fechaIngresoCliente(orden === 'recientes' ? a : b) || 0)));
-  const hayFiltros = q || fPerfiles.length || fFecha || fCorredor;
+  const hayFiltros = q || fPerfiles.length || fFecha || fCorredor || fReg || fZona || fPlant;
   const fmtMes = (d) => (d ? d.toLocaleDateString('es-CL', { month: 'short', year: 'numeric' }) : '');
   return (
     <section className={verFiltrosC ? 'ver-filtros' : ''}>
@@ -1351,14 +1366,20 @@ function ListaClientes({ ctx }) {
         <div className="fbcrm-chips">
           <button className={`solo-pc ${verPerfiles ? 'on' : ''}`} onClick={() => setVerPerfiles(!verPerfiles)}>Perfiles</button>
           <button className={`solo-pc ${verCorredores ? 'on' : ''}`} onClick={() => setVerCorredores(!verCorredores)}>Corredores</button>
-          <button className="fbcrm-primario" onClick={() => abrir('clientes', { etapa: 'Activo', operacion: 'compra', tipo: 'agricola', regiones: [], cultivos: [], perfiles: [], responsable: usuario, fechaRequerimiento: hoyISO() })}><span className="solo-pc">Nuevo cliente</span><span className="solo-movil">+ Nuevo</span></button>
+          <button className="fbcrm-primario" onClick={() => abrir('clientes', { etapa: 'Activo', operacion: 'compra', regiones: [], cultivos: [], perfiles: [], responsable: usuario, fechaRequerimiento: hoyISO() })}><span className="solo-pc">Nuevo cliente</span><span className="solo-movil">+ Nuevo</span></button>
         </div>
       </div>
       {verPerfiles && <div className="fbcrm-bloque"><PerfilesAdmin ctx={ctx} /></div>}
       {verCorredores && <div className="fbcrm-bloque"><CorredoresAdmin ctx={ctx} /></div>}
       <div className="fbcrm-filtros">
         <Buscador placeholder="Buscar por nombre, contacto, requerimiento o zona" value={q} onChange={setQ} />
-        <button type="button" className={`solo-movil fbcrm-btn-filtros ${verFiltrosC ? 'on' : ''}`} onClick={() => setVerFiltrosC(!verFiltrosC)}>Filtros{[fCorredor, fFecha].filter(Boolean).length + fPerfiles.length ? ` (${[fCorredor, fFecha].filter(Boolean).length + fPerfiles.length})` : ''}</button>
+        <button type="button" className={`solo-movil fbcrm-btn-filtros ${verFiltrosC ? 'on' : ''}`} onClick={() => setVerFiltrosC(!verFiltrosC)}>Filtros{[fCorredor, fFecha, fReg, fZona, fPlant].filter(Boolean).length + fPerfiles.length ? ` (${[fCorredor, fFecha, fReg, fZona, fPlant].filter(Boolean).length + fPerfiles.length})` : ''}</button>
+        <label><span>Región que busca</span><select value={fReg} onChange={(e) => setFReg(e.target.value)}><option value="">Todas</option>{ORDEN_REG.map((r) => <option key={r} value={r}>{REG_NOMBRE[r] || r}</option>)}</select></label>
+        <label><span>Valle o zona</span><select value={fZona} onChange={(e) => setFZona(e.target.value)}><option value="">Todos</option>
+          <optgroup label="Valles oficiales">{zonasOrdenadas.filter(([, z]) => /Decreto/.test(z.fuente || '')).map(([k, z]) => <option key={k} value={k}>{z.nombre}</option>)}</optgroup>
+          <optgroup label="Zonas comerciales">{zonasOrdenadas.filter(([, z]) => !/Decreto/.test(z.fuente || '')).map(([k, z]) => <option key={k} value={k}>{z.nombre}</option>)}</optgroup>
+        </select></label>
+        <label><span>Plantado</span><select value={fPlant} onChange={(e) => setFPlant(e.target.value)}><option value="">Todos</option><option value="plantado">Busca plantado</option><option value="sin_plantar">Busca sin plantar</option><option value="igual">Le da lo mismo</option></select></label>
         <label><span>Corredor</span><select value={fCorredor} onChange={(e) => setFCorredor(e.target.value)}><option value="">Todos</option>{corredores.map((n) => <option key={n} value={n}>{n}</option>)}<option value="__sin">Sin corredor</option></select></label>
         <label><span>Fecha de ingreso</span><select value={fFecha} onChange={(e) => setFFecha(e.target.value)}>
           <option value="">Todas</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="365">Último año</option><option value="anio">Este año</option><option value="rango">Entre fechas…</option>
@@ -1372,7 +1393,7 @@ function ListaClientes({ ctx }) {
         </div>
       )}
       <FiltroPerfiles datos={datos} elegidos={fPerfiles} setElegidos={setFPerfiles} />
-      <p className="fbcrm-conteo">{plural(lista.length, 'cliente')}{hayFiltros ? ` de ${base.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFPerfiles([]); setFCorredor(''); setFFecha(''); setDesde(''); setHasta(''); }}>Quitar filtros</button></>}</p>
+      <p className="fbcrm-conteo">{plural(lista.length, 'cliente')}{hayFiltros ? ` de ${base.length}` : ''}{hayFiltros && <> <button className="fbcrm-texto" onClick={() => { setQ(''); setFPerfiles([]); setFCorredor(''); setFFecha(''); setDesde(''); setHasta(''); setFReg(''); setFZona(''); setFPlant(''); }}>Quitar filtros</button></>}</p>
       {!lista.length && <p className="fbcrm-vacio">{datos.clientes.length ? 'Ningún cliente coincide.' : 'Aún no hay clientes. Importa la planilla o usa “Nuevo cliente”.'}</p>}
       <div className="fbcrm-grupo">
         {lista.map((c) => (
