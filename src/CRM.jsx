@@ -1789,6 +1789,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
   };
   const [verBusq, setVerBusq] = useState('todas'); // calces: todas las búsquedas o una en particular
   const [verPorQue, setVerPorQue] = useState(false); // mostrar el detalle de por qué calza cada campo
+  const [verPerfil, setVerPerfil] = useState(''); // calces de un solo perfil del cliente (forestal, conservación…)
   const [ordenCalce, setOrdenCalce] = useState('calce');
   const [mDesde, setMDesde] = useState('');
   const [mHasta, setMHasta] = useState('');
@@ -1927,7 +1928,11 @@ function FichaCliente({ ctx, inicial, cerrar }) {
           hectareas: (a, b) => (b.campo.hectareas || 0) - (a.campo.hectareas || 0),
         };
         const filtrarOrdenar = (l) => { const x = l.filter((y) => pasaPrecio(y.campo, uf, mDesde, mHasta, mMoneda)); return ORD[ordenCalce] ? [...x].sort(ORD[ordenCalce]) : x; };
-        const lista = filtrarOrdenar(ver === 'todas' ? camposQueCalzan : deBusq(ver));
+        // Perfiles del cliente: con dos o más, se puede ver (y enviar) cada alternativa por separado
+        const perfilesCli = [...new Set([...(f.perfiles || []), ...f.busquedas.flatMap((b) => b.perfiles || [])])];
+        const porPerfil = perfilesCli.length > 1;
+        const pasaPerfilCalce = (x) => !verPerfil || !porPerfil || (x.m.perfiles || []).includes(verPerfil);
+        const lista = filtrarOrdenar((ver === 'todas' ? camposQueCalzan : deBusq(ver)).filter(pasaPerfilCalce));
         const sinPrecioFuera = numUF(mDesde) != null || numUF(mHasta) != null ? (ver === 'todas' ? camposQueCalzan : deBusq(ver)).length - lista.length : 0;
         const nFuertes = (l) => l.filter((x) => x.m.nivel === 'fuerte' && datos.ofrecibles.includes(x.campo.etapa)).length;
         const paraQuien = (m) => (ver !== 'todas' || !varias ? '' : (m.porBusqueda || []).length ? `para ${m.porBusqueda.map((p) => p.nombre).join(' y ')}` : (m.razones.find((r) => /^Búsqueda: /.test(r)) || '').replace('Búsqueda: ', 'para '));
@@ -1935,7 +1940,7 @@ function FichaCliente({ ctx, inicial, cerrar }) {
             const env = (campo.envios || []).find((e) => e.clienteId === f.id);
             return (
               <button key={campo.id} className="fbcrm-fila" onClick={() => abrir('campos', campo)}>
-                <span className="fbcrm-cuerpo"><strong>{campo.nombre}</strong><small>{[paraQuien(m), campo.sector, campo.hectareas ? `${fmtNum(campo.hectareas)} ha` : '', fmtPrecio(campo), campo.etapa, m.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial', env ? `enviado ${fmtFecha(env.fecha)}` : 'no enviado'].filter(Boolean).join(', ')}</small>
+                <span className="fbcrm-cuerpo"><strong>{campo.nombre}{porPerfil && <EtiquetasPerfil datos={datos} ids={m.perfiles || []} />}</strong><small>{[paraQuien(m), campo.sector, campo.hectareas ? `${fmtNum(campo.hectareas)} ha` : '', fmtPrecio(campo), campo.etapa, m.nivel === 'fuerte' ? 'calce fuerte' : 'calce parcial', env ? `enviado ${fmtFecha(env.fecha)}` : 'no enviado'].filter(Boolean).join(', ')}</small>
                   {verPorQue ? <DetalleCalce m={ver === 'todas' ? m : { ...m, porBusqueda: [] }} /> : <ResumenCalce detalle={m.detalle} />}
                 </span>
               </button>
@@ -1959,6 +1964,13 @@ function FichaCliente({ ctx, inicial, cerrar }) {
                 {activas.map((b) => <button key={b.id} role="tab" aria-selected={ver === b.id} className={ver === b.id ? 'on' : ''} onClick={() => setVerBusq(b.id)}>{b.nombre || 'Búsqueda'} · {nFuertes(deBusq(b.id))}</button>)}
               </div>
             )}
+            {porPerfil && (
+              <div className="fbcrm-chips" role="tablist" aria-label="Ver calces del perfil">
+                <button role="tab" aria-selected={!verPerfil} className={!verPerfil ? 'on' : ''} onClick={() => setVerPerfil('')}>Todos los perfiles</button>
+                {perfilesCli.map((id) => <button key={id} role="tab" aria-selected={verPerfil === id} className={verPerfil === id ? 'on' : ''} onClick={() => setVerPerfil(id)}>{nombrePerfil(datos, id)} · {nFuertes(camposQueCalzan.filter((x) => (x.m.perfiles || []).includes(id)))}</button>)}
+              </div>
+            )}
+            {porPerfil && <p className="fbcrm-nota-suave">Cada campo lleva la etiqueta del perfil con que calza. Toca un perfil para ver solo esas alternativas{verPerfil ? ' y armar el brochure solo con ellas' : ''}.</p>}
             {varias && ver === 'todas' && <p className="fbcrm-nota-suave">Cada campo aparece una vez; debajo dice para qué búsqueda calza. Toca una búsqueda para ver solo sus calces.</p>}
             {fuertes.length ? fuertes.map(fila) : <p className="fbcrm-nota-suave">No hay campos disponibles con calce fuerte. Revisa los de calce parcial.</p>}
             {parciales.length > 0 && <details className="fbcrm-aviso"><summary><strong>Calce parcial</strong> <span>{plural(parciales.length, 'campo')} disponibles que calzan en algunas cosas</span></summary>{parciales.map(fila)}</details>}
@@ -1969,10 +1981,10 @@ function FichaCliente({ ctx, inicial, cerrar }) {
       {!esNuevo && (
         <div className="fbcrm-bloque br-invita">
           <div><h3>Brochure de campos</h3><p className="fbcrm-nota-suave">Una página de campos destacados con diseño: foto, datos clave y frase de cada campo, lista para enviar.</p></div>
-          <button className="fbcrm-primario" onClick={() => setBrochure(true)}>✨ Armar brochure</button>
+          <button className="fbcrm-primario" onClick={() => setBrochure(true)}>✨ Armar brochure{verPerfil ? ` (${nombrePerfil(datos, verPerfil)})` : ''}</button>
         </div>
       )}
-      {brochure && <ArmarBrochure ctx={ctx} cli={f} calzan={camposQueCalzan} cerrar={() => setBrochure(false)} alTerminar={() => api('/').then((d) => { const c = d.clientes.find((x) => x.id === f.id); if (c) setF((x) => ({ ...x, historial: c.historial })); }).catch(() => {})} />}
+      {brochure && <ArmarBrochure ctx={ctx} cli={f} perfil={verPerfil} calzan={verPerfil ? camposQueCalzan.filter((x) => (x.m.perfiles || []).includes(verPerfil)) : camposQueCalzan} cerrar={() => setBrochure(false)} alTerminar={() => api('/').then((d) => { const c = d.clientes.find((x) => x.id === f.id); if (c) setF((x) => ({ ...x, historial: c.historial })); }).catch(() => {})} />}
       {!esNuevo && <OrdenesDe ctx={ctx} filtro={(o) => o.clienteId === f.id} titulo="Órdenes de visita" />}
       {!esNuevo && <Historial col="clientes" f={f} setF={setF} api={api} cargar={cargar} />}
     </Hoja>
@@ -2117,6 +2129,7 @@ function TarjetaBrochure({ it, i, fila, max = 340 }) {
       <div className="br-t-info">
         <h2>{corto(d.titulo, 70)}</h2>
         <p className="br-t-lugar">{[d.comuna, d.region].filter(Boolean).join(', ')}</p>
+        {(it.perfiles || []).length > 0 && <p className="br-t-perfiles">{it.perfiles.map((x) => <span key={x}>{x}</span>)}</p>}
         <p className="br-t-datos">{datos.map((x, k) => <span key={k}>{x}</span>)}</p>
         {t.titular && <p className="br-t-frase">{ajustarTexto(t.titular, 90)}</p>}
         {t.campo && <p className="br-t-texto">{fila ? ajustarTexto(t.campo, max) : t.campo}</p>}
@@ -2183,7 +2196,7 @@ function BrochurePrevia({ children }) {
   }, []);
   return <div ref={caja} className="br-previa" style={{ '--esc': esc }}><div className="br-previa-zoom" style={{ zoom: esc }}>{children}</div></div>;
 }
-function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
+function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar, perfil }) {
   const { datos, api, usuario } = ctx;
   const contactos = contactosDe(cli);
   const [contactoId, setContactoId] = useState((contactos.find((x) => x.principal) || contactos[0] || {}).id || '');
@@ -2290,7 +2303,11 @@ function ArmarBrochure({ ctx, cli, calzan, cerrar, alTerminar }) {
   const registrar = async (canal) => { for (const id of sel.slice(0, 9)) await api(`/campos/${id}/envio`, { method: 'POST', body: { destinos: [{ clienteId: cli.id, contactoId: contacto.id || '' }], canal } }).catch(() => null); ctx.cargar(); alTerminar && alTerminar(); };
   const enviarWa = () => { window.open(`https://wa.me/${fonoWa(contacto.telefono || cli.telefono)}?text=${encodeURIComponent(mensaje())}`, '_blank', 'noopener'); registrar('whatsapp'); setEstado('Se abrió WhatsApp con el brochure. Solo falta presionar enviar.'); };
   const enviarCorreo = () => { window.location.href = `mailto:${encodeURIComponent(emailsDe(contacto.email || cli.email).join(','))}?subject=${encodeURIComponent('Selección de campos - Farm Brokers')}&body=${encodeURIComponent(mensaje())}`; registrar('correo'); setEstado('Se abrió tu correo con el brochure.'); };
-  const doc = <DocBrochure items={lista} usuario={usuario} datosUsuario={(datos.contactos || {})[usuario]} busca={busca} />;
+  // Etiqueta del perfil con que calza cada campo (cuando el cliente tiene varios perfiles)
+  const perfilesCli = [...new Set([...(cli.perfiles || []), ...busquedasCli(cli).flatMap((b) => b.perfiles || [])])];
+  const perfilDe = (id) => { const x = calzan.find((y) => y.campo.id === id); return perfilesCli.length > 1 && x ? (x.m.perfiles || []).map((p) => nombrePerfil(datos, p)) : []; };
+  const listaConPerfil = lista.map((it) => ({ ...it, perfiles: perfil ? [nombrePerfil(datos, perfil)] : perfilDe(it.campo.id) }));
+  const doc = <DocBrochure items={listaConPerfil} usuario={usuario} datosUsuario={(datos.contactos || {})[usuario]} busca={perfil ? `alternativas ${nombrePerfil(datos, perfil).toLowerCase()}${busca ? ` · ${busca}` : ''}` : busca} />;
   return (
     <>
     {(paso === 'editar' || paso === 'listo') && <div className="fbcrm-generador" aria-hidden="true"><div className="fbcrm-doc doc-ficha-hoja" ref={refPdf}>{doc}</div></div>}
@@ -6462,6 +6479,8 @@ const CSS = `
 .br-fila .br-t-frase{font-size:13.5px;margin-top:9px}
 .br-fila .br-t-texto{font-size:11.3px;line-height:1.5;margin-top:7px}
 .br-fila .br-t-link{margin-top:auto;padding-top:6px}
+.br-t-perfiles{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 0}
+.br-t-perfiles span{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:#2D6A45;background:#E6EFE3;border-radius:999px;padding:3px 9px}
 .br-h-mini{padding:18px 0 12px;align-items:center;justify-content:space-between}
 .br-h-mini .br-h-logo{width:70px}
 .br-hoja .br-h-pie{margin-top:auto}
