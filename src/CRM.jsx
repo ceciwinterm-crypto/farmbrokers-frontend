@@ -1329,7 +1329,10 @@ function ListaClientes({ ctx }) {
   const pasaZona = (c) => {
     if (!fZona) return true;
     const z = zonasTodas[fZona], comZ = crZona(z);
-    return busquedasActivas(c).some((b) => (b.zonas || []).includes(fZona) || (b.comunas || []).some((x) => comZ.some((y) => y.r === x.r && norm(y.c) === norm(x.c))));
+    const regZ = regionesZona(z);
+    // También calza quien busca en toda la región del valle (sin haber elegido comunas ni zonas en esa región)
+    const todaLaRegion = (b) => regZ.some((r) => (b.regiones || []).includes(r) && !(b.comunas || []).some((x) => x.r === r) && !(b.zonas || []).some((k) => regionesZona(zonasTodas[k]).includes(r)));
+    return busquedasActivas(c).some((b) => (b.zonas || []).includes(fZona) || (b.comunas || []).some((x) => comZ.some((y) => y.r === x.r && norm(y.c) === norm(x.c))) || todaLaRegion(b));
   };
   const pasaPlant = (c) => !fPlant || busquedasActivas(c).some((b) => (fPlant === 'igual' ? !b.plantado : b.plantado === fPlant));
   const zonasOrdenadas = Object.entries(zonasTodas).sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, 'es'));
