@@ -1046,9 +1046,10 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           <div className="fbcrm-campo-grupo ancho"><span>¿Está plantado?</span>
             <div className="fbcrm-chips" role="group" aria-label="¿Está plantado?">
               <button type="button" className={f.plantado === 'si' ? 'on' : ''} aria-pressed={f.plantado === 'si'} onClick={() => setF((x) => ({ ...x, plantado: x.plantado === 'si' ? '' : 'si' }))}>🌱 Plantado</button>
-              <button type="button" className={f.plantado === 'no' ? 'on' : ''} aria-pressed={f.plantado === 'no'} onClick={() => setF((x) => ({ ...x, plantado: x.plantado === 'no' ? '' : 'no' }))}>Sin plantar</button>
+              <button type="button" className={f.plantado !== 'si' ? 'on' : ''} aria-pressed={f.plantado !== 'si'} onClick={() => setF((x) => ({ ...x, plantado: 'no' }))}>Sin plantar</button>
             </div>
-            <small className="fbcrm-nota-suave">{f.plantado === 'si' ? 'Marcado como plantado: calza con los clientes que buscan campos plantados.' : f.plantado === 'no' ? 'Marcado sin plantar: calza con los clientes que buscan campos para plantar.' : 'Sin marcar: se deduce de lo escrito en plantaciones y en la descripción. Toca un botón para dejarlo claro.'}</small>
+            <small className="fbcrm-nota-suave">{f.plantado === 'si' ? 'Plantado: calza con los clientes que buscan campos plantados.' : 'Sin plantar (mientras no aprietes “Plantado”, el campo cuenta como sin plantar).'}</small>
+            {f.plantado !== 'si' && String(f.plantaciones || '').trim() && !/sin plantac|no tiene|ninguna|sin plantar/i.test(f.plantaciones) && <small className="fbcrm-aviso-caja">En Plantaciones dice “{corto(f.plantaciones, 60)}”. Si el campo está plantado, aprieta 🌱 Plantado.</small>}
           </div>
           <Campo label={etqWeb('Plantaciones', 'plantaciones')} ancho><input value={f.plantaciones || ''} disabled={deWeb('plantaciones')} onChange={set('plantaciones')} placeholder="Ej. 40 ha almendros, 20 ha nogales" /></Campo>
           <Campo label="Aptitud" ancho><input value={f.aptitud || ''} onChange={set('aptitud')} placeholder="Ej. paltos, cítricos, uva de mesa" /></Campo>
