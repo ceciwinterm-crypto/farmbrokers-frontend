@@ -660,7 +660,7 @@ function Agenda({ ctx, irA, importar }) {
   if (!datos.campos.length && !datos.clientes.length) return (
     <><InstalarApp />{banda}<div className="fbcrm-bienvenida">
       <h2>Empieza cargando la planilla</h2>
-      <p>Descarga el Google Sheet de Daniel como Excel (Archivo → Descargar → Microsoft Excel) y súbelo aquí. Se importan los campos, los clientes con sus requerimientos, la captación y la prospección.</p>
+      <p>Descarga el Google Sheet de clientes como Excel (Archivo → Descargar → Microsoft Excel) y súbelo aquí. Se importan los campos, los clientes con sus requerimientos, la captación y la prospección.</p>
       <button className="fbcrm-primario" onClick={importar}>Importar planilla</button>
     </div></>
   );
@@ -830,6 +830,7 @@ function ListaCampos({ ctx, importar }) {
         </div>
       </div>
       {verCorredores && <div className="fbcrm-bloque"><CorredoresAdmin ctx={ctx} /></div>}
+      {verCorredores && <div className="fbcrm-bloque"><EmpresaAdmin ctx={ctx} /></div>}
       <div className="fbcrm-filtros">
         <Buscador placeholder="Buscar por nombre, comuna, código, rol, plantación o propietario" value={q} onChange={setQ} />
         <button type="button" className={`solo-movil fbcrm-btn-filtros ${verFiltros ? 'on' : ''}`} onClick={() => setVerFiltros(!verFiltros)}>Filtros{[fRegion, fTipo, fCorredor, fOper, fDif, hayPrecio].filter(Boolean).length + fPerfiles.length + fVisib.length ? ` (${[fRegion, fTipo, fCorredor, fOper, fDif, hayPrecio].filter(Boolean).length + fPerfiles.length + fVisib.length})` : ''}</button>
@@ -1567,6 +1568,50 @@ function ComparaWeb({ ctx, f, setF, leyendo, leer }) {
   );
 }
 
+// ════════════════════════════ Datos de la empresa (representantes en los mandatos) ════════════════════════════
+function EmpresaAdmin({ ctx }) {
+  const { datos, api, cargar } = ctx;
+  const base = datos.empresa || { representantes: [], forma: 'conjunta', firmante: '' };
+  const [f, setF] = useState(() => JSON.parse(JSON.stringify(base)));
+  const [msg, setMsg] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const reps = f.representantes || [];
+  const setRep = (i, k, v) => setF({ ...f, representantes: reps.map((r, j) => (j === i ? { ...r, [k]: v } : r)) });
+  const quitar = (i) => { const nr = reps.filter((_, j) => j !== i); setF({ ...f, representantes: nr, firmante: nr.some((r) => r.nombre === f.firmante) ? f.firmante : (nr[0] ? nr[0].nombre : '') }); };
+  const una = (r) => `${r.trat} ${r.nombre || '…'}, Rut ${r.rut || '…'}`;
+  const vista = !reps.length ? '' : reps.length === 1 ? una(reps[0]) : `${reps.slice(0, -1).map(una).join(', ')}${f.forma === 'indistinta' ? `, o por ${una(reps[reps.length - 1])}, actuando indistintamente` : `, y por ${una(reps[reps.length - 1])}`}`;
+  const guardar = async () => {
+    setGuardando(true); setMsg('');
+    try { const r = await api('/config/empresa', { method: 'PUT', body: f }); setF(JSON.parse(JSON.stringify(r.empresa))); await cargar(); setMsg('Guardado. Los mandatos nuevos y los pendientes de firma ya salen con estos datos.'); } catch (e) { setMsg(e.message); }
+    setGuardando(false);
+  };
+  return (
+    <div className="fbcrm-perfiles-admin">
+      <h3>Datos de la empresa <span>representantes en los mandatos</span></h3>
+      <p className="fbcrm-nota-suave">Quiénes representan a Farm Brokers Chile SpA en los mandatos de venta. Los mandatos ya firmados no cambian.</p>
+      <ul>
+        {reps.map((r, i) => (
+          <li key={i}>
+            <div className="fbcrm-form fbcrm-perfil-edit">
+              <Campo label="Tratamiento"><select value={r.trat} onChange={(e) => setRep(i, 'trat', e.target.value)}><option value="doña">doña</option><option value="don">don</option></select></Campo>
+              <Campo label="Nombre completo"><input value={r.nombre} onChange={(e) => { const v = e.target.value; setF({ ...f, firmante: f.firmante === r.nombre ? v : f.firmante, representantes: reps.map((x, j) => (j === i ? { ...x, nombre: v } : x)) }); }} /></Campo>
+              <Campo label="RUT"><input value={r.rut} onChange={(e) => setRep(i, 'rut', e.target.value)} placeholder="12.345.678-9" /></Campo>
+            </div>
+            {reps.length > 1 && <button className="fbcrm-mini fbcrm-peligro" onClick={() => quitar(i)}>Quitar</button>}
+          </li>
+        ))}
+      </ul>
+      {reps.length < 4 && <div className="fbcrm-acciones"><button onClick={() => setF({ ...f, representantes: [...reps, { trat: 'don', nombre: '', rut: '' }] })}>+ Agregar representante</button></div>}
+      <div className="fbcrm-form fbcrm-sep2">
+        {reps.length > 1 && <Campo label="Cómo actúan"><select value={f.forma} onChange={(e) => setF({ ...f, forma: e.target.value })}><option value="conjunta">Juntos (“y por”)</option><option value="indistinta">Cualquiera de ellos (“indistintamente”)</option></select></Campo>}
+        <Campo label="Firma automática del corredor"><select value={f.firmante} onChange={(e) => setF({ ...f, firmante: e.target.value })}>{reps.filter((r) => r.nombre).map((r) => <option key={r.nombre} value={r.nombre}>{r.nombre}</option>)}</select></Campo>
+      </div>
+      {vista && <p className="fbcrm-nota-suave">Así sale en el mandato: “…representada por {vista}…”</p>}
+      <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={guardando || !reps.length} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar'}</button></div>
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+    </div>
+  );
+}
 // ════════════════════════════ Corredores ════════════════════════════
 const nombresCorredores = (datos) => {
   const m = new Map();
@@ -1626,7 +1671,7 @@ function CorredoresAdmin({ ctx }) {
   return (
     <div className="fbcrm-perfiles-admin">
       <h3>Corredores <span>{plural(lista.length, 'corredor', 'corredores')}</span></h3>
-      <p className="fbcrm-nota-suave">Los corredores que se asignan a cada campo y cliente. Si cambias un nombre (por ejemplo “DH” por “Daniel Haeussler”), se cambia en todos sus campos y clientes.</p>
+      <p className="fbcrm-nota-suave">Los corredores que se asignan a cada campo y cliente. Si cambias un nombre (por ejemplo “MW” por “Max Winter”), se cambia en todos sus campos y clientes.</p>
       <ul>
         {lista.map((c) => {
           const [nc, nk] = usos(c.nombre);
@@ -1651,7 +1696,7 @@ function CorredoresAdmin({ ctx }) {
       </ul>
       {sueltos.length > 0 && <p className="fbcrm-nota-suave">Nombres escritos en algunos registros que no están en la lista: {sueltos.map((n) => <button key={n} type="button" className="fbcrm-mini" onClick={() => crear(n)}>➕ {n}</button>)}</p>}
       <div className="fbcrm-form fbcrm-sep2">
-        <Campo label="Nuevo corredor"><input value={nuevo} onChange={(e) => setNuevo(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && nuevo.trim().length >= 2 && crear(nuevo.trim())} placeholder="Ej. Daniel Haeussler" /></Campo>
+        <Campo label="Nuevo corredor"><input value={nuevo} onChange={(e) => setNuevo(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && nuevo.trim().length >= 2 && crear(nuevo.trim())} placeholder="Ej. Max Winter" /></Campo>
       </div>
       <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={nuevo.trim().length < 2} onClick={() => crear(nuevo.trim())}>Agregar corredor</button></div>
       {msg && <p className="fbcrm-msg" role="status">{msg}</p>}

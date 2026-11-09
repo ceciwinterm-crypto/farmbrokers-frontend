@@ -820,7 +820,7 @@ const EMPTY = {
   plantacionDesc:"",plantacionHas:"0",plantacionValorHa:"0",
   refs:[{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""},{oferta:"",ubicacion:"",has:"",valorTotal:"",valorHa:"",ajuste:""}],
   valorComercial:"",valorComercialUF:"",valorFacilVenta:"",valorFacilVentaUF:"",
-  tasador:"Daniel Haeussler Bobillier",imagenes:[],
+  tasador:"María Cecilia Winter Montes",imagenes:[],
 };
 
 // API key de Google Maps recordada permanentemente en este navegador
