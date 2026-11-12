@@ -2258,7 +2258,7 @@ function TarjetaBrochure({ it, i, fila }) {
 function DocBrochure({ items, usuario, datosUsuario, busca }) {
   const du = datosUsuario || {};
   const n = items.length;
-  const tel = du.telefono || '+56 9 7193 9040';
+  const tel = du.telefono || '+56 9 9549 5431';
   // Reparto en hojas: 2 campos por hoja, para que la descripción completa quepa (la primera lleva el encabezado; la última, los datos de contacto)
   const hojas = [];
   for (let k = 0; k < Math.max(n, 1); k += 2) hojas.push(items.slice(k, k + 2));
@@ -3751,7 +3751,7 @@ function Impresion({ ctx, imp, cerrar }) {
       </div>
       <style>{`@page{size:A4;margin:${campo && variante === 'cliente' && imp.tipo === 'campo' ? '0' : '14mm 0 16mm'}}`}</style>
       <article className={`fbcrm-doc ${imp.tipo === 'mandato' ? 'doc-mandato-hoja' : ''} ${campo && variante === 'cliente' ? 'doc-ficha-hoja' : ''}`}>
-        <Marco pie={imp.tipo === 'mandato' ? PIE_MANDATO : <><span>Farm Brokers Chile, farmbrokers.cl, +56 9 7193 9040</span><span>{campo ? `Ficha de propiedad${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo ? ` ${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo}` : ''}` : 'Informe de gestión'}</span></>}>
+        <Marco pie={imp.tipo === 'mandato' ? PIE_MANDATO : <><span>Farm Brokers Chile, farmbrokers.cl, +56 9 9549 5431</span><span>{campo ? `Ficha de propiedad${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo ? ` ${(campo.web && campo.web.detalle && campo.web.detalle.id) || campo.codigo}` : ''}` : 'Informe de gestión'}</span></>}>
         {imp.tipo === 'mandato'
           ? (mandato ? <DocMandato m={mandato} papel={imp.papel} /> : <p>{errorMandato || 'Preparando el mandato…'}</p>)
           : campo ? (variante === 'cliente' ? <DocFichaCliente campo={campo} fotosProp={fotosProp} planos={conPlano ? planos : []} conKmz={conKmz} usuario={usuario} contacto={(datos.contactos || {})[usuario]} mostrarRol={mostrarRol} /> : <DocCampo datos={datos} campo={campo} variante={variante} usuario={usuario} />)
@@ -5181,7 +5181,7 @@ function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usua
   }
   add(<footer className="doc-ficha-pie">
     <div className="doc-ficha-pie-fila">
-      <strong>{usuario}, Farm Brokers Chile</strong><span>{(contacto && contacto.telefono) || '+56 9 7193 9040'}</span><span>{(contacto && contacto.email) || 'contacto@farmbrokers.cl'}</span>
+      <strong>{usuario}, Farm Brokers Chile</strong><span>{(contacto && contacto.telefono) || '+56 9 9549 5431'}</span><span>{(contacto && contacto.email) || 'contacto@farmbrokers.cl'}</span>
       {link && <span>{link.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>}
     </div>
     <p className="doc-ficha-legal">Estoril 120, of. 615, Las Condes. Información referencial, sujeta a verificación durante el proceso de compra.</p>
