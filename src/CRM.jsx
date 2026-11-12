@@ -2201,19 +2201,27 @@ async function fotosCRM(c, usuario) {
 }
 // items: [{ campo, texto: {titular, campo, zona}, fotos: [url], foto: índice de la portada }]
 // Un campo: una hoja grande. Dos o más: una fila por campo (foto grande + datos + descripción), 2 en la primera hoja y 3 en las siguientes.
-// Corta el texto en el último punto que cabe (nunca a media frase); si no hay punto, en una palabra con "…"
-const ajustarTexto = (t, max) => {
-  t = String(t || '').replace(/\s+/g, ' ').trim();
-  if (t.length <= max) return t;
-  const c = t.slice(0, max), punto = Math.max(c.lastIndexOf('. '), c.lastIndexOf('.'));
-  return punto > max * 0.45 ? c.slice(0, punto + 1) : `${c.replace(/[\s,;:]+\S*$/, '')}…`;
-};
 // Sin fotos ni satelital: una tarjeta sobria en vez de un recuadro vacío
 const SinFotoBrochure = ({ off }) => (
   <div className="br-t-img br-sin-foto br-sin-foto-txt"><img src={LOGO_FB_BLANCO} alt="" /><span>{off ? 'Propiedad confidencial' : 'Fotos al coordinar la visita'}</span></div>
 );
-function TarjetaBrochure({ it, i, fila, max = 340 }) {
+// El texto completo siempre se muestra: si no cabe, se achica la letra de a poco hasta que entre
+function useAjustarLetra(ref, deps) {
+  useLayoutEffect(() => {
+    const el = ref.current; if (!el) return;
+    const textos = [...el.querySelectorAll('.br-t-texto, .br-t-frase')];
+    textos.forEach((x) => { x.style.fontSize = ''; });
+    let paso = 0;
+    while (el.scrollHeight > el.clientHeight + 1 && paso < 14) {
+      paso++;
+      textos.forEach((x) => { const f = parseFloat(getComputedStyle(x).fontSize); x.style.fontSize = `${Math.max(8.5, f - 0.4)}px`; });
+    }
+  }, deps);
+}
+function TarjetaBrochure({ it, i, fila }) {
   const d = datosBrochure(it.campo), t = it.texto || {};
+  const info = useRef(null);
+  useAjustarLetra(info, [t.titular, t.campo, t.zona, fila, (it.perfiles || []).join()]);
   if (!d.url && it.url) d.url = it.url;
   const datos = [d.ha, d.precio, d.plantado && `${d.plantado} plantadas`, d.agua && corto(d.agua, 48)].filter(Boolean);
   return (
@@ -2224,13 +2232,13 @@ function TarjetaBrochure({ it, i, fila, max = 340 }) {
         <span className="br-t-num">{dosDig(i + 1)}</span>
         {visibDe(it.campo) === 'reservada' ? <span className="br-t-tipo br-t-off">★ Off market</span> : d.tipo && <span className="br-t-tipo">{d.tipo}</span>}
       </div>
-      <div className="br-t-info">
-        <h2>{corto(d.titulo, 70)}</h2>
+      <div className="br-t-info" ref={info}>
+        <h2>{corto(d.titulo, 120)}</h2>
         <p className="br-t-lugar">{[d.comuna, d.region].filter(Boolean).join(', ')}</p>
         {(it.perfiles || []).length > 0 && <p className="br-t-perfiles">{it.perfiles.map((x) => <span key={x}>{x}</span>)}</p>}
         <p className="br-t-datos">{datos.map((x, k) => <span key={k}>{x}</span>)}</p>
-        {t.titular && <p className="br-t-frase">{ajustarTexto(t.titular, 90)}</p>}
-        {t.campo && <p className="br-t-texto">{fila ? ajustarTexto(t.campo, max) : t.campo}</p>}
+        {t.titular && <p className="br-t-frase">{t.titular}</p>}
+        {t.campo && <p className="br-t-texto">{t.campo}</p>}
         {!fila && t.zona && <p className="br-t-texto">{t.zona}</p>}
         {d.url && <p className="br-t-link">Ver publicación →</p>}
       </div>
@@ -2241,9 +2249,9 @@ function DocBrochure({ items, usuario, datosUsuario, busca }) {
   const du = datosUsuario || {};
   const n = items.length;
   const tel = du.telefono || '+56 9 7193 9040';
-  // Reparto en hojas: hasta 3 campos por hoja (la primera lleva el encabezado; la última, los datos de contacto)
+  // Reparto en hojas: 2 campos por hoja, para que la descripción completa quepa (la primera lleva el encabezado; la última, los datos de contacto)
   const hojas = [];
-  for (let k = 0; k < Math.max(n, 1); k += 3) hojas.push(items.slice(k, k + 3));
+  for (let k = 0; k < Math.max(n, 1); k += 2) hojas.push(items.slice(k, k + 2));
   const pie = (
     <footer className="br-h-pie">
       <div className="br-h-pie-txt"><strong>¿Coordinamos una visita?</strong><span>Te enviamos la ficha completa y el plano de cada campo.</span></div>
@@ -2276,7 +2284,7 @@ function DocBrochure({ items, usuario, datosUsuario, busca }) {
             </header>
           )}
           <div className={`br-grilla ${n === 1 ? 'br-uno' : 'br-filas'}`}>
-            {h.map((it) => { const k = num++; return <TarjetaBrochure key={it.campo.id} it={it} i={k} fila={n > 1} max={h.length <= 2 ? 560 : hi === hojas.length - 1 && hi === 0 ? 260 : 330} />; })}
+            {h.map((it) => { const k = num++; return <TarjetaBrochure key={it.campo.id} it={it} i={k} fila={n > 1} />; })}
           </div>
           {hi === hojas.length - 1 && pie}
         </section>
@@ -6579,10 +6587,8 @@ const CSS = `
 .br-t-link{margin:8px 0 0;font-size:11px;font-weight:600;color:#B5831F;letter-spacing:.02em}
 .br-uno .br-t-info{padding:20px 24px 22px}.br-uno .br-t-info h2{font-size:28px}.br-uno .br-t-frase{font-size:17px}.br-uno .br-t-texto{font-size:13px}
 .br-dos .br-tarjeta{flex-direction:row}.br-dos .br-t-foto{flex:1.15}.br-dos .br-t-info{flex:1;padding:20px 22px;display:flex;flex-direction:column;justify-content:center}.br-dos .br-t-info h2{font-size:24px}.br-dos .br-t-frase{font-size:15px}
-.br-filas{flex:none;grid-template-columns:1fr;grid-auto-rows:276px;align-content:start;gap:14px;padding:18px 44px}
-.br-hoja.f1 .br-filas,.br-hoja.f2 .br-filas{grid-auto-rows:318px;gap:18px}
-.br-hoja.f1 .br-fila .br-t-texto,.br-hoja.f2 .br-fila .br-t-texto{font-size:12px}
-.br-hoja.primera.f3.con-pie .br-filas{grid-auto-rows:226px;gap:12px}
+.br-filas{flex:1;min-height:0;grid-template-columns:1fr;grid-template-rows:repeat(2,minmax(0,1fr));gap:18px;padding:18px 44px}
+.br-fila .br-t-texto{font-size:12px}
 .br-fila{flex-direction:row}
 .br-fila .br-t-foto{flex:none;width:46%}
 .br-fila .br-t-info{flex:1;min-width:0;padding:18px 20px 16px;display:flex;flex-direction:column;overflow:hidden}
