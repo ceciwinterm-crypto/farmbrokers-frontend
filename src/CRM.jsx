@@ -89,6 +89,7 @@ const fmtFechaIngreso = (c) => { const d = fechaIngresoCampo(c); if (!d) return 
 const isoDia = (d) => (d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '');
 const fmtPrecio = (c) => (c.precioUF ? `UF ${fmtNum(c.precioUF)}` : c.precioCLP ? `$${fmtNum(c.precioCLP / 1e6)} MM` : c.precioTexto || '');
 const plural = (n, s, p) => `${n} ${n === 1 ? s : p || s + 's'}`;
+const normTxt = (n) => String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
 const emailsDe = (t) => (String(t || '').match(/[^\s,;<>]+@[^\s,;<>]+\.[a-z]{2,}/gi) || []);
 const fonoWa = (t) => { const d = String(t || '').replace(/\D/g, ''); return d.length === 9 && d[0] === '9' ? '56' + d : d.length === 11 && d.startsWith('569') ? d : ''; };
 const iniciales = (n) => String(n || '').split(/\s+/).filter((w) => /[a-záéíóúñ]/i.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
@@ -325,21 +326,40 @@ export function Puerta({ children }) {
   }, []);
   const tokenRestablecer = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('restablecer') : '';
   if (tokenRestablecer && /^[a-f0-9]{64}$/.test(tokenRestablecer)) return <PantallaIngreso key="restablecer" modo="restablecer" token={tokenRestablecer} />;
+  const tokenEntrar = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('entrar') : '';
+  if (tokenEntrar && /^[a-f0-9]{64}$/.test(tokenEntrar)) return <EntrarConLink token={tokenEntrar} />;
   if (!listo) return null;
   if (ses && ses.usuario && ses.usuario.debeCambiarClave) return <PantallaIngreso key="cambiar" modo="cambiar" claveActual={claveRecien} alListo={() => setSes(leerSesion())} />;
   if (ses) return children;
   // Sin cuentas creadas todavía, o el equipo eligió seguir un tiempo con la clave antigua
   if (!estado || !estado.hayUsuarios) return children;
   if (estado.claveAntigua && modoClave()) return children;
-  return <PantallaIngreso key="entrar" modo="entrar" aviso={aviso} claveAntigua={estado.claveAntigua} alEntrar={(clave) => { setClaveRecien(clave); setAviso(''); setSes(leerSesion()); }} alSeguirConClave={() => { elegirModoClave(true); setEstado({ ...estado }); }} />;
+  return <PantallaIngreso key="entrar" modo="entrar" aviso={aviso} claveAntigua={estado.claveAntigua} alEntrar={(clave) => { setClaveRecien(clave); setAviso(''); setSes(leerSesion()); }} linkCorreo={!!(estado && estado.linkCorreo)} alSeguirConClave={() => { elegirModoClave(true); setEstado({ ...estado }); }} />;
 }
 
-function PantallaIngreso({ modo: modoInicial, aviso, claveAntigua, alEntrar, alSeguirConClave, claveActual, alListo, token }) {
+// Entrar con el link que llegó al correo (sin contraseña)
+function EntrarConLink({ token }) {
+  const [error, setError] = useState('');
+  const irAlCrm = () => { window.location.href = `${window.location.origin}/#crm`; };
+  useEffect(() => { authApi.entrarLink(token).then(irAlCrm).catch((e) => setError(e.message)); }, [token]);
+  return (
+    <div className="fbcrm fbcrm-acceso">
+      <style>{CSS}</style>
+      <img src={LOGO_FB_BLANCO} alt="Farm Brokers Chile" className="fbcrm-acceso-logo" />
+      <div className="fbcrm-acceso-card">
+        <h1>{error ? 'No se pudo entrar' : 'Entrando…'}</h1>
+        {error && <p className="fbcrm-error" role="alert">{error}</p>}
+        {error && <button className="fbcrm-primario fbcrm-grande" onClick={irAlCrm}>Volver a entrar</button>}
+      </div>
+    </div>
+  );
+}
+function PantallaIngreso({ modo: modoInicial, aviso, claveAntigua, alEntrar, alSeguirConClave, claveActual, alListo, token, linkCorreo }) {
   const [modo, setModo] = useState(modoInicial);
   const [claveAdmin, setClaveAdmin] = useState('');
   const [verAdmin, setVerAdmin] = useState(false);
   const [okMsg, setOkMsg] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => leerLocal('fb_ultimo_correo') || '');
   const [clave, setClave] = useState('');
   const [actual, setActual] = useState(claveActual || '');
   const [nueva, setNueva] = useState('');
@@ -348,7 +368,7 @@ function PantallaIngreso({ modo: modoInicial, aviso, claveAntigua, alEntrar, alS
   const [ocupado, setOcupado] = useState(false);
   const entrar = async () => {
     setError(''); setOcupado(true);
-    try { await authApi.entrar(email.trim(), clave); alEntrar(clave); } catch (e) { setError(e.message); } finally { setOcupado(false); }
+    try { await authApi.entrar(email.trim(), clave); guardarLocal('fb_ultimo_correo', email.trim().toLowerCase()); alEntrar(clave); } catch (e) { setError(e.message); } finally { setOcupado(false); }
   };
   const cambiar = async () => {
     setError('');
@@ -357,6 +377,10 @@ function PantallaIngreso({ modo: modoInicial, aviso, claveAntigua, alEntrar, alS
     try { const r = await authApi.cambiarClave(actual, nueva); actualizarUsuarioSesion(r.usuario); alListo(); } catch (e) { setError(e.message); } finally { setOcupado(false); }
   };
   const irAlCrm = () => { window.location.href = `${window.location.origin}/#crm`; };
+  const pedirAcceso = async () => {
+    setError(''); setOkMsg(''); setOcupado(true);
+    try { const r = await authApi.linkAcceso(email.trim()); guardarLocal('fb_ultimo_correo', email.trim().toLowerCase()); setOkMsg(r.mensaje || 'Revisa tu correo.'); } catch (e) { setError(e.message); } finally { setOcupado(false); }
+  };
   const pedirLink = async () => {
     setError(''); setOkMsg(''); setOcupado(true);
     try { const r = await authApi.olvide(email.trim()); setOkMsg(r.mensaje || 'Revisa tu correo.'); } catch (e) { setError(e.message); } finally { setOcupado(false); }
@@ -421,13 +445,15 @@ function PantallaIngreso({ modo: modoInicial, aviso, claveAntigua, alEntrar, alS
       ) : (
         <div className="fbcrm-acceso-card">
           <h1>Entrar</h1>
-          <p className="fbcrm-sub">Entra con tu correo y tu contraseña personal. Tu sesión queda abierta en este navegador por unos días.</p>
+          <p className="fbcrm-sub">Entra con tu correo y tu contraseña. Queda abierto en este aparato por 2 meses, no tienes que volver a entrar cada vez.</p>
           {aviso && <p className="fbcrm-msg" role="status">{aviso}</p>}
           {error && <p className="fbcrm-error" role="alert">{error}</p>}
+          {okMsg && <p className="fbcrm-msg" role="status">{okMsg}</p>}
           <label>Correo<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" /></label>
           <label>Contraseña<input type="password" value={clave} onChange={(e) => setClave(e.target.value)} autoComplete="current-password" onKeyDown={(e) => e.key === 'Enter' && email && clave && entrar()} /></label>
           <button className="fbcrm-primario fbcrm-grande" disabled={!email.trim() || !clave || ocupado} onClick={entrar}>{ocupado ? 'Entrando…' : 'Entrar'}</button>
-          <button className="fbcrm-texto" onClick={() => { setModo('olvide'); setError(''); }}>¿Olvidaste tu contraseña?</button>
+          {linkCorreo && <button className="fbcrm-grande" disabled={!email.trim() || ocupado} onClick={pedirAcceso}>Entrar sin contraseña: mándame un link al correo</button>}
+          <button className="fbcrm-texto" onClick={() => { setModo('olvide'); setError(''); setOkMsg(''); }}>¿Olvidaste tu contraseña?</button>
           <p className="fbcrm-nota-suave">¿No tienes cuenta? Pídele a la administradora que te la cree.</p>
           {claveAntigua && <button className="fbcrm-texto" onClick={alSeguirConClave}>Todavía no tengo cuenta: seguir con la clave del equipo</button>}
         </div>
@@ -468,10 +494,10 @@ function MiCuenta({ ctx }) {
       </div>
       {abierto && (
         <div className="fbcrm-form">
-          <Campo label="Contraseña actual"><input type="password" value={actual} onChange={(e) => setActual(e.target.value)} autoComplete="current-password" /></Campo>
+          <Campo label="Contraseña actual (si entraste con el link del correo, déjala vacía)"><input type="password" value={actual} onChange={(e) => setActual(e.target.value)} autoComplete="current-password" /></Campo>
           <Campo label="Contraseña nueva (8 o más, letras y números)"><input type="password" value={nueva} onChange={(e) => setNueva(e.target.value)} autoComplete="new-password" /></Campo>
           <Campo label="Repite la nueva"><input type="password" value={nueva2} onChange={(e) => setNueva2(e.target.value)} autoComplete="new-password" /></Campo>
-          <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={!actual || !nueva || !nueva2} onClick={cambiar}>Guardar contraseña</button></div>
+          <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={!nueva || !nueva2} onClick={cambiar}>Guardar contraseña</button></div>
         </div>
       )}
       {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
@@ -486,6 +512,7 @@ function CuentasUsuarios({ ctx }) {
   const [msg, setMsg] = useState('');
   const [temporal, setTemporal] = useState(null); // { nombre, email, clave } — se muestra una sola vez
   const [nueva, setNueva] = useState(null);
+  const [claveDe, setClaveDe] = useState(null); // { id, clave }: la administradora le pone contraseña a alguien
   const soyAdminCuenta = datos.sesion && datos.sesion.rol === 'admin';
   const cargarLista = () => authApi.usuarios().then((d) => setLista(d.usuarios)).catch((e) => setMsg(e.message));
   useEffect(() => { if (soyAdminCuenta) cargarLista(); }, [soyAdminCuenta]);
@@ -523,7 +550,12 @@ function CuentasUsuarios({ ctx }) {
 
   const crear = async () => {
     setMsg('');
-    try { const r = await authApi.crearUsuario({ nombre: nueva.nombre.trim(), email: nueva.email.trim(), rol: nueva.rol }); setTemporal({ nombre: r.usuario.nombre, email: r.usuario.email, clave: r.claveTemporal }); setNueva(null); cargarLista(); }
+    try {
+      const r = await authApi.crearUsuario({ nombre: nueva.nombre.trim(), email: nueva.email.trim(), rol: nueva.rol, ...(nueva.clave ? { clave: nueva.clave } : {}) });
+      if (r.claveTemporal) setTemporal({ nombre: r.usuario.nombre, email: r.usuario.email, clave: r.claveTemporal });
+      else setMsg(`Cuenta de ${r.usuario.nombre} creada. Entra en farmbrokers-frontend.vercel.app/#crm con ${r.usuario.email} y la contraseña que elegiste.`);
+      setNueva(null); cargarLista();
+    }
     catch (e) { setMsg(e.message); }
   };
   const editar = async (u, cambios, texto) => {
@@ -539,8 +571,10 @@ function CuentasUsuarios({ ctx }) {
         <div className="fbcrm-form">
           <Campo label="Nombre (usa el mismo que ya aparece en el CRM para no perder su historial)"><input value={nueva.nombre} onChange={(e) => setNueva({ ...nueva, nombre: e.target.value })} list="fbcrm-nombres-equipo" /></Campo>
           <Campo label="Correo"><input type="email" value={nueva.email} onChange={(e) => setNueva({ ...nueva, email: e.target.value })} /></Campo>
+          <Campo label="Contraseña (opcional). Si la eliges tú, entra directo con ella; si la dejas vacía se crea una temporal"><input type="text" value={nueva.clave || ''} onChange={(e) => setNueva({ ...nueva, clave: e.target.value })} autoComplete="off" placeholder="8 o más, letras y números" /></Campo>
           <Campo label="Rol"><select value={nueva.rol} onChange={(e) => setNueva({ ...nueva, rol: e.target.value })}><option value="corredor">Corredor</option><option value="admin">Administradora</option></select></Campo>
           <datalist id="fbcrm-nombres-equipo">{nombres.map((n) => <option key={n} value={n} />)}</datalist>
+          {nueva.nombre.trim() && (lista || []).some((u) => u.activo !== false && normTxt(u.nombre) === normTxt(nueva.nombre)) && <p className="fbcrm-error">Ya hay una cuenta para {nueva.nombre.trim()}. No crees otra: en su cuenta, más abajo, usa “Cambiar contraseña”.</p>}
           <div className="fbcrm-acciones"><button className="fbcrm-primario" disabled={!nueva.nombre.trim() || !nueva.email.trim()} onClick={crear}>Crear cuenta</button><button onClick={() => setNueva(null)}>Cancelar</button></div>
         </div>
       )}
@@ -558,7 +592,14 @@ function CuentasUsuarios({ ctx }) {
               <span className="fbcrm-avatar">{iniciales(u.nombre)}</span>
               <span className="fbcrm-cuerpo"><strong>{u.nombre}{u.nombre === usuario ? ' (tú)' : ''}{u.rol === 'admin' ? ' ★' : ''}{u.activo === false ? ' · desactivada' : ''}</strong><small>{u.email} · {u.rol === 'admin' ? 'Administradora' : 'Corredor'}{u.ultimoIngreso ? `, último ingreso ${fmtFechaHora(u.ultimoIngreso)}` : ', aún no entra'}{u.debeCambiarClave ? ', con contraseña temporal' : ''}</small></span>
               {u.activo !== false && u.nombre !== usuario && <button className="fbcrm-mini" onClick={() => editar(u, { rol: u.rol === 'admin' ? 'corredor' : 'admin' }, `${u.nombre} ahora es ${u.rol === 'admin' ? 'corredor' : 'administradora'}.`)}>{u.rol === 'admin' ? 'Pasar a corredor' : 'Hacer administradora'}</button>}
-              {u.activo !== false && <button className="fbcrm-mini" onClick={() => window.confirm(`¿Restablecer la contraseña de ${u.nombre}? Se cerrará su sesión y tendrá que entrar con una contraseña temporal nueva.`) && editar(u, { restablecer: true })}>Restablecer contraseña</button>}
+              {u.activo !== false && <button className="fbcrm-mini" onClick={() => setClaveDe(claveDe && claveDe.id === u.id ? null : { id: u.id, clave: '' })}>Cambiar contraseña</button>}
+              {claveDe && claveDe.id === u.id && (
+                <span className="fbcrm-fila-clave">
+                  <input type="text" value={claveDe.clave} onChange={(e) => setClaveDe({ ...claveDe, clave: e.target.value })} placeholder={`Contraseña nueva de ${u.nombre}`} autoComplete="off" aria-label={`Contraseña nueva de ${u.nombre}`} />
+                  <button className="fbcrm-mini fbcrm-primario" disabled={claveDe.clave.length < 8} onClick={async () => { await editar(u, { clave: claveDe.clave }, `Listo: ${u.nombre} ya puede entrar con ${u.email} y la contraseña nueva.`); setClaveDe(null); }}>Guardar</button>
+                </span>
+              )}
+              {u.activo !== false && <button className="fbcrm-mini" onClick={() => window.confirm(`¿Restablecer la contraseña de ${u.nombre}? Se cerrará su sesión y tendrá que entrar con una contraseña temporal nueva.`) && editar(u, { restablecer: true })}>Darle una temporal</button>}
               {u.nombre !== usuario && (u.activo !== false
                 ? <button className="fbcrm-mini fbcrm-peligro" onClick={() => window.confirm(`¿Desactivar la cuenta de ${u.nombre}? No podrá entrar; su historial se mantiene.`) && editar(u, { activo: false }, `Cuenta de ${u.nombre} desactivada.`)}>Desactivar</button>
                 : <button className="fbcrm-mini" onClick={() => editar(u, { activo: true }, `Cuenta de ${u.nombre} activada de nuevo.`)}>Activar</button>)}
@@ -3261,6 +3302,13 @@ function Equipo({ ctx }) {
   const { datos, api, cargar, usuario } = ctx;
   const [msg, setMsg] = useState('');
   const personas = datos.equipo || [];
+  const [repetidos, setRepetidos] = useState({});
+  useEffect(() => { if (datos.esAdmin) api('/equipo/repetidos').then((r) => setRepetidos(r.repetidos || {})).catch(() => {}); }, [datos.esAdmin, personas.length]);
+  const unir = async () => {
+    const lista = Object.entries(repetidos).map(([de, a]) => `“${de}” → ${a}`).join('\n');
+    if (!window.confirm(`Se unirán estos nombres (todo su historial y tareas pasan a la persona correcta):\n\n${lista}`)) return;
+    try { const r = await api('/equipo/unir-repetidos', { method: 'POST', body: {} }); setRepetidos({}); await cargar(); setMsg(`Listo: se unieron ${plural(r.unidos.length, 'nombre repetido', 'nombres repetidos')}.`); } catch (e) { setMsg(e.message); }
+  };
   const agregar = async () => {
     const nombre = (window.prompt('Nombre completo de la persona (el mismo que escribirá al entrar al CRM):') || '').trim(); if (!nombre) return;
     const telefono = window.prompt(`WhatsApp de ${nombre} (opcional, para avisarle de sus tareas):`, '') || '';
@@ -3287,6 +3335,12 @@ function Equipo({ ctx }) {
   return (
     <div className="fbcrm-bloque fbcrm-equipo">
       <h3>Equipo <span>{plural(personas.length, 'persona')}</span><button className="fbcrm-mini fbcrm-primario fbcrm-h3-accion" onClick={agregar}>Agregar persona</button></h3>
+      {Object.keys(repetidos).length > 0 && (
+        <div className="fbcrm-aviso" role="status" style={{ padding: '10px 14px', margin: '8px 0' }}>
+          <p style={{ margin: '0 0 8px' }}><strong>Hay nombres repetidos:</strong> {Object.entries(repetidos).map(([de, a]) => `“${de}” es ${a}`).join(' · ')}</p>
+          <button className="fbcrm-mini fbcrm-primario" onClick={unir}>Unir nombres repetidos</button>
+        </div>
+      )}
       <p className="fbcrm-nota-suave">{datos.cuentas ? 'Cada persona entra con su cuenta personal (más arriba).' : 'Cada persona entra al CRM con su nombre y la clave del equipo.'} Agrégala aquí para asignarle tareas aunque todavía no haya entrado. Si un nombre está incompleto, cámbialo: se corrige en todo el historial.</p>
       <ul>
         {personas.map((p) => (
@@ -6747,6 +6801,8 @@ const CSS = `
 .fbcrm-equipo li{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--linea2)}
 .fbcrm-equipo li:last-child{border-bottom:0}
 .fbcrm-equipo .fbcrm-avatar{width:34px;height:34px;font-size:.75rem}
+.fbcrm-fila-clave{display:flex;gap:6px;align-items:center;flex:1 1 100%}
+.fbcrm-fila-clave input{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--linea);border-radius:8px;font:inherit}
 .fbcrm-generador{position:fixed;left:0;top:0;width:230mm;z-index:-10;pointer-events:none;opacity:1}
 /* Corredores */
 .tc-corredor,.tc-tipo,.tc-perfil,.tc-etapa{min-width:0;overflow:hidden}
