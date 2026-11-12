@@ -1010,9 +1010,8 @@ function FichaCampo({ ctx, inicial, cerrar }) {
   };
   const [redactando, setRedactando] = useState(false);
   const [msgDesc, setMsgDesc] = useState('');
-  const nombresPerfil = (f.perfiles || []).map((pid) => norm(((datos.perfiles || []).find((x) => x.id === pid) || {}).nombre || ''));
   const [verEstilo, setVerEstilo] = useState(false);
-  const [tono, setTono] = useState(nombresPerfil.some((n) => /agrado/.test(n)) ? 'agrado' : nombresPerfil.some((n) => /export|productiv|inversi/.test(n)) ? 'inversion' : 'comercial');
+  const [tono, setTono] = useState('web'); // por defecto, el formato de la ficha para publicar de la plataforma de tasaciones
   const redactar = async () => {
     setRedactando(true); setMsgDesc('');
     try {
@@ -1112,6 +1111,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           {!esNuevo && (
             <span className="fbcrm-ia-grupo">
               <select value={tono} onChange={(e) => setTono(e.target.value)} aria-label="Enfoque del texto">
+                <option value="web">Formato web (como la tasación)</option>
                 <option value="comercial">Comercial (para vender)</option>
                 <option value="inversion">Inversión / productivo</option>
                 <option value="agrado">Agrado / estilo de vida</option>
