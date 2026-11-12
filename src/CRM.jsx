@@ -651,6 +651,10 @@ function InstalarApp() {
 }
 function Agenda({ ctx, irA, importar }) {
   const { datos, abrir } = ctx;
+  const quitarAcciones = async (lista, hecha, pregunta) => {
+    if (pregunta && !window.confirm(pregunta)) return;
+    try { await ctx.api('/acciones/quitar', { method: 'POST', body: { hecha, items: lista.map((i) => ({ col: i.col, id: i.x.id })) } }); await ctx.cargar(); } catch (e) { alert(e.message); }
+  };
   const hoy = hoyISO();
   const items = [
     ...datos.campos.filter((c) => datos.activas.includes(c.etapa)).map((x) => ({ col: 'campos', x, titulo: x.nombre, sub: `Campo, ${x.etapa}` })),
@@ -714,17 +718,23 @@ function Agenda({ ctx, irA, importar }) {
       {(() => { const mias = (datos.tareas || []).filter((t) => t.asignadoA === ctx.usuario && t.estado !== 'hecha').sort((a, b) => (a.vence || '9999').localeCompare(b.vence || '9999'));
         return mias.length > 0 && <div className="fbcrm-bloque"><h3>Mis tareas <span>{mias.length}</span></h3><ul className="fbcrm-tareas">{mias.map((t) => <TarjetaTarea key={t.id} ctx={ctx} t={t} />)}</ul></div>; })()}
       {grupos.every(([, l]) => !l.length) && <p className="fbcrm-vacio">No hay seguimientos con fecha. Define la próxima acción en cada campo, cliente o tasación y aparecerá aquí.</p>}
-      {grupos.map(([titulo, lista, clase]) => lista.length > 0 && (
+      {grupos.map(([titulo, lista, clase]) => { const vacias = lista.filter((i) => !i.x.proximaAccion); return lista.length > 0 && (
         <div key={titulo} className="fbcrm-grupo">
-          <h2>{titulo} <span>{lista.length}</span></h2>
+          <h2>{titulo} <span>{lista.length}</span>{clase === 'atrasado' && vacias.length > 1 && <button className="fbcrm-mini fbcrm-h2-accion" onClick={() => quitarAcciones(vacias, false, `¿Quitar de la agenda las ${vacias.length} atrasadas sin acción definida?`)}>Quitar las {vacias.length} sin acción</button>}</h2>
           {lista.map((i) => (
-            <button key={i.col + i.x.id} className={`fbcrm-fila ${clase}`} onClick={() => abrir(i.col, i.x)}>
-              <HojaFecha iso={i.x.proximaFecha} />
-              <span className="fbcrm-cuerpo"><strong>{i.x.proximaAccion || 'Definir acción'}</strong><small>{i.titulo}, {i.sub}{i.x.responsable ? `, ${i.x.responsable}` : ''}</small></span>
-            </button>
+            <div key={i.col + i.x.id} className={`fbcrm-fila ${clase}`}>
+              <button className="fbcrm-fila-abrir" onClick={() => abrir(i.col, i.x)}>
+                <HojaFecha iso={i.x.proximaFecha} />
+                <span className="fbcrm-cuerpo"><strong>{i.x.proximaAccion || 'Definir acción'}</strong><small>{i.titulo}, {i.sub}{i.x.responsable ? `, ${i.x.responsable}` : ''}</small></span>
+              </button>
+              <span className="fbcrm-fila-acc">
+                {i.x.proximaAccion && <button className="fbcrm-mini" onClick={() => quitarAcciones([i], true)} aria-label={`Marcar como hecha: ${i.x.proximaAccion}`}>✓ Hecha</button>}
+                <button className="fbcrm-mini fbcrm-peligro" onClick={() => quitarAcciones([i], false, `¿Quitar de la agenda “${i.x.proximaAccion || 'Definir acción'}” de ${i.titulo}?`)} aria-label="Quitar de la agenda">Quitar</button>
+              </span>
+            </div>
           ))}
         </div>
-      ))}
+      ); })}
 
       {cambiosWeb.length > 0 && (
         <details className="fbcrm-aviso av-web" open>
@@ -6071,6 +6081,10 @@ const CSS = `
 .fbcrm .fbcrm-fila:last-child{border-radius:0 0 16px 16px}
 .fbcrm .fbcrm-fila:only-of-type{border-radius:16px}
 .fbcrm .fbcrm-fila:hover{background:#F8FBF8;border-color:var(--linea)}
+.fbcrm .fbcrm-fila-abrir{display:flex;align-items:center;gap:14px;flex:1;min-width:0;background:none;border:0;padding:0;margin:0;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.fbcrm-fila-acc{display:flex;gap:6px;flex:none}
+.fbcrm-h2-accion{margin-left:auto}
+@media (max-width:640px){.fbcrm .fbcrm-grupo .fbcrm-fila{flex-wrap:wrap}.fbcrm-fila-acc{width:100%;justify-content:flex-end}}
 .fbcrm-cuerpo{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
 .fbcrm-cuerpo strong{font-weight:600}
 .fbcrm-cuerpo small{color:var(--salvia);font-size:.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
