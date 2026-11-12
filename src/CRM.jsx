@@ -3324,9 +3324,23 @@ function Equipo({ ctx }) {
     try { await api('/equipo/persona', { method: 'POST', body: { nombre, telefono, email } }); await cargar(); setMsg(`${nombre} quedó en el equipo. Ya puedes asignarle tareas. Para entrar, debe escribir “${nombre}” y la clave del equipo.`); }
     catch (e) { setMsg(e.message); }
   };
-  const quitar = async (nombre) => {
-    if (!window.confirm(`¿Quitar a ${nombre} de la lista del equipo? Lo que hizo queda en el historial.`)) return;
-    try { await api('/equipo/persona', { method: 'DELETE', body: { nombre } }); await cargar(); setMsg(`${nombre} ya no aparece en la lista.`); } catch (e) { setMsg(e.message); }
+  // Quitar de verdad: si tiene registros, pasan a otra persona (si no, el nombre volvería a aparecer por su historial)
+  const quitar = async (p) => {
+    const nombre = p.nombre;
+    let destino = repetidos[nombre] || '';
+    if (destino) { if (!window.confirm(`“${nombre}” es ${destino}. ¿Unirlo? Sus ${plural(p.registros, 'registro')} pasan a ${destino} y deja de aparecer.`)) return; }
+    else if (p.registros > 0) {
+      const otros = personas.map((x) => x.nombre).filter((x) => x !== nombre);
+      destino = (window.prompt(`${nombre} tiene ${plural(p.registros, 'registro')} en el historial. ¿A quién se los paso para quitarlo de la lista? Escribe el nombre:\n\n${otros.join('\n')}`, usuario) || '').trim();
+      if (!destino) return;
+      destino = otros.find((x) => normTxt(x) === normTxt(destino)) || destino;
+    } else if (!window.confirm(`¿Quitar a ${nombre} de la lista del equipo?`)) return;
+    try {
+      if (destino) await api('/equipo/renombrar', { method: 'POST', body: { de: nombre, a: destino } });
+      await api('/equipo/persona', { method: 'DELETE', body: { nombre } }).catch(() => null);
+      setRepetidos((r) => { const n = { ...r }; delete n[nombre]; return n; });
+      await cargar(); setMsg(destino ? `Listo: lo de “${nombre}” pasó a ${destino} y ya no aparece en la lista.` : `${nombre} ya no aparece en la lista.`);
+    } catch (e) { setMsg(e.message); }
   };
   const contacto = async (nombre) => {
     const actual = (datos.contactos || {})[nombre] || {};
@@ -3357,7 +3371,7 @@ function Equipo({ ctx }) {
             <span className="fbcrm-cuerpo"><strong>{p.nombre}{p.nombre === usuario ? ' (tú)' : ''}{(datos.admins || []).includes(p.nombre) ? ' ★' : ''}</strong><small>{plural(p.registros, 'registro')}{p.ultimoIngreso ? `, último ingreso ${fmtFechaHora(p.ultimoIngreso)}` : ', aún no entra al CRM'}</small></span>
             <button className="fbcrm-mini" onClick={() => contacto(p.nombre)}>{(datos.contactos || {})[p.nombre] && (datos.contactos[p.nombre].telefono || datos.contactos[p.nombre].email) ? 'Editar contacto' : 'Agregar contacto'}</button>
             <button className="fbcrm-mini" onClick={() => renombrar(p.nombre)}>Cambiar nombre</button>
-            {datos.esAdmin && p.nombre !== usuario && <button className="fbcrm-mini fbcrm-peligro" onClick={() => quitar(p.nombre)}>Quitar</button>}
+            {datos.esAdmin && p.nombre !== usuario && <button className="fbcrm-mini fbcrm-peligro" onClick={() => quitar(p)}>{repetidos[p.nombre] ? `Unir con ${repetidos[p.nombre]}` : 'Quitar'}</button>}
           </li>
         ))}
       </ul>
