@@ -5789,12 +5789,10 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   const planosC = (campo.archivos || []).filter((a) => a.tipo === 'plano' && (a.vistas || []).length);
   const [conKmz, setConKmz] = useState(true);
   const [conPlanos, setConPlanos] = useState(true);
-  const ultFicha = (campo.fichasPdf || []).slice(-1)[0];
-  const [conFicha, setConFicha] = useState(!campo.geo && !planosC.length);
-  if (!campo.geo && !planosC.length && !ultFicha) return (
-    <div className="fbcrm-bloque"><h3>Enviar con confidencialidad (ficha y plano)</h3>
-      <p className="fbcrm-nota-suave">Genera la ficha PDF del campo o sube su KMZ o sus planos (en “Archivos y plano”) y podrás enviárselos a un cliente con un link personal: primero acepta el acuerdo de confidencialidad y después ve la información.</p></div>
-  );
+  const hayPlano = !!campo.geo || planosC.length > 0;
+  const [que, setQue] = useState(hayPlano ? 'plano' : 'ficha'); // ficha | plano | ambos
+  const conFicha = que !== 'plano';
+  const [avance, setAvance] = useState('');
   const calzan = (datos.matches[campo.id] || []).map((m) => m.clienteId);
   const opciones = [...datos.clientes].filter((c) => c.etapa === 'Activo').sort((a, b) => (calzan.includes(b.id) - calzan.includes(a.id)) || a.nombre.localeCompare(b.nombre, 'es'));
   const cli = datos.clientes.find((c) => c.id === clienteId);
@@ -5807,10 +5805,14 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   const crear = async () => {
     setMsg('');
     try {
-      const r = await api(`/campos/${campo.id}/compartir`, { method: 'POST', body: { clienteId, nombre: nombre || (cli ? cli.nombre : ''), email: email || (cli ? emailsDe(cli.email)[0] || '' : ''), telefono: telefono || (cli ? cli.telefono : ''), dias, descarga, conFicha: !!ultFicha && conFicha, kmz: !!campo.geo && conKmz, planos: conPlanos && planosC.length ? planosC.map((a) => a.id) : false } });
+      // La ficha se genera (o se reutiliza si el campo no cambió) en el momento de crear el link
+      let ficha = '';
+      if (conFicha) { const link = await ctx.linkFicha(campo, setAvance); ficha = String(link).split('/').pop().replace(/\.pdf$/i, ''); setAvance(''); }
+      const conPlano = que !== 'ficha';
+      const r = await api(`/campos/${campo.id}/compartir`, { method: 'POST', body: { clienteId, nombre: nombre || (cli ? cli.nombre : ''), email: email || (cli ? emailsDe(cli.email)[0] || '' : ''), telefono: telefono || (cli ? cli.telefono : ''), dias, descarga, conFicha, ficha, kmz: conPlano && !!campo.geo && conKmz, planos: conPlano && conPlanos && planosC.length ? planosC.map((a) => a.id) : false } });
       setCampo(r); cargar(); setClienteId(''); setNombre(''); setEmail(''); setTelefono('');
       setMsg('Link creado. Envíaselo por WhatsApp o correo desde la lista de abajo.');
-    } catch (e) { setMsg(e.message); }
+    } catch (e) { setMsg(e.message); setAvance(''); }
   };
   const desactivar = async (c) => {
     if (!window.confirm(`¿Desactivar el link de ${c.destinatario}? Ya no podrá ver ni descargar el plano.`)) return;
@@ -5823,7 +5825,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   return (
     <div className="fbcrm-bloque fbcrm-compartir">
       <h3>Enviar con confidencialidad (ficha y plano) {lista.length > 0 && <span>{plural(lista.length, 'envío')}</span>}</h3>
-      <p className="fbcrm-nota-suave">El cliente recibe un link personal. Primero acepta el acuerdo con su nombre y RUT; después ve y descarga lo que elijas: la ficha PDF, el contorno con el KMZ (con sus datos grabados) y los planos.</p>
+      <p className="fbcrm-nota-suave">Tú eliges qué mandar: solo la ficha, solo el plano o los dos. El cliente recibe un link personal, acepta el acuerdo de confidencialidad con su nombre y RUT, y recién ahí ve lo que le enviaste.</p>
       <div className="fbcrm-form">
         <Campo label="Cliente" ancho>
           <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
@@ -5835,16 +5837,25 @@ function CompartirPlano({ ctx, campo, setCampo }) {
         {!clienteId && <Campo label="Teléfono"><input type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} /></Campo>}
         {!clienteId && <Campo label="Email" ancho><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Campo>}
         <Campo label="El link vence en (días)"><input type="number" min="1" max="365" value={dias} onChange={(e) => setDias(e.target.value)} /></Campo>
-        <div className="fbcrm-opc-envio ancho"><span>El link lleva:</span>
-          {ultFicha ? <label><input type="checkbox" checked={conFicha} onChange={(e) => setConFicha(e.target.checked)} />Ficha PDF (la última, del {fmtFecha(ultFicha.fecha.slice(0, 10))})</label> : <small>Para enviar la ficha, primero genérala con el botón “Ficha PDF”.</small>}
+        <div className="fbcrm-que-envio ancho" role="group" aria-label="Qué quieres enviar">
+          <span>¿Qué quieres enviar?</span>
+          <div className="fbcrm-chips">
+            <button type="button" className={que === 'ficha' ? 'on' : ''} onClick={() => setQue('ficha')}>Solo la ficha</button>
+            <button type="button" className={que === 'plano' ? 'on' : ''} disabled={!hayPlano} onClick={() => setQue('plano')}>Solo el plano{campo.geo ? ' y KMZ' : ''}</button>
+            <button type="button" className={que === 'ambos' ? 'on' : ''} disabled={!hayPlano} onClick={() => setQue('ambos')}>Ficha y plano</button>
+          </div>
+          {!hayPlano && <small>Este campo aún no tiene KMZ ni planos: por ahora solo se puede enviar la ficha.</small>}
+          {conFicha && <small>La ficha PDF se prepara sola al crear el link, con los datos actuales del campo.</small>}
+        </div>
+        {que !== 'ficha' && hayPlano && <div className="fbcrm-opc-envio ancho"><span>Del plano, incluir:</span>
           {campo.geo && <label><input type="checkbox" checked={conKmz} onChange={(e) => setConKmz(e.target.checked)} />Contorno y KMZ</label>}
           {planosC.length > 0 && <label><input type="checkbox" checked={conPlanos} onChange={(e) => setConPlanos(e.target.checked)} />{planosC.length === 1 ? `Plano (${planosC[0].nombre})` : `${planosC.length} planos`}</label>}
           {!planosC.length && (campo.archivos || []).some((a) => a.tipo === 'plano') && <small>Hay planos sin preparar: usa “Poner en la ficha” en “Archivos y plano” para poder enviarlos.</small>}
-        </div>
+        </div>}
         <label className="fbcrm-check-linea"><input type="checkbox" checked={descarga} onChange={(e) => setDescarga(e.target.checked)} />Permitir descargar los archivos (ficha, KMZ y planos)</label>
       </div>
       <div className="fbcrm-acciones">
-        <button className="fbcrm-primario" onClick={() => { if (!clienteId && !nombre.trim()) { setMsg('Para crear el link, elige el cliente en la lista de arriba o escribe el nombre de la persona.'); return; } if (!((campo.geo && conKmz) || (planosC.length && conPlanos) || (ultFicha && conFicha))) { setMsg('Marca qué lleva el link: la ficha, el contorno y KMZ o los planos.'); return; } crear(); }}>Crear link para {cli ? cli.nombre : nombre || 'el cliente'}</button>
+        <button className="fbcrm-primario" disabled={!!avance} onClick={() => { if (!clienteId && !nombre.trim()) { setMsg('Para crear el link, elige el cliente en la lista de arriba o escribe el nombre de la persona.'); return; } if (que !== 'ficha' && !((campo.geo && conKmz) || (planosC.length && conPlanos))) { setMsg('Marca qué parte del plano incluir: el contorno y KMZ o los planos.'); return; } crear(); }}>Crear link para {cli ? cli.nombre : nombre || 'el cliente'}</button>
         <button className="fbcrm-texto" onClick={() => setVerAcuerdo(!verAcuerdo)}>{verAcuerdo ? 'Ocultar el texto del acuerdo' : 'Ver o editar el texto del acuerdo'}</button>
       </div>
       {verAcuerdo && (
@@ -5854,6 +5865,7 @@ function CompartirPlano({ ctx, campo, setCampo }) {
           <div className="fbcrm-acciones"><button className="fbcrm-primario" onClick={() => guardarAcuerdo(texto)}>Guardar texto</button><button onClick={() => guardarAcuerdo('')}>Restaurar el borrador base</button></div>
         </div>
       )}
+      {avance && <p className="fbcrm-nota-suave" role="status">{avance}</p>}
       {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
       {lista.length > 0 && (
         <ul className="fbcrm-envios-plano">
@@ -6282,6 +6294,9 @@ const CSS = `
 .fbcrm-fila-acc{display:flex;gap:6px;flex:none}
 .fbcrm-pend-ext{margin-top:14px}
 .fbcrm-telwa{display:flex;gap:6px;align-items:center}
+.fbcrm-que-envio{grid-column:1/-1;display:grid;gap:6px}
+.fbcrm-que-envio > span{font-weight:600}
+.fbcrm-que-envio small{color:var(--salvia)}
 .fbcrm-rol-buscar{grid-column:1/-1;border:1px solid var(--linea);border-radius:12px;background:#F8FBF8;padding:12px 14px;display:grid;gap:8px}
 .fbcrm-rol-cab{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .fbcrm-rol-op{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--papel);border:1px solid var(--linea2);border-radius:10px;padding:8px 10px}
