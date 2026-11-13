@@ -5212,19 +5212,22 @@ function Paginado({ bloques, pie, anexos = [] }) {
     const t = setTimeout(calcular, 400);
     return () => clearTimeout(t);
   }, [bloques]);
+  // Si cambian los bloques (por ejemplo al quitar el contorno del KMZ), el reparto anterior puede apuntar a bloques
+  // que ya no existen: se usa solo si sigue calzando, mientras se vuelve a medir
+  const pagsOk = paginas && paginas.flat().length === bloques.length && paginas.flat().every((i) => i < bloques.length) ? paginas : null;
   return (
     <>
       <div ref={medidor} className="doc-medidor" aria-hidden="true">
         <div className="doc-mm" />
         {bloques.map((b, i) => <div key={i} className={`doc-bloque ${b.clase || ''}`}>{b.el}</div>)}
       </div>
-      {(paginas || [bloques.map((_, i) => i)]).map((idx, n, todas) => (
+      {(pagsOk || [bloques.map((_, i) => i)]).map((idx, n, todas) => (
         <section key={n} className="doc-pagina">
           <div className="doc-pagina-cuerpo">{idx.map((i) => <div key={i} className={`doc-bloque ${bloques[i].clase || ''}`}>{bloques[i].el}</div>)}</div>
           <footer className="doc-pagina-pie"><span>{pie}</span><span>Página {n + 1} de {todas.length + anexos.length}</span></footer>
         </section>
       ))}
-      {anexos.map((f, k) => { const total = (paginas || [0]).length + anexos.length, num = (paginas || [0]).length + k + 1; return <Fragment key={`a${k}`}>{f(num, total)}</Fragment>; })}
+      {anexos.map((f, k) => { const total = (pagsOk || [0]).length + anexos.length, num = (pagsOk || [0]).length + k + 1; return <Fragment key={`a${k}`}>{f(num, total)}</Fragment>; })}
     </>
   );
 }
