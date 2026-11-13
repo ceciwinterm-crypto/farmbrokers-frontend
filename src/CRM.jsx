@@ -718,6 +718,7 @@ function Agenda({ ctx, irA, importar }) {
       {(() => { const mias = (datos.tareas || []).filter((t) => t.asignadoA === ctx.usuario && t.estado !== 'hecha').sort((a, b) => (a.vence || '9999').localeCompare(b.vence || '9999'));
         return mias.length > 0 && <div className="fbcrm-bloque"><h3>Mis tareas <span>{mias.length}</span></h3><ul className="fbcrm-tareas">{mias.map((t) => <TarjetaTarea key={t.id} ctx={ctx} t={t} />)}</ul></div>; })()}
       {grupos.every(([, l]) => !l.length) && <p className="fbcrm-vacio">No hay seguimientos con fecha. Define la próxima acción en cada campo, cliente o tasación y aparecerá aquí.</p>}
+      <PendientesExternos ctx={ctx} soloRecordar />
       {grupos.map(([titulo, lista, clase]) => { const vacias = lista.filter((i) => !i.x.proximaAccion); return lista.length > 0 && (
         <div key={titulo} className="fbcrm-grupo">
           <h2>{titulo} <span>{lista.length}</span>{clase === 'atrasado' && vacias.length > 1 && <button className="fbcrm-mini fbcrm-h2-accion" onClick={() => quitarAcciones(vacias, false, `¿Quitar de la agenda las ${vacias.length} atrasadas sin acción definida?`)}>Quitar las {vacias.length} sin acción</button>}</h2>
@@ -3118,7 +3119,7 @@ function VistaEquipo({ ctx }) {
   return (
     <section>
       <div className="fbcrm-chips fbcrm-sec-equipo" role="tablist">
-        {[['tareas', `Tareas${misPend ? ` (${misPend})` : ''}`], ['reporte', 'Reporte'], ['actividad', 'Actividad'], ['personas', `Personas${sols ? ` (${sols})` : ''}`]].map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} className={sec === k ? 'on' : ''} onClick={() => setSec(k)}>{l}</button>)}
+        {[['tareas', `Tareas${misPend ? ` (${misPend})` : ''}`], ['reporte', 'Reporte'], ['actividad', `Actividad${(datos.pendientesExternos || []).some((p) => p.toca) ? ` (${(datos.pendientesExternos || []).filter((p) => p.toca).length})` : ''}`], ['personas', `Personas${sols ? ` (${sols})` : ''}`]].map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} className={sec === k ? 'on' : ''} onClick={() => setSec(k)}>{l}</button>)}
       </div>
       {sec === 'tareas' && <Tareas ctx={ctx} />}
       {sec === 'reporte' && <Reporte ctx={ctx} />}
@@ -3248,14 +3249,54 @@ function ModoAdmin({ ctx }) {
 }
 
 // ════════════════════════════ Actividad ════════════════════════════
+// Lo externo: lo que se envía a clientes y propietarios (mandatos, órdenes de visita, planos, fichas) y lo que ellos hacen
+const esExterno = (a) => /\([^)]*\)\s*$/.test(a.autor || '') || /orden de visita|mandato|link del propietario|plano|confidencial|ficha|brochure|^envi[oó]/i.test(a.texto || '');
+const ICONO_PEND = { mandato: '✍️', orden: '🗓️', plano: '🗺️' };
+function PendientesExternos({ ctx, soloRecordar }) {
+  const { datos, api, cargar, abrir } = ctx;
+  const [msg, setMsg] = useState('');
+  const lista = (datos.pendientesExternos || []).filter((p) => !soloRecordar || p.toca);
+  if (!lista.length) return soloRecordar ? null : <p className="fbcrm-nota-suave">No hay nada esperando respuesta de clientes o propietarios.</p>;
+  const accion = async (p, body) => { try { await api('/seguimiento', { method: 'POST', body: { clave: p.clave, ...body } }); await cargar(); } catch (e) { setMsg(e.message); } };
+  const ir = (p) => { const c = datos.campos.find((x) => x.id === p.campoId); if (c) abrir('campos', c); };
+  return (
+    <div className="fbcrm-grupo fbcrm-pend-ext">
+      <h2>{soloRecordar ? 'Sin respuesta hace una semana o más' : 'Esperando respuesta'} <span>{lista.length}</span></h2>
+      {lista.map((p) => (
+        <div key={p.clave} className={`fbcrm-fila ${p.toca ? 'atrasado' : ''}`}>
+          <button className="fbcrm-fila-abrir" onClick={() => ir(p)}>
+            <span className="fbcrm-pend-icono" aria-hidden="true">{ICONO_PEND[p.tipo] || '📄'}</span>
+            <span className="fbcrm-cuerpo"><strong>{p.para || 'Sin nombre'}: {p.que}</strong>
+              <small>{p.campo} · enviado {p.dias ? `hace ${plural(p.dias, 'día')}` : 'hoy'}{p.por ? ` por ${p.por}` : ''}{!p.toca ? ` · te recuerdo el ${fmtFecha(p.recordar)}` : ''}</small></span>
+          </button>
+          <span className="fbcrm-fila-acc">
+            <button className="fbcrm-mini" onClick={() => accion(p, { accion: 'respondio' })}>✓ Ya respondió</button>
+            <button className="fbcrm-mini" onClick={() => accion(p, { accion: 'posponer', dias: 7 })}>Recordar en 7 días</button>
+          </span>
+        </div>
+      ))}
+      {msg && <p className="fbcrm-error">{msg}</p>}
+    </div>
+  );
+}
 function Actividad({ ctx }) {
   const { datos, abrir } = ctx;
-  if (!datos.actividad.length) return <p className="fbcrm-vacio">Todavía no hay actividad. Aquí verás lo que hace cada persona del equipo: cambios de etapa, envíos, documentos y notas.</p>;
+  const [tipo, setTipo] = useState(() => leerLocal('fbcrm_actividad_tipo') || 'externa');
+  const elegir = (t) => { setTipo(t); guardarLocal('fbcrm_actividad_tipo', t); };
   const ir = (ref) => { if (!ref) return; const x = (datos[ref.col] || []).find((y) => y.id === ref.id); if (x) abrir(ref.col, x); };
+  const lista = datos.actividad.filter((a) => (tipo === 'externa' ? esExterno(a) : !esExterno(a)));
+  const nPend = (datos.pendientesExternos || []).filter((p) => p.toca).length;
   return (
     <>
+    <div className="fbcrm-chips" role="tablist" aria-label="Tipo de actividad">
+      <button role="tab" aria-selected={tipo === 'externa'} className={tipo === 'externa' ? 'on' : ''} onClick={() => elegir('externa')}>Con clientes y propietarios{nPend ? ` (${nPend} sin respuesta)` : ''}</button>
+      <button role="tab" aria-selected={tipo === 'interna'} className={tipo === 'interna' ? 'on' : ''} onClick={() => elegir('interna')}>Interna del equipo</button>
+    </div>
+    {tipo === 'externa' && <PendientesExternos ctx={ctx} />}
+    {tipo === 'externa' && <h3 className="fbcrm-subtitulo">Lo que se ha enviado y lo que han hecho</h3>}
+    {!lista.length ? <p className="fbcrm-vacio">{tipo === 'externa' ? 'Todavía no hay movimientos con clientes o propietarios.' : 'Todavía no hay actividad interna.'}</p> : (
     <ul className="fbcrm-feed">
-      {datos.actividad.map((a, i) => (
+      {lista.map((a, i) => (
         <li key={i}>
           <span className="fbcrm-avatar">{iniciales(a.autor)}</span>
           <div>
@@ -3264,7 +3305,7 @@ function Actividad({ ctx }) {
           </div>
         </li>
       ))}
-    </ul>
+    </ul>)}
     </>
   );
 }
@@ -6083,6 +6124,10 @@ const CSS = `
 .fbcrm .fbcrm-fila:hover{background:#F8FBF8;border-color:var(--linea)}
 .fbcrm .fbcrm-fila-abrir{display:flex;align-items:center;gap:14px;flex:1;min-width:0;background:none;border:0;padding:0;margin:0;text-align:left;font:inherit;color:inherit;cursor:pointer}
 .fbcrm-fila-acc{display:flex;gap:6px;flex:none}
+.fbcrm-pend-ext{margin-top:14px}
+.fbcrm-pend-ext .fbcrm-fila.atrasado strong{color:#9A3412}
+.fbcrm-pend-icono{font-size:20px;width:40px;text-align:center;flex:none}
+.fbcrm .fbcrm-subtitulo{font-size:14px;margin:22px 0 8px;color:var(--suave,#5E6E64);font-weight:600}
 .fbcrm-h2-accion{margin-left:auto}
 @media (max-width:640px){.fbcrm .fbcrm-grupo .fbcrm-fila{flex-wrap:wrap}.fbcrm-fila-acc{width:100%;justify-content:flex-end}}
 .fbcrm-cuerpo{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
