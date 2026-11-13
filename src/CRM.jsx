@@ -3284,7 +3284,17 @@ function Actividad({ ctx }) {
   const [tipo, setTipo] = useState(() => leerLocal('fbcrm_actividad_tipo') || 'externa');
   const elegir = (t) => { setTipo(t); guardarLocal('fbcrm_actividad_tipo', t); };
   const ir = (ref) => { if (!ref) return; const x = (datos[ref.col] || []).find((y) => y.id === ref.id); if (x) abrir(ref.col, x); };
-  const lista = datos.actividad.filter((a) => (tipo === 'externa' ? esExterno(a) : !esExterno(a)));
+  const [rango, setRango] = useState('todo');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const diaCL = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+  const hoy = diaCL(new Date().toISOString());
+  const haceDias = (n) => diaCL(new Date(Date.now() - n * 864e5).toISOString());
+  const [d1, d2] = rango === 'hoy' ? [hoy, hoy] : rango === '7' ? [haceDias(6), hoy] : rango === '30' ? [haceDias(29), hoy] : rango === 'fechas' ? [desde, hasta] : ['', ''];
+  const lista = datos.actividad
+    .filter((a) => (tipo === 'externa' ? esExterno(a) : !esExterno(a)))
+    .filter((a) => { const d = diaCL(a.fecha); return (!d1 || d >= d1) && (!d2 || d <= d2); })
+    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))); // siempre de la más nueva a la más antigua
   const nPend = (datos.pendientesExternos || []).filter((p) => p.toca).length;
   return (
     <>
@@ -3294,7 +3304,17 @@ function Actividad({ ctx }) {
     </div>
     {tipo === 'externa' && <PendientesExternos ctx={ctx} />}
     {tipo === 'externa' && <h3 className="fbcrm-subtitulo">Lo que se ha enviado y lo que han hecho</h3>}
-    {!lista.length ? <p className="fbcrm-vacio">{tipo === 'externa' ? 'Todavía no hay movimientos con clientes o propietarios.' : 'Todavía no hay actividad interna.'}</p> : (
+    <div className="fbcrm-act-fechas">
+      <div className="fbcrm-chips" role="group" aria-label="Período">
+        {[['hoy', 'Hoy'], ['7', 'Últimos 7 días'], ['30', 'Últimos 30 días'], ['todo', 'Todo'], ['fechas', 'Elegir fechas']].map(([k, l]) => <button key={k} className={rango === k ? 'on' : ''} onClick={() => setRango(k)}>{l}</button>)}
+      </div>
+      {rango === 'fechas' && <span className="fbcrm-act-rango">
+        <label>Desde <input type="date" value={desde} max={hasta || hoy} onChange={(e) => setDesde(e.target.value)} /></label>
+        <label>Hasta <input type="date" value={hasta} min={desde} max={hoy} onChange={(e) => setHasta(e.target.value)} /></label>
+      </span>}
+      <small>{plural(lista.length, 'movimiento')}, del más nuevo al más antiguo</small>
+    </div>
+    {!lista.length ? <p className="fbcrm-vacio">{d1 || d2 ? 'No hay movimientos en esas fechas.' : tipo === 'externa' ? 'Todavía no hay movimientos con clientes o propietarios.' : 'Todavía no hay actividad interna.'}</p> : (
     <ul className="fbcrm-feed">
       {lista.map((a, i) => (
         <li key={i}>
@@ -6136,6 +6156,11 @@ const CSS = `
 .fbcrm .fbcrm-fila-abrir{display:flex;align-items:center;gap:14px;flex:1;min-width:0;background:none;border:0;padding:0;margin:0;text-align:left;font:inherit;color:inherit;cursor:pointer}
 .fbcrm-fila-acc{display:flex;gap:6px;flex:none}
 .fbcrm-pend-ext{margin-top:14px}
+.fbcrm-act-fechas{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:12px 0}
+.fbcrm-act-fechas small{color:var(--salvia)}
+.fbcrm-act-rango{display:flex;gap:10px;flex-wrap:wrap}
+.fbcrm-act-rango label{display:flex;align-items:center;gap:6px;font-size:.9rem}
+.fbcrm-act-rango input{padding:6px 8px;border:1px solid var(--linea);border-radius:8px;font:inherit}
 .fbcrm-pend-ext .fbcrm-fila.atrasado strong{color:#9A3412}
 .fbcrm-pend-icono{font-size:20px;width:40px;text-align:center;flex:none}
 .fbcrm .fbcrm-subtitulo{font-size:14px;margin:22px 0 8px;color:var(--suave,#5E6E64);font-weight:600}
