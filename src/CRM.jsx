@@ -5463,6 +5463,11 @@ function ArchivosCampo({ ctx, campo, setCampo }) {
         : <p className="fbcrm-nota-suave">Sin KMZ todavía. Con el KMZ la ficha muestra el contorno del predio sobre el mapa satelital.</p>}
       {planosFicha.length > 0 ? <p className="fbcrm-geo-ok">Plano en la ficha: {planosFicha.map((a) => `${a.nombre} (${plural(a.vistas.length, 'hoja', 'hojas')})`).join(', ')}. Va al final de la ficha, en hoja aparte y a tamaño completo.</p>
         : <p className="fbcrm-nota-suave">Sin plano en la ficha. Sube el plano en PDF o imagen (por ejemplo el plano de loteo) y va como hoja aparte al final de la ficha.</p>}
+      {g && !archivos.some((a) => a.tipo === 'kmz' || /\.km[lz]$/i.test(a.nombre || '')) && (
+        <p className="fbcrm-aviso-linea">El plano vino de la tasación o del catastro y todavía no está como archivo. <button className="fbcrm-mini" onClick={async () => {
+          try { const r = await api(`/campos/${campo.id}/guardar-kmz`, { method: 'POST' }); setCampo(r.campo); cargar(); setMsg(`Listo: guardé ${r.archivo.nombre}. Ya lo puedes descargar en la lista de abajo.`); } catch (e) { setMsg(e.message); }
+        }}>Guardar KMZ para descargar</button></p>
+      )}
       <p className="fbcrm-nota-suave">Puedes elegir el plano y el KMZ a la vez: cada uno se reconoce solo.</p>
       <div className="fbcrm-subir-fila">
         <select value={tipo} onChange={(e) => setTipo(e.target.value)} aria-label="Tipo de archivo">{Object.entries(TIPOS_ARCHIVO).filter(([k]) => k !== 'plano').map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
