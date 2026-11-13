@@ -91,7 +91,58 @@ const fmtPrecio = (c) => (c.precioUF ? `UF ${fmtNum(c.precioUF)}` : c.precioCLP 
 const plural = (n, s, p) => `${n} ${n === 1 ? s : p || s + 's'}`;
 const normTxt = (n) => String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
 const emailsDe = (t) => (String(t || '').match(/[^\s,;<>]+@[^\s,;<>]+\.[a-z]{2,}/gi) || []);
-const fonoWa = (t) => { const d = String(t || '').replace(/\D/g, ''); return d.length === 9 && d[0] === '9' ? '56' + d : d.length === 11 && d.startsWith('569') ? d : ''; };
+// Número para WhatsApp: celulares de Chile (9 1234 5678, +56 9…, 569…) y números de otros países escritos con + (ej. +54 9 11…)
+const fonoWa = (t) => {
+  const crudo = String(t || '').split(/[\/,;]| y /)[0], d = crudo.replace(/\D/g, '');
+  if (d.length === 9 && d[0] === '9') return '56' + d;
+  if (d.length === 11 && d.startsWith('569')) return d;
+  if (d.length === 8 && /^[3-9]/.test(d)) return '569' + d; // celular antiguo sin el 9
+  if (/^\s*(\+|00)/.test(crudo) && d.replace(/^00/, '').length >= 10 && d.replace(/^00/, '').length <= 15) return d.replace(/^00/, '');
+  return '';
+};
+const abrirWa = (tel, nombre) => { const n = fonoWa(tel); if (!n) return; const pila = String(nombre || '').trim().split(/\s+/)[0]; window.open(`https://wa.me/${n}${pila ? `?text=${encodeURIComponent(`Hola ${pila}, `)}` : ''}`, '_blank', 'noopener'); };
+// Teléfono con botón para escribir por WhatsApp al tiro
+function TelWa({ value, onChange, nombre, ...resto }) {
+  return (
+    <span className="fbcrm-telwa">
+      <input type="tel" value={value || ''} onChange={onChange} {...resto} />
+      {fonoWa(value) && <button type="button" className="fbcrm-mini fbcrm-wa" onClick={() => abrirWa(value, nombre)} aria-label={`Escribir por WhatsApp${nombre ? ` a ${nombre}` : ''}`} title="Escribir por WhatsApp">WhatsApp</button>}
+    </span>
+  );
+}
+// Buscador rápido: escribe un nombre o un número y abre el chat de WhatsApp
+function WhatsappRapido({ datos }) {
+  const [abierto, setAbierto] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  useEffect(() => { if (abierto && ref.current) ref.current.focus(); }, [abierto]);
+  const gente = useMemo(() => {
+    if (!datos) return [];
+    const r = [];
+    for (const c of datos.clientes || []) for (const ct of contactosDe(c)) if (fonoWa(ct.telefono)) r.push({ nombre: ct.nombre || c.contactoNombre || c.nombre, detalle: `Cliente · ${c.nombre}`, tel: ct.telefono });
+    for (const c of datos.campos || []) if (fonoWa(c.telefono)) r.push({ nombre: c.propietario || c.nombre, detalle: `Propietario · ${c.nombre}`, tel: c.telefono });
+    for (const t of datos.tasaciones || []) if (fonoWa(t.telefono)) r.push({ nombre: t.cliente || t.titulo, detalle: `Tasación · ${t.titulo || t.codigo || ''}`, tel: t.telefono });
+    for (const [n, ct] of Object.entries(datos.contactos || {})) if (fonoWa(ct.telefono)) r.push({ nombre: n, detalle: 'Equipo', tel: ct.telefono });
+    const vistos = new Set();
+    return r.filter((x) => { const k = fonoWa(x.tel) + norm(x.nombre); if (vistos.has(k)) return false; vistos.add(k); return true; });
+  }, [datos]);
+  const k = norm(q.trim()), soloNum = q.replace(/\D/g, '');
+  const res = !k ? [] : gente.filter((x) => norm(`${x.nombre} ${x.detalle}`).includes(k) || (soloNum.length >= 4 && String(x.tel).replace(/\D/g, '').includes(soloNum))).slice(0, 8);
+  const cerrar = () => { setAbierto(false); setQ(''); };
+  return (
+    <div className="fbcrm-warap">
+      <button className="fbcrm-warap-btn" onClick={() => setAbierto(!abierto)} aria-expanded={abierto} title="Escribir por WhatsApp">💬 WhatsApp</button>
+      {abierto && (
+        <div className="fbcrm-warap-caja" role="dialog" aria-label="Escribir por WhatsApp">
+          <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nombre o número (+56 9…)" onKeyDown={(e) => { if (e.key === 'Escape') cerrar(); if (e.key === 'Enter') { const t = fonoWa(q) ? { tel: q } : res[0]; if (t) { abrirWa(t.tel, t.nombre); cerrar(); } } }} aria-label="Nombre o número" />
+          {fonoWa(q) && <button className="fbcrm-warap-op" onClick={() => { abrirWa(q); cerrar(); }}><strong>Abrir chat con {q.trim()}</strong><small>Número escrito</small></button>}
+          {res.map((x, i) => <button key={i} className="fbcrm-warap-op" onClick={() => { abrirWa(x.tel, x.nombre); cerrar(); }}><strong>{x.nombre}</strong><small>{x.detalle} · {x.tel}</small></button>)}
+          {k && !res.length && !fonoWa(q) && <p className="fbcrm-nota-suave">No encontré a nadie con teléfono con ese nombre. También puedes escribir el número.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
 const iniciales = (n) => String(n || '').split(/\s+/).filter((w) => /[a-záéíóúñ]/i.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 const ICONOS = {
   agenda: <><path d="M10 6.5h10M10 12h10M10 17.5h10" /><path d="M3.5 6.5l1.3 1.3L7.5 5M3.5 12l1.3 1.3L7.5 10.5M3.5 17.5l1.3 1.3L7.5 16" /></>,
@@ -235,6 +286,7 @@ export default function CRM() {
       <div className="fbcrm-app">
         <aside className="fbcrm-nav">
           <div className="fbcrm-marca fbcrm-marca-con"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-logo-img" />{datos && <Campana ctx={ctx} />}</div>
+          {datos && <WhatsappRapido datos={datos} />}
           <nav className="fbcrm-tabs" role="tablist" aria-label="Secciones">
             {VISTAS.map(([k, l]) => (
               <button key={k} role="tab" aria-selected={vista === k} className={vista === k ? 'on' : ''} onClick={() => { setVista(k); window.scrollTo && window.scrollTo(0, 0); }}>
@@ -253,6 +305,7 @@ export default function CRM() {
         <main className="fbcrm-main">
           <div className="fbcrm-movil-top">
             <div className="fbcrm-marca"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-logo-img" /></div>
+            {datos && <WhatsappRapido datos={datos} />}
             {datos && <Campana ctx={ctx} />}
             {!EN_APP && <a className="fbcrm-salir" href="#" onClick={volver} aria-label="Volver a la plataforma"><Icono n="salir" /></a>}
           </div>
@@ -1139,7 +1192,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
         <p className="fbcrm-seccion">Propietario</p>
         <div className="fbcrm-form">
           <Campo label="Propietario o contacto" ancho><input value={f.propietario || ''} onChange={set('propietario')} /></Campo>
-          <Campo label="Teléfono"><input type="tel" value={f.telefono || ''} onChange={set('telefono')} /></Campo>
+          <Campo label="Teléfono"><TelWa value={f.telefono} onChange={set('telefono')} nombre={f.propietario} /></Campo>
           <Campo label="Email"><input type="email" value={f.email || ''} onChange={set('email')} /></Campo>
           <Campo label="Asociado"><input value={f.asociado || ''} onChange={set('asociado')} /></Campo>
         </div>
@@ -2779,7 +2832,7 @@ function FichaTasacion({ ctx, inicial, cerrar }) {
         <div className="fbcrm-form">
           <Campo label="Título" ancho><input value={f.titulo || ''} onChange={set('titulo')} placeholder="Ej. Tasación El Portal" /></Campo>
           <Campo label="Cliente"><input value={f.cliente || ''} onChange={set('cliente')} /></Campo>
-          <Campo label="Teléfono"><input type="tel" value={f.telefono || ''} onChange={set('telefono')} /></Campo>
+          <Campo label="Teléfono"><TelWa value={f.telefono} onChange={set('telefono')} nombre={f.cliente} /></Campo>
           <Campo label="Email" ancho><input type="email" value={f.email || ''} onChange={set('email')} /></Campo>
           <Campo label="Rol SII"><input value={f.rol || ''} onChange={set('rol')} /></Campo>
           <Campo label="Comuna"><input value={f.comuna || ''} onChange={set('comuna')} /></Campo>
@@ -6156,6 +6209,18 @@ const CSS = `
 .fbcrm .fbcrm-fila-abrir{display:flex;align-items:center;gap:14px;flex:1;min-width:0;background:none;border:0;padding:0;margin:0;text-align:left;font:inherit;color:inherit;cursor:pointer}
 .fbcrm-fila-acc{display:flex;gap:6px;flex:none}
 .fbcrm-pend-ext{margin-top:14px}
+.fbcrm-telwa{display:flex;gap:6px;align-items:center}
+.fbcrm-telwa input{flex:1;min-width:0}
+.fbcrm-warap{position:relative;padding:0 8px}
+.fbcrm-warap-btn{width:100%;border:1px solid #25D366;background:#EAFBF0;color:#146C34;border-radius:10px;padding:8px 10px;font:inherit;font-weight:600;cursor:pointer;text-align:left}
+.fbcrm-movil-top .fbcrm-warap{padding:0;margin-left:auto}
+.fbcrm-movil-top .fbcrm-warap-btn{width:auto;padding:6px 10px}
+.fbcrm-warap-caja{position:absolute;z-index:60;top:calc(100% + 6px);left:8px;width:300px;max-width:calc(100vw - 32px);background:var(--papel);border:1px solid var(--linea);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.12);padding:10px;display:grid;gap:6px}
+.fbcrm-movil-top .fbcrm-warap-caja{left:auto;right:0}
+.fbcrm-warap-caja input{width:100%;padding:9px 10px;border:1px solid var(--linea);border-radius:8px;font:inherit}
+.fbcrm-warap-op{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;background:none;border:0;border-radius:8px;padding:7px 8px;cursor:pointer;font:inherit;color:inherit}
+.fbcrm-warap-op:hover,.fbcrm-warap-op:focus{background:#EAFBF0}
+.fbcrm-warap-op small{color:var(--salvia)}
 .fbcrm-act-fechas{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:12px 0}
 .fbcrm-act-fechas small{color:var(--salvia)}
 .fbcrm-act-rango{display:flex;gap:10px;flex-wrap:wrap}
