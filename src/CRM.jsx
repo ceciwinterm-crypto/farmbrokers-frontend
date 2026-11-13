@@ -2690,7 +2690,7 @@ export function FormularioOrden({ token }) {
     setEnviando(false);
   };
   const pdf = async () => { setPdfEstado('Armando el PDF…'); try { (await pdfDeFicha(ref.current, setPdfEstado)).save(`Orden de visita ${o.datos.propiedad}.pdf`.replace(/[\\/:*?"<>|]/g, '')); } catch (e) { setAviso(e.message); } setPdfEstado(''); };
-  const caja = (hijos) => (<div className="fbcrm fbcrm-prop"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{hijos[0]}</header><main className="fbcrm-prop-main">{hijos[1]}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 7193 90 40</footer></div>);
+  const caja = (hijos) => (<div className="fbcrm fbcrm-prop"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{hijos[0]}</header><main className="fbcrm-prop-main">{hijos[1]}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 9549 5431</footer></div>);
   if (error) return caja([<h1 key="t">Link no disponible</h1>, <p key="m" className="fbcrm-sub">{error}</p>]);
   if (!o) return caja([<p key="t" className="fbcrm-sub">Cargando…</p>, null]);
   return caja([
@@ -4361,7 +4361,7 @@ async function pdfMandato(m, { papel } = {}) {
   for (let i = 1; i <= total; i++) {
     pdf.setPage(i); pdf.setDrawColor(150, 150, 150); pdf.setLineWidth(0.2); pdf.setLineDashPattern([1, 1], 0); pdf.line(M, 279, W - M, 279); pdf.setLineDashPattern([], 0);
     pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(90, 90, 90);
-    pdf.text('www.farmbrokers.cl', M, 284); pdf.text('Phone +569 7193 90 40', W / 2, 284, { align: 'center' }); pdf.text('Email: contacto@farmbrokers.cl', W - M, 284, { align: 'right' });
+    pdf.text('www.farmbrokers.cl', M, 284); pdf.text('Phone +569 9549 5431', W / 2, 284, { align: 'center' }); pdf.text('Email: contacto@farmbrokers.cl', W - M, 284, { align: 'right' });
     if (total > 1) pdf.text(`${i} / ${total}`, W / 2, 290, { align: 'center' });
   }
   return pdf;
@@ -4421,7 +4421,7 @@ function DocMandato({ m, papel }) {
           {m.firmaCorredor && <p>{/por Farm Brokers/.test(m.firmaCorredor.nombre) ? `Firmado por ${m.firmaCorredor.nombre}, el ${fmtFechaHora(m.firmaCorredor.fecha)}.` : `Aceptado por Farm Brokers Chile SpA, a través de ${m.firmaCorredor.nombre}, el ${fmtFechaHora(m.firmaCorredor.fecha)}.`}</p>}
         </div>
       )}
-      <footer className="doc-mandato-pie"><span>www.farmbrokers.cl</span><span>Phone +569 7193 90 40</span><span>Email: contacto@farmbrokers.cl</span></footer>
+      <footer className="doc-mandato-pie"><span>www.farmbrokers.cl</span><span>Phone +569 9549 5431</span><span>Email: contacto@farmbrokers.cl</span></footer>
     </div>
   );
 }
@@ -4559,7 +4559,7 @@ export function FormularioPropietario({ token }) {
     setGuardando(false);
   };
 
-  if (error) return (<div className="fbcrm fbcrm-prop"><style>{CSS}</style><div className="fbcrm-prop-caja"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" /><h1>Link no disponible</h1><p className="fbcrm-sub">{error}</p><p className="fbcrm-sub">Escríbanos a contacto@farmbrokers.cl o al +569 7193 90 40.</p></div></div>);
+  if (error) return (<div className="fbcrm fbcrm-prop"><style>{CSS}</style><div className="fbcrm-prop-caja"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" /><h1>Link no disponible</h1><p className="fbcrm-sub">{error}</p><p className="fbcrm-sub">Escríbanos a contacto@farmbrokers.cl o al +569 9549 5431.</p></div></div>);
   if (!estado || !d) return (<div className="fbcrm fbcrm-prop"><style>{CSS}</style><div className="fbcrm-prop-caja"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" /><p className="fbcrm-sub">Cargando…</p></div></div>);
 
   if (verCopia && mandato) return (
@@ -4770,7 +4770,7 @@ export function FormularioPropietario({ token }) {
               mandato ? (
                 <>
                   <h2>Revise su mandato</h2>
-                  <p className="fbcrm-nota-suave">{equipo ? 'Este es el texto que firmará. Si algún dato suyo o del campo no está correcto, toque “Corregir datos”. Para cambiar el precio o la comisión, avísenos (contacto@farmbrokers.cl o +569 7193 90 40).' : 'Este es el texto que firmará. Si algo no está correcto, vuelva a los pasos anteriores y corríjalo.'}</p>
+                  <p className="fbcrm-nota-suave">{equipo ? 'Este es el texto que firmará. Si algún dato suyo o del campo no está correcto, toque “Corregir datos”. Para cambiar el precio o la comisión, avísenos (contacto@farmbrokers.cl o +569 9549 5431).' : 'Este es el texto que firmará. Si algo no está correcto, vuelva a los pasos anteriores y corríjalo.'}</p>
                   <div className="fbcrm-mandato-prev"><DocMandato m={mandato} /></div>
                   <div className="fbcrm-firma">
                     <h2>Firmar</h2>
@@ -4799,7 +4799,7 @@ export function FormularioPropietario({ token }) {
           </section>
         )}
       </main>
-      <footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 7193 90 40</footer>
+      <footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 9549 5431</footer>
     </div>
   );
 }
@@ -5117,7 +5117,7 @@ function limpiarUbic(t) {
   }
   return partes.join(', ');
 }
-const PIE_MANDATO = <><span>www.farmbrokers.cl</span><span>Phone +569 7193 90 40</span><span>Email: contacto@farmbrokers.cl</span></>;
+const PIE_MANDATO = <><span>www.farmbrokers.cl</span><span>Phone +569 9549 5431</span><span>Email: contacto@farmbrokers.cl</span></>;
 function Marco({ children }) { return <>{children}</>; }
 function DocFichaCliente({ campo: c, fotosProp, planos = [], conKmz = true, usuario, contacto, mostrarRol }) {
   const w = c.web || null, d = (w && w.detalle) || {}, g = conKmz ? c.geo || null : null;
@@ -5644,22 +5644,25 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   const planosC = (campo.archivos || []).filter((a) => a.tipo === 'plano' && (a.vistas || []).length);
   const [conKmz, setConKmz] = useState(true);
   const [conPlanos, setConPlanos] = useState(true);
-  if (!campo.geo && !planosC.length) return (
-    <div className="fbcrm-bloque"><h3>Enviar plano con confidencialidad</h3>
-      <p className="fbcrm-nota-suave">Cuando el campo tenga su KMZ o sus planos (en “Archivos y plano”), podrás enviárselos a un cliente con un link personal: primero acepta el acuerdo de confidencialidad y después ve el plano y lo descarga.</p></div>
+  const ultFicha = (campo.fichasPdf || []).slice(-1)[0];
+  const [conFicha, setConFicha] = useState(!campo.geo && !planosC.length);
+  if (!campo.geo && !planosC.length && !ultFicha) return (
+    <div className="fbcrm-bloque"><h3>Enviar con confidencialidad (ficha y plano)</h3>
+      <p className="fbcrm-nota-suave">Genera la ficha PDF del campo o sube su KMZ o sus planos (en “Archivos y plano”) y podrás enviárselos a un cliente con un link personal: primero acepta el acuerdo de confidencialidad y después ve la información.</p></div>
   );
   const calzan = (datos.matches[campo.id] || []).map((m) => m.clienteId);
   const opciones = [...datos.clientes].filter((c) => c.etapa === 'Activo').sort((a, b) => (calzan.includes(b.id) - calzan.includes(a.id)) || a.nombre.localeCompare(b.nombre, 'es'));
   const cli = datos.clientes.find((c) => c.id === clienteId);
   const titulo = tituloCampo(campo);
   const saludoDe = (c) => { const k = c.clienteId && datos.clientes.find((x) => x.id === c.clienteId); const n = k ? k.contactoNombre : c.destinatario; return n ? ` ${String(n).trim().split(' ')[0]}` : ''; };
-  const mensaje = (c) => `Hola${saludoDe(c)}, te comparto ${c.kmz === false ? 'los planos' : (c.planos || []).length ? 'el plano y el KMZ' : 'el plano'} de ${titulo}. Es información confidencial: para verlo${c.descarga ? ' y descargarlo' : ''} primero debes aceptar un breve acuerdo de confidencialidad en este link:\n\n${linkPlano(c.token)}\n\nEl link vence el ${fmtFecha(c.vence.slice(0, 10))}.\n\n${firmaDe(datos, usuario)}`;
+  const queLleva = (c) => { const tienePlano = (c.kmz !== false && campo.geo) || (c.planos || []).length; const pl = c.kmz === false ? 'los planos' : (c.planos || []).length ? 'el plano y el KMZ' : 'el plano'; return c.conFicha ? (tienePlano ? `la ficha y ${pl}` : 'la ficha') : pl; };
+  const mensaje = (c) => `Hola${saludoDe(c)}, te comparto ${queLleva(c)} de ${titulo}. Es información confidencial: para verlo${c.descarga ? ' y descargarlo' : ''} primero debes aceptar un breve acuerdo de confidencialidad en este link:\n\n${linkPlano(c.token)}\n\nEl link vence el ${fmtFecha(c.vence.slice(0, 10))}.\n\n${firmaDe(datos, usuario)}`;
   const enviarWa = (c) => window.open(`https://wa.me/${fonoWa(c.telefono)}?text=${encodeURIComponent(mensaje(c))}`, '_blank', 'noopener');
-  const enviarCorreoP = (c) => { window.location.href = `mailto:${c.email || ''}?subject=${encodeURIComponent(`Plano de ${titulo} (confidencial)`)}&body=${encodeURIComponent(mensaje(c))}`; };
+  const enviarCorreoP = (c) => { window.location.href = `mailto:${c.email || ''}?subject=${encodeURIComponent(`${c.conFicha && !((c.kmz !== false && campo.geo) || (c.planos || []).length) ? 'Ficha' : 'Información'} de ${titulo} (confidencial)`)}&body=${encodeURIComponent(mensaje(c))}`; };
   const crear = async () => {
     setMsg('');
     try {
-      const r = await api(`/campos/${campo.id}/compartir`, { method: 'POST', body: { clienteId, nombre: nombre || (cli ? cli.nombre : ''), email: email || (cli ? emailsDe(cli.email)[0] || '' : ''), telefono: telefono || (cli ? cli.telefono : ''), dias, descarga, kmz: !!campo.geo && conKmz, planos: conPlanos ? planosC.map((a) => a.id) : false } });
+      const r = await api(`/campos/${campo.id}/compartir`, { method: 'POST', body: { clienteId, nombre: nombre || (cli ? cli.nombre : ''), email: email || (cli ? emailsDe(cli.email)[0] || '' : ''), telefono: telefono || (cli ? cli.telefono : ''), dias, descarga, conFicha: !!ultFicha && conFicha, kmz: !!campo.geo && conKmz, planos: conPlanos && planosC.length ? planosC.map((a) => a.id) : false } });
       setCampo(r); cargar(); setClienteId(''); setNombre(''); setEmail(''); setTelefono('');
       setMsg('Link creado. Envíaselo por WhatsApp o correo desde la lista de abajo.');
     } catch (e) { setMsg(e.message); }
@@ -5674,8 +5677,8 @@ function CompartirPlano({ ctx, campo, setCampo }) {
   const lista = [...(campo.compartidos || [])].reverse();
   return (
     <div className="fbcrm-bloque fbcrm-compartir">
-      <h3>Enviar plano con confidencialidad {lista.length > 0 && <span>{plural(lista.length, 'envío')}</span>}</h3>
-      <p className="fbcrm-nota-suave">El cliente recibe un link personal. Primero acepta el acuerdo con su nombre y RUT; después ve y descarga lo que elijas: el contorno con el KMZ (con sus datos grabados) y los planos del loteo.</p>
+      <h3>Enviar con confidencialidad (ficha y plano) {lista.length > 0 && <span>{plural(lista.length, 'envío')}</span>}</h3>
+      <p className="fbcrm-nota-suave">El cliente recibe un link personal. Primero acepta el acuerdo con su nombre y RUT; después ve y descarga lo que elijas: la ficha PDF, el contorno con el KMZ (con sus datos grabados) y los planos.</p>
       <div className="fbcrm-form">
         <Campo label="Cliente" ancho>
           <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
@@ -5688,14 +5691,15 @@ function CompartirPlano({ ctx, campo, setCampo }) {
         {!clienteId && <Campo label="Email" ancho><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Campo>}
         <Campo label="El link vence en (días)"><input type="number" min="1" max="365" value={dias} onChange={(e) => setDias(e.target.value)} /></Campo>
         <div className="fbcrm-opc-envio ancho"><span>El link lleva:</span>
+          {ultFicha ? <label><input type="checkbox" checked={conFicha} onChange={(e) => setConFicha(e.target.checked)} />Ficha PDF (la última, del {fmtFecha(ultFicha.fecha.slice(0, 10))})</label> : <small>Para enviar la ficha, primero genérala con el botón “Ficha PDF”.</small>}
           {campo.geo && <label><input type="checkbox" checked={conKmz} onChange={(e) => setConKmz(e.target.checked)} />Contorno y KMZ</label>}
           {planosC.length > 0 && <label><input type="checkbox" checked={conPlanos} onChange={(e) => setConPlanos(e.target.checked)} />{planosC.length === 1 ? `Plano (${planosC[0].nombre})` : `${planosC.length} planos`}</label>}
           {!planosC.length && (campo.archivos || []).some((a) => a.tipo === 'plano') && <small>Hay planos sin preparar: usa “Poner en la ficha” en “Archivos y plano” para poder enviarlos.</small>}
         </div>
-        <label className="fbcrm-check-linea"><input type="checkbox" checked={descarga} onChange={(e) => setDescarga(e.target.checked)} />Permitir descargar los archivos (KMZ y planos)</label>
+        <label className="fbcrm-check-linea"><input type="checkbox" checked={descarga} onChange={(e) => setDescarga(e.target.checked)} />Permitir descargar los archivos (ficha, KMZ y planos)</label>
       </div>
       <div className="fbcrm-acciones">
-        <button className="fbcrm-primario" onClick={() => { if (!clienteId && !nombre.trim()) { setMsg('Para crear el link, elige el cliente en la lista de arriba o escribe el nombre de la persona.'); return; } if (!((campo.geo && conKmz) || (planosC.length && conPlanos))) { setMsg('Marca qué lleva el link: el contorno y KMZ o los planos.'); return; } crear(); }}>Crear link para {cli ? cli.nombre : nombre || 'el cliente'}</button>
+        <button className="fbcrm-primario" onClick={() => { if (!clienteId && !nombre.trim()) { setMsg('Para crear el link, elige el cliente en la lista de arriba o escribe el nombre de la persona.'); return; } if (!((campo.geo && conKmz) || (planosC.length && conPlanos) || (ultFicha && conFicha))) { setMsg('Marca qué lleva el link: la ficha, el contorno y KMZ o los planos.'); return; } crear(); }}>Crear link para {cli ? cli.nombre : nombre || 'el cliente'}</button>
         <button className="fbcrm-texto" onClick={() => setVerAcuerdo(!verAcuerdo)}>{verAcuerdo ? 'Ocultar el texto del acuerdo' : 'Ver o editar el texto del acuerdo'}</button>
       </div>
       {verAcuerdo && (
@@ -5771,7 +5775,7 @@ export function FormularioVende() {
   };
   const okContacto = f.telefono.trim().length >= 8 || /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(f.email.trim());
   const listoParaEnviar = f.nombre.trim().length >= 3 && okContacto && (f.comuna.trim() || f.rol.trim()) && f.acepto;
-  const caja = (cab, cuerpo) => embebido ? (<div className="fbcrm fbcrm-prop fbcrm-vende embebido"><style>{CSS}</style><main className="fbcrm-prop-main">{listo ? cab : null}{cuerpo}</main></div>) : (<div className="fbcrm fbcrm-prop fbcrm-vende"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{cab}</header><main className="fbcrm-prop-main">{cuerpo}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA · contacto@farmbrokers.cl · +569 7193 90 40 · farmbrokers.cl</footer></div>);
+  const caja = (cab, cuerpo) => embebido ? (<div className="fbcrm fbcrm-prop fbcrm-vende embebido"><style>{CSS}</style><main className="fbcrm-prop-main">{listo ? cab : null}{cuerpo}</main></div>) : (<div className="fbcrm fbcrm-prop fbcrm-vende"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{cab}</header><main className="fbcrm-prop-main">{cuerpo}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA · contacto@farmbrokers.cl · +569 9549 5431 · farmbrokers.cl</footer></div>);
   if (listo) return caja(<div><h1>¡Gracias, {primerNombre(f.nombre)}!</h1><p className="fbcrm-sub">Recibimos los datos de tu campo.</p></div>,
     <section className="fbcrm-bloque"><h2>Te contactaremos pronto</h2><p>Un corredor de Farm Brokers revisará la información y se comunicará contigo{f.telefono ? ` al ${f.telefono}` : f.email ? ` a ${f.email}` : ''} para conversar sobre {f.operacion === 'arriendo' ? 'el arriendo' : 'la venta'} de tu propiedad.</p><p className="fbcrm-nota-suave">Si prefieres, también puedes escribirnos a contacto@farmbrokers.cl.</p></section>);
   return caja(
@@ -5854,7 +5858,7 @@ export function FormularioTasacion() {
   const listoParaEnviar = f.nombre.trim().length >= 3 && okContacto && f.acepto;
   const caja = (cab, cuerpo) => embebido
     ? (<div className="fbcrm fbcrm-prop fbcrm-vende embebido"><style>{CSS}</style><main className="fbcrm-prop-main">{listo ? cab : null}{cuerpo}</main></div>)
-    : (<div className="fbcrm fbcrm-prop fbcrm-vende"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{cab}</header><main className="fbcrm-prop-main">{cuerpo}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 7193 90 40</footer></div>);
+    : (<div className="fbcrm fbcrm-prop fbcrm-vende"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{cab}</header><main className="fbcrm-prop-main">{cuerpo}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 9549 5431</footer></div>);
   if (listo) return caja(<div><h1>¡Gracias, {primerNombre(f.nombre)}!</h1><p className="fbcrm-sub">Recibimos tu solicitud de tasación.</p></div>,
     <section className="fbcrm-bloque"><h2>Te contactaremos pronto</h2><p>Un tasador de Farm Brokers revisará tu solicitud y se comunicará contigo{f.telefono ? ` al ${f.telefono}` : f.email ? ` a ${f.email}` : ''} para enviarte la cotización.</p></section>);
   return caja(
@@ -5942,6 +5946,8 @@ function OfertasWeb({ ctx }) {
     </div>
   );
 }
+const tituloLink = (p) => { const i = p.incluye || {}; return i.ficha && !i.kmz && !i.planos ? 'Ficha' : i.ficha ? 'Ficha y plano' : 'Plano'; };
+const queIncluye = (p) => { const i = p.incluye || {}; const pl = !i.kmz && i.planos ? 'los planos' : i.kmz && i.planos ? 'el plano y el KMZ' : i.kmz ? 'el plano' : ''; return i.ficha ? (pl ? `la ficha y ${pl}` : 'la ficha') : pl || 'el plano'; };
 export function FormularioPlano({ token }) {
   const [p, setP] = useState(null);
   const [error, setError] = useState('');
@@ -5952,7 +5958,7 @@ export function FormularioPlano({ token }) {
   useEffect(() => {
     fetch(url('')).then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Link no válido.'); setP(j); }).catch((e) => setError(e.message));
   }, []);
-  useEffect(() => { document.title = p ? `Plano de ${p.titulo} - Farm Brokers` : 'Farm Brokers Chile'; }, [p]);
+  useEffect(() => { document.title = p ? `${tituloLink(p)} de ${p.titulo} - Farm Brokers` : 'Farm Brokers Chile'; }, [p]);
   const aceptar = async () => {
     setEnviando(true); setAviso('');
     try {
@@ -5964,12 +5970,12 @@ export function FormularioPlano({ token }) {
     setEnviando(false);
   };
   const ancho = Math.min(typeof window !== 'undefined' ? window.innerWidth - 36 : 700, 820);
-  const caja = (hijos) => (<div className="fbcrm fbcrm-prop"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{hijos[0]}</header><main className="fbcrm-prop-main">{hijos[1]}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 7193 90 40</footer></div>);
+  const caja = (hijos) => (<div className="fbcrm fbcrm-prop"><style>{CSS}</style><header className="fbcrm-prop-top"><img src={LOGO_FB} alt="Farm Brokers Chile" className="fbcrm-prop-logo" />{hijos[0]}</header><main className="fbcrm-prop-main">{hijos[1]}</main><footer className="fbcrm-prop-contacto">Farm Brokers Chile SpA, contacto@farmbrokers.cl, +569 9549 5431</footer></div>);
   if (error) return caja([<h1 key="t">Link no disponible</h1>, <p key="m" className="fbcrm-sub">{error}</p>]);
   if (!p) return caja([<p key="t" className="fbcrm-sub">Cargando…</p>, null]);
-  if (!p.disponible) return caja([<h1 key="t">{p.titulo}</h1>, <section key="m" className="fbcrm-bloque"><h2>El plano no está disponible</h2><p>{p.motivo} Si lo necesitas, escríbenos y te enviamos un link nuevo.</p></section>]);
+  if (!p.disponible) return caja([<h1 key="t">{p.titulo}</h1>, <section key="m" className="fbcrm-bloque"><h2>La información no está disponible</h2><p>{p.motivo} Si lo necesitas, escríbenos y te enviamos un link nuevo.</p></section>]);
   if (!p.aceptacion) return caja([
-    <div key="t"><h1>Plano de {p.titulo}</h1><p className="fbcrm-sub">{p.lugar ? `${p.lugar}. ` : ''}Información confidencial preparada para {p.destinatario}. Para ver {p.incluye && !p.incluye.kmz ? 'los planos' : p.incluye && p.incluye.planos ? 'el plano y el KMZ' : 'el plano'}{p.descarga ? ' y descargarlos' : ''}, lee y acepta el acuerdo.</p></div>,
+    <div key="t"><h1>{tituloLink(p)} de {p.titulo}</h1><p className="fbcrm-sub">{p.lugar ? `${p.lugar}. ` : ''}Información confidencial preparada para {p.destinatario}. Para ver {queIncluye(p)}{p.descarga ? ' y descargarlos' : ''}, lee y acepta el acuerdo.</p></div>,
     <section key="m" className="fbcrm-bloque">
       <h2>Acuerdo de confidencialidad</h2>
       <div className="fbcrm-acuerdo-texto">{String(p.acuerdo).split(/(\{NOMBRE\}|\{RUT\})/).map((t, i) => (t === '{NOMBRE}' ? <strong key={i} className="fbcrm-firmante">{f.nombre.trim() || '(tu nombre completo)'}</strong> : t === '{RUT}' ? <strong key={i} className="fbcrm-firmante">{f.rut.trim() || '(tu RUT)'}</strong> : t))}</div>
@@ -5980,13 +5986,18 @@ export function FormularioPlano({ token }) {
         <Campo label="Email"><input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} autoComplete="email" /></Campo>
       </div>
       <label className="fbcrm-check-linea fbcrm-acepto"><input type="checkbox" checked={f.acepto} onChange={(e) => setF({ ...f, acepto: e.target.checked })} />Leí el acuerdo de confidencialidad y lo acepto. Entiendo que esta aceptación electrónica equivale a mi firma.</label>
-      <div className="fbcrm-prop-pie"><button className="fbcrm-primario" disabled={enviando || !f.acepto || f.nombre.trim().length < 3 || !rutOk(f.rut)} onClick={aceptar}>{enviando ? 'Enviando…' : 'Aceptar y ver el plano'}</button></div>
+      <div className="fbcrm-prop-pie"><button className="fbcrm-primario" disabled={enviando || !f.acepto || f.nombre.trim().length < 3 || !rutOk(f.rut)} onClick={aceptar}>{enviando ? 'Enviando…' : `Aceptar y ver ${queIncluye(p)}`}</button></div>
     </section>,
   ]);
   const vista = p.plano ? vistaAjustada(p.plano.bbox, ancho, Math.round(ancho * 0.62)) : null;
   return caja([
-    <div key="t"><h1>Plano de {p.titulo}</h1><p className="fbcrm-sub">{p.lugar}</p></div>,
+    <div key="t"><h1>{tituloLink(p)} de {p.titulo}</h1><p className="fbcrm-sub">{p.lugar}</p></div>,
     <>
+      {p.ficha && <section className="fbcrm-bloque">
+        <h2>Ficha del campo</h2>
+        <p className="fbcrm-nota-suave">Documento confidencial preparado para ti.</p>
+        <div className="fbcrm-prop-pie"><a className="fbcrm-btn-descarga" href={url('/ficha')} target="_blank" rel="noreferrer">Ver la ficha</a>{p.descarga && <a className="fbcrm-btn-descarga" href={url('/ficha?descargar=1')}>Descargar PDF</a>}</div>
+      </section>}
       {(p.planos || []).map((pl) => (
         <section key={pl.id} className="fbcrm-bloque fbcrm-plano-loteo">
           <h2>{/loteo|lote|parcela|subdivisi/i.test(pl.nombre) ? 'Plano de loteo' : 'Plano'}</h2>
