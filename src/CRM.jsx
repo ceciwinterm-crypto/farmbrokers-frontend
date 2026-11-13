@@ -3308,7 +3308,7 @@ const ICONO_PEND = { mandato: '✍️', orden: '🗓️', plano: '🗺️' };
 function PendientesExternos({ ctx, soloRecordar }) {
   const { datos, api, cargar, abrir } = ctx;
   const [msg, setMsg] = useState('');
-  const lista = (datos.pendientesExternos || []).filter((p) => !soloRecordar || p.toca);
+  const lista = (datos.pendientesExternos || []).filter((p) => !soloRecordar || p.toca).sort((a, b) => (b.toca - a.toca) || String(b.desde).localeCompare(String(a.desde))); // lo más reciente primero
   if (!lista.length) return soloRecordar ? null : <p className="fbcrm-nota-suave">No hay nada esperando respuesta de clientes o propietarios.</p>;
   const accion = async (p, body) => { try { await api('/seguimiento', { method: 'POST', body: { clave: p.clave, ...body } }); await cargar(); } catch (e) { setMsg(e.message); } };
   const ir = (p) => { const c = datos.campos.find((x) => x.id === p.campoId); if (c) abrir('campos', c); };
@@ -3659,7 +3659,7 @@ function Historial({ col, f, setF, api, cargar }) {
         <button disabled={!nota.trim()} onClick={agregar}>Agregar nota</button>
       </div>
       {msg && <p className="fbcrm-msg">{msg}</p>}
-      <ul>{[...(f.historial || [])].reverse().map((h, i) => <li key={i}><span>{fmtFechaHora(h.fecha)}, {h.autor}</span><p>{h.texto}</p></li>)}</ul>
+      <ul>{[...(f.historial || [])].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).map((h, i) => <li key={i}><span>{fmtFechaHora(h.fecha)}, {h.autor}</span><p>{h.texto}</p></li>)}</ul>
     </div>
   );
 }
@@ -3929,7 +3929,7 @@ function DocCampo({ datos, campo: c, variante, usuario }) {
               <tbody>{matches.map((m) => <tr key={m.clienteId}><td>{cli(m.clienteId).nombre}</td><td>{m.nivel}</td><td>{[...m.razones, ...m.alertas].join('; ')}</td><td>{env[m.clienteId] ? `${fmtFecha(env[m.clienteId].fecha)}, ${env[m.clienteId].canal}` : 'No'}</td></tr>)}</tbody></table>
           ) : <p>Sin calces registrados.</p>}
           {(c.historial || []).length > 0 && (
-            <><h2>Historial reciente</h2><ul className="doc-hist">{[...c.historial].reverse().slice(0, 20).map((h, i) => <li key={i}><span>{fmtFechaHora(h.fecha)}, {h.autor}:</span> {h.texto}</li>)}</ul></>
+            <><h2>Historial reciente</h2><ul className="doc-hist">{[...c.historial].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).slice(0, 20).map((h, i) => <li key={i}><span>{fmtFechaHora(h.fecha)}, {h.autor}:</span> {h.texto}</li>)}</ul></>
           )}
         </>
       )}
@@ -4023,7 +4023,7 @@ function DocInforme({ datos, usuario, periodo = 'semana' }) {
       {r.porPersona.length > 0 && <><h2>Por persona</h2>{tabla(['Persona', 'Captados', 'Fichas enviadas', 'Planos/KMZ', 'Brochures', 'Órdenes', 'Tareas hechas'], r.porPersona.map(([n, v]) => [n, v.captados, v.envios, v.planos, v.brochures, v.ordenes, v.tareas]))}</>}
 
       <h2>Campos captados ({r.captados.length})</h2>
-      {r.captados.length ? tabla(['Fecha', 'Campo', 'Ubicación', 'Etapa', 'Quién'], r.captados.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).map((x) => [fc(x.fecha), x.c.nombre, lugar(x.c), x.c.etapa, x.quien])) : <p>Ninguno en el período.</p>}
+      {r.captados.length ? tabla(['Fecha', 'Campo', 'Ubicación', 'Etapa', 'Quién'], r.captados.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).map((x) => [fc(x.fecha), x.c.nombre, lugar(x.c), x.c.etapa, x.quien])) : <p>Ninguno en el período.</p>}
       {r.mandatos.length > 0 && <><h3>Mandatos firmados ({r.mandatos.length})</h3>{tabla(['Fecha', 'Campo', 'Firmó'], r.mandatos.map((x) => [fc(x.fecha), x.c.nombre, x.firmante]))}</>}
 
       <h2>Fichas enviadas a clientes ({r.envios.length})</h2>
@@ -4036,7 +4036,7 @@ function DocInforme({ datos, usuario, periodo = 'semana' }) {
       {r.brochures.length > 0 && tabla(['Fecha', 'Brochure para', 'Campos', 'Abierto', 'Quién'], r.brochures.map((b) => [fc(b.fecha), b.cliente, (b.campos || []).length, b.vistas ? `${plural(b.vistas, 'vez', 'veces')}` : 'No', b.autor]))}
       {r.ordenes.length > 0 && tabla(['Fecha', 'Orden de visita', 'Cliente', 'Estado'], r.ordenes.map((x) => [fc(x.o.creado), x.campo, x.cliente, x.firmada ? 'Firmada' : 'Pendiente de firma']))}
 
-      {r.etapas.length > 0 && <><h2>Avances de etapa ({r.etapas.length})</h2>{tabla(['Fecha', 'Campo', 'Cambio', 'Quién'], r.etapas.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).map((x) => [fc(x.fecha), x.c.nombre, `${x.de} → ${x.a}`, x.quien]))}</>}
+      {r.etapas.length > 0 && <><h2>Avances de etapa ({r.etapas.length})</h2>{tabla(['Fecha', 'Campo', 'Cambio', 'Quién'], r.etapas.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).map((x) => [fc(x.fecha), x.c.nombre, `${x.de} → ${x.a}`, x.quien]))}</>}
 
       {(r.clientesNuevos.length > 0 || r.ofertas.length > 0) && <h2>Nuevos contactos</h2>}
       {r.clientesNuevos.length > 0 && tabla(['Cliente nuevo', 'Busca'], r.clientesNuevos.map((c) => [c.nombre, c.requerimiento || '']))}
