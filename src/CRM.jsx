@@ -1004,6 +1004,68 @@ const CAMPOS_EDITABLES = ['perfiles', 'nombre', 'tipo', 'etapa', 'codigo', 'rol'
 const grupoEtapaCampo = (e) => (['Mandato firmado', 'En venta', 'En arriendo', 'En negociación'].includes(e) ? 'pub' : ['Prospección', 'Captación', 'Documentación'].includes(e) ? 'cap' : ['Vendido', 'Arrendado'].includes(e) ? 'cer' : 'fuera');
 const huella = (f) => JSON.stringify(CAMPOS_EDITABLES.map((k) => (f[k] == null ? '' : String(f[k]))));
 
+// Buscar el rol en la plataforma de tasaciones y traer sus datos (plantaciones, suelos, aguas, plano/KMZ y descripción);
+// si no hay tasación con ese rol, traer al menos el plano del SII como KMZ
+function BuscarPorRol({ ctx, f, setF, setCampo, cerrar }) {
+  const { api, cargar } = ctx;
+  const [res, setRes] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [ocupado, setOcupado] = useState('');
+  useEffect(() => {
+    api(`/campos/${f.id}/tasaciones-rol?rol=${encodeURIComponent(f.rol || '')}&comuna=${encodeURIComponent(f.sector || '')}`).then(setRes).catch((e) => setMsg(e.message));
+  }, [f.rol]);
+  const redactarSiFalta = async (campo) => {
+    if ((campo.descripcionFicha || '').trim()) return '';
+    try { const r = await api(`/campos/${campo.id}/redactar`, { method: 'POST', body: { tono: 'web' } }); setF((x) => ({ ...x, descripcionFicha: r.texto })); return ' Redacté la descripción en formato web: revísala y guarda.'; }
+    catch (e) { return ` No pude redactar la descripción (${e.message}).`; }
+  };
+  const traer = async (t) => {
+    setOcupado(t.id); setMsg('');
+    try {
+      const r = await api(`/campos/${f.id}/importar-tasacion/${t.id}`, { method: 'POST' });
+      setCampo({ ...r.campo, rol: r.campo.rol || f.rol }); cargar();
+      const extra = await redactarSiFalta(r.campo);
+      const c = r.completados || [];
+      setMsg(`Listo: traje los datos de la tasación ${t.numero || t.nombre || ''}${c.length ? ` (${c.map((k) => ETQ_COMPLETADO[k] || k).join(', ')})` : ''}.${r.campo.geo ? ' El plano quedó como KMZ del campo.' : ''}${extra}`);
+    } catch (e) { setMsg(e.message); }
+    setOcupado('');
+  };
+  const traerSii = async () => {
+    setOcupado('sii'); setMsg('');
+    try {
+      if (!f.sector) throw new Error('Escribe primero la comuna del campo.');
+      const rol = (f.rol || '').split(/[,;]/)[0].trim();
+      const pr = await fetch(`${API_BASE}/poligono-catastral`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rol, comuna: f.sector }) }).then((x) => x.json());
+      if (!pr.ok) throw new Error(pr.mensaje || 'No se encontró el plano de ese rol.');
+      let r;
+      try { r = await api(`/campos/${f.id}/geo-sii`, { method: 'POST', body: { geometry: pr.predioGeo, rol } }); }
+      catch (e) { if (!/ya tiene un KMZ/.test(e.message) || !window.confirm(`${e.message} ¿Reemplazarlo por el plano del SII?`)) throw e; r = await api(`/campos/${f.id}/geo-sii`, { method: 'POST', body: { geometry: pr.predioGeo, rol, reemplazar: true } }); }
+      setCampo({ ...r, rol: r.rol || f.rol }); cargar();
+      setMsg(`Listo: traje el plano del rol ${rol} desde el SII (${pr.superficieHa} ha, referencial). Ya está como KMZ del campo.`);
+    } catch (e) { setMsg(e.message); }
+    setOcupado('');
+  };
+  const lista = (res && res.tasaciones) || [];
+  return (
+    <div className="fbcrm-rol-buscar ancho">
+      <div className="fbcrm-rol-cab"><strong>Rol {(res && res.roles || []).join(', ') || f.rol} en la plataforma de tasaciones</strong><button type="button" className="fbcrm-texto" onClick={cerrar}>Cerrar</button></div>
+      {!res && !msg && <p className="fbcrm-nota-suave">Buscando…</p>}
+      {res && !lista.length && <p className="fbcrm-nota-suave">No hay ninguna tasación guardada con ese rol.</p>}
+      {lista.map((t) => (
+        <div key={t.id} className="fbcrm-rol-op">
+          <span><strong>{t.numero ? `Tasación ${t.numero}` : t.nombre || 'Tasación'}{t.predio ? ` · ${t.predio}` : ''}</strong>
+            <small>{[t.comuna, t.hectareas ? `${fmtHa(t.hectareas)} ha` : '', t.roles.join(', '), t.guardado ? `guardada el ${fmtFecha(String(t.guardado).slice(0, 10))}` : ''].filter(Boolean).join(' · ')}{!t.mismaComuna ? ' · otra comuna' : ''}</small></span>
+          <button type="button" className="fbcrm-mini fbcrm-primario" disabled={!!ocupado} onClick={() => traer(t)}>{ocupado === t.id ? 'Trayendo…' : 'Traer datos y KMZ'}</button>
+        </div>
+      ))}
+      {res && <div className="fbcrm-rol-op"><span><strong>Plano del SII</strong><small>{lista.length ? 'Si prefieres solo el contorno oficial del rol' : 'Sin tasación: trae al menos el contorno del rol'} (referencial, vía Catastral.cl)</small></span>
+        <button type="button" className="fbcrm-mini" disabled={!!ocupado} onClick={traerSii}>{ocupado === 'sii' ? 'Buscando…' : 'Traer KMZ del SII'}</button></div>}
+      <p className="fbcrm-nota-suave">Al traer una tasación se completan los datos que el campo tiene vacíos (no se borra lo que ya escribiste) y se guardan sus suelos, clima, aguas y plantaciones para la descripción.</p>
+      {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
+    </div>
+  );
+}
+const ETQ_COMPLETADO = { rol: 'rol', sector: 'comuna', region: 'región', hectareas: 'hectáreas', propietario: 'propietario', email: 'email', agua: 'agua', plantaciones: 'plantaciones', aptitud: 'aptitud', coordenadas: 'coordenadas', acceso: 'acceso', nombre: 'nombre' };
 function FichaCampo({ ctx, inicial, cerrar }) {
   const { datos, api, guardar, cargar } = ctx;
   const [f, setF] = useState({ checklist: {}, ...inicial });
@@ -1018,6 +1080,7 @@ function FichaCampo({ ctx, inicial, cerrar }) {
   const esNuevo = !f.id;
   const sinGuardar = !esNuevo && huella(f) !== base;
   const setCampo = (r) => { setF(r); setBase(huella(r)); };
+  const [verRol, setVerRol] = useState(false);
   const enlazadoWeb = /farmbrokers\.cl\/propiedad\//.test(f.linkWeb || f.linkPortal || '');
   const vw = (enlazadoWeb && f.web && f.web.valores) || {};
   const deWeb = (k) => (k === 'precioUF' || k === 'precioCLP' || k === 'precioTexto' ? 'precio' : k) in vw;
@@ -1131,7 +1194,8 @@ function FichaCampo({ ctx, inicial, cerrar }) {
           {esNuevo && <Campo label="Etapa"><select value={f.etapa} onChange={set('etapa')}>{datos.etapas.campos.map((e) => <option key={e}>{e}</option>)}</select></Campo>}
           <Campo label={etqWeb('Región', 'region')}><select value={f.region || ''} disabled={deWeb('region')} onChange={set('region')}><option value="">Sin región</option>{datos.regiones.map((r) => <option key={r} value={r}>{r === 'PE' ? 'Perú' : `${r}, ${REG_NOMBRE[r]}`}</option>)}</select></Campo>
           <Campo label={etqWeb('Comuna o sector', 'sector')}><input value={f.sector || ''} disabled={deWeb('sector')} onChange={set('sector')} />{(() => { const zs = zonasDeComuna(datos.zonas, f.sector || '', f.region); return zs.length ? <small className="fbcrm-nota-suave">Zona: {zs.map((z) => z.nombre).join(', ')}</small> : null; })()}</Campo>
-          <Campo label="Rol SII"><input value={f.rol || ''} onChange={set('rol')} placeholder="28-95" /></Campo>
+          <Campo label="Rol SII"><span className="fbcrm-telwa"><input value={f.rol || ''} onChange={set('rol')} placeholder="28-95" />{!esNuevo && <button type="button" className="fbcrm-mini" disabled={!/\d+\s*[-–/ ]\s*\d+/.test(f.rol || '')} onClick={() => setVerRol(true)}>🔎 Buscar en tasaciones</button>}</span></Campo>
+          {verRol && <BuscarPorRol ctx={ctx} f={f} setF={setF} setCampo={setCampo} cerrar={() => setVerRol(false)} />}
           <Campo label="Fecha de ingreso al CRM"><input type="date" value={/^\d{4}-\d{2}$/.test(f.fechaIngreso || '') ? `${f.fechaIngreso}-01` : f.fechaIngreso || isoDia(fechaIngresoCampo(f))} max={isoDia(new Date())} onChange={set('fechaIngreso')} /></Campo>
           <Campo label={etqWeb('Código', 'codigo')}><input value={f.codigo || ''} disabled={deWeb('codigo')} onChange={set('codigo')} /></Campo>
           <Campo label="Coordenadas (pega desde Google Maps)" ancho><input value={f.coordenadas || ''} onChange={set('coordenadas')} placeholder="-34.3963, -71.6152" /></Campo>
@@ -6210,6 +6274,11 @@ const CSS = `
 .fbcrm-fila-acc{display:flex;gap:6px;flex:none}
 .fbcrm-pend-ext{margin-top:14px}
 .fbcrm-telwa{display:flex;gap:6px;align-items:center}
+.fbcrm-rol-buscar{grid-column:1/-1;border:1px solid var(--linea);border-radius:12px;background:#F8FBF8;padding:12px 14px;display:grid;gap:8px}
+.fbcrm-rol-cab{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.fbcrm-rol-op{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--papel);border:1px solid var(--linea2);border-radius:10px;padding:8px 10px}
+.fbcrm-rol-op span{display:flex;flex-direction:column;min-width:0}
+.fbcrm-rol-op small{color:var(--salvia)}
 .fbcrm-telwa input{flex:1;min-width:0}
 .fbcrm-warap{position:relative;padding:0 8px}
 .fbcrm-warap-btn{width:100%;border:1px solid #25D366;background:#EAFBF0;color:#146C34;border-radius:10px;padding:8px 10px;font:inherit;font-weight:600;cursor:pointer;text-align:left}
