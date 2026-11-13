@@ -1034,7 +1034,7 @@ function BuscarPorRol({ ctx, f, setF, setCampo, cerrar }) {
     setOcupado('sii'); setMsg('');
     try {
       if (!f.sector) throw new Error('Escribe primero la comuna del campo.');
-      const rol = (f.rol || '').split(/[,;]/)[0].trim();
+      const rol = (f.rol || '').split(/[,;]/)[0].trim().replace(/^0*(\d+)\s*[-–/ ]\s*0*(\d+)$/, '$1-$2'); // 00158-00419 → 158-419
       // 1) CIREN (catastro de propiedades rurales del Minagri, gratis); 2) si no está ahí, Catastral.cl (SII, requiere licencia)
       const regionTxt = ((REGIONES_FORM.find(([k]) => k === f.region) || [])[1]) || '';
       const pedir = (ruta, body) => fetch(`${API_BASE}${ruta}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((x) => x.json()).catch(() => ({}));
@@ -1042,7 +1042,7 @@ function BuscarPorRol({ ctx, f, setF, setCampo, cerrar }) {
       let fuente = 'CIREN (catastro rural del Minagri)';
       if (!pr.ok || !pr.predioGeo) {
         const pc = await pedir('/poligono-catastral', { rol, comuna: f.sector });
-        if (!pc.ok) throw new Error(`No encontré el plano del rol ${rol} en ${f.sector}${regionTxt ? '' : ' (falta la región del campo)'}. ${pr.mensaje ? `CIREN: ${pr.mensaje} ` : ''}${pc.mensaje ? `SII: ${pc.mensaje}` : ''}`.trim());
+        if (!pc.ok) throw new Error(`No encontré el plano del rol ${rol} en ${f.sector}${regionTxt ? '' : ' (falta la región del campo)'}. ${pr.mensaje ? `CIREN: ${pr.mensaje} ` : ''}${pc.mensaje && !/rechazó la clave|Falta la clave/.test(pc.mensaje) ? `SII: ${pc.mensaje}` : ''}`.trim());
         pr = pc; fuente = 'SII vía Catastral.cl';
       }
       let r;
