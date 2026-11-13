@@ -1035,13 +1035,21 @@ function BuscarPorRol({ ctx, f, setF, setCampo, cerrar }) {
     try {
       if (!f.sector) throw new Error('Escribe primero la comuna del campo.');
       const rol = (f.rol || '').split(/[,;]/)[0].trim();
-      const pr = await fetch(`${API_BASE}/poligono-catastral`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rol, comuna: f.sector }) }).then((x) => x.json());
-      if (!pr.ok) throw new Error(pr.mensaje || 'No se encontró el plano de ese rol.');
+      // 1) CIREN (catastro de propiedades rurales del Minagri, gratis); 2) si no está ahí, Catastral.cl (SII, requiere licencia)
+      const regionTxt = ((REGIONES_FORM.find(([k]) => k === f.region) || [])[1]) || '';
+      const pedir = (ruta, body) => fetch(`${API_BASE}${ruta}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((x) => x.json()).catch(() => ({}));
+      let pr = regionTxt ? await pedir('/suelos-rol', { rol, comuna: f.sector, region: regionTxt, soloGeo: true }) : {};
+      let fuente = 'CIREN (catastro rural del Minagri)';
+      if (!pr.ok || !pr.predioGeo) {
+        const pc = await pedir('/poligono-catastral', { rol, comuna: f.sector });
+        if (!pc.ok) throw new Error(`No encontré el plano del rol ${rol} en ${f.sector}${regionTxt ? '' : ' (falta la región del campo)'}. ${pr.mensaje ? `CIREN: ${pr.mensaje} ` : ''}${pc.mensaje ? `SII: ${pc.mensaje}` : ''}`.trim());
+        pr = pc; fuente = 'SII vía Catastral.cl';
+      }
       let r;
-      try { r = await api(`/campos/${f.id}/geo-sii`, { method: 'POST', body: { geometry: pr.predioGeo, rol } }); }
-      catch (e) { if (!/ya tiene un KMZ/.test(e.message) || !window.confirm(`${e.message} ¿Reemplazarlo por el plano del SII?`)) throw e; r = await api(`/campos/${f.id}/geo-sii`, { method: 'POST', body: { geometry: pr.predioGeo, rol, reemplazar: true } }); }
+      try { r = await api(`/campos/${f.id}/geo-sii`, { method: 'POST', body: { geometry: pr.predioGeo, rol, fuente } }); }
+      catch (e) { if (!/ya tiene un KMZ/.test(e.message) || !window.confirm(`${e.message} ¿Reemplazarlo por el plano del SII?`)) throw e; r = await api(`/campos/${f.id}/geo-sii`, { method: 'POST', body: { geometry: pr.predioGeo, rol, fuente, reemplazar: true } }); }
       setCampo({ ...r, rol: r.rol || f.rol }); cargar();
-      setMsg(`Listo: traje el plano del rol ${rol} desde el SII (${pr.superficieHa} ha, referencial). Ya está como KMZ del campo.`);
+      setMsg(`Listo: traje el plano del rol ${rol} desde ${fuente} (${pr.superficieHa} ha, referencial). Ya está como KMZ del campo.`);
     } catch (e) { setMsg(e.message); }
     setOcupado('');
   };
@@ -1058,8 +1066,8 @@ function BuscarPorRol({ ctx, f, setF, setCampo, cerrar }) {
           <button type="button" className="fbcrm-mini fbcrm-primario" disabled={!!ocupado} onClick={() => traer(t)}>{ocupado === t.id ? 'Trayendo…' : 'Traer datos y KMZ'}</button>
         </div>
       ))}
-      {res && <div className="fbcrm-rol-op"><span><strong>Plano del SII</strong><small>{lista.length ? 'Si prefieres solo el contorno oficial del rol' : 'Sin tasación: trae al menos el contorno del rol'} (referencial, vía Catastral.cl)</small></span>
-        <button type="button" className="fbcrm-mini" disabled={!!ocupado} onClick={traerSii}>{ocupado === 'sii' ? 'Buscando…' : 'Traer KMZ del SII'}</button></div>}
+      {res && <div className="fbcrm-rol-op"><span><strong>Plano del rol</strong><small>{lista.length ? 'Si prefieres solo el contorno del rol' : 'Sin tasación: trae al menos el contorno del rol'} (referencial, desde el catastro rural CIREN)</small></span>
+        <button type="button" className="fbcrm-mini" disabled={!!ocupado} onClick={traerSii}>{ocupado === 'sii' ? 'Buscando…' : 'Traer KMZ del rol'}</button></div>}
       <p className="fbcrm-nota-suave">Al traer una tasación se completan los datos que el campo tiene vacíos (no se borra lo que ya escribiste) y se guardan sus suelos, clima, aguas y plantaciones para la descripción.</p>
       {msg && <p className="fbcrm-msg" role="status">{msg}</p>}
     </div>
